@@ -27,6 +27,7 @@ pub struct AuthenticatedUser {
     pub totp_enabled: bool,
     pub session_id: String,
     pub csrf_token: String,
+    pub impersonated_by: Option<String>,
 }
 
 impl AuthenticatedUser {
@@ -163,6 +164,11 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         }
 
         let csrf_token = generate_csrf_token(&session.id);
+        let impersonated_by = session
+            .user_agent
+            .as_deref()
+            .and_then(|ua| ua.strip_prefix("impersonated_by:"))
+            .map(|s| s.to_string());
 
         Ok(AuthenticatedUser {
             id: user.id,
@@ -172,6 +178,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             totp_enabled: user.totp_enabled,
             session_id: session.id,
             csrf_token,
+            impersonated_by,
         })
     }
 }

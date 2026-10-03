@@ -19,11 +19,13 @@ import {
   Menu,
   Server,
   LogOut,
+  Layers,
 } from 'lucide-react';
 import { ThemeMode } from '../../types/api';
 import { useAuth } from '../../context/AuthContext';
 import { JobTray } from './JobTray';
 import { CommandPalette } from '../ui/CommandPalette';
+import { ImpersonationBanner } from './ImpersonationBanner';
 
 export interface ShellProps {
   children: React.ReactNode;
@@ -48,7 +50,8 @@ export const Shell: React.FC<ShellProps> = ({
   const navItems = [
     { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
     { id: 'sites', label: t('nav.sites'), icon: Globe },
-    { id: 'users', label: t('nav.users'), icon: Users },
+    { id: 'tenants', label: t('nav.tenants'), icon: Users },
+    { id: 'plans', label: t('nav.plans'), icon: Layers },
     { id: 'analytics', label: t('nav.analytics'), icon: BarChart3 },
     { id: 'runtime', label: t('nav.runtime'), icon: Cpu },
     { id: 'jobs', label: t('nav.jobs'), icon: ListTodo },
@@ -155,6 +158,14 @@ export const Shell: React.FC<ShellProps> = ({
 
       {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Impersonation Banner */}
+        {user?.impersonated_by && (
+          <ImpersonationBanner
+            impersonatedBy={user.impersonated_by}
+            username={user.username}
+          />
+        )}
+
         {/* Topbar Header */}
         <header className="h-14 border-b border-[var(--line)] bg-[var(--surface)] px-6 flex items-center justify-between gap-4 z-10">
           {/* Server Selector Badge */}

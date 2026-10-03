@@ -2,16 +2,29 @@ import {
   AuditLogItem,
   AuditLogListResponse,
   AuditLogQuery,
+  CreatePlanRequest,
+  CreateTenantRequest,
   CsrfResponse,
+  HardeningApplyRequest,
+  HardeningApplyResponse,
+  HardeningStatus,
   HealthResponse,
   JobItem,
   JobListResponse,
   JobProgressEvent,
   LoginResponse,
+  Plan,
+  PlanListResponse,
+  PlanResponse,
   SystemInfoResponse,
+  TenantDetailResponse,
+  TenantListItem,
+  TenantListResponse,
+  TenantResourceUsage,
   TwoFactorEnableResponse,
   TwoFactorSetupResponse,
   TwoFactorStatusResponse,
+  UpdatePlanRequest,
   User,
 } from '../types/api';
 
@@ -93,8 +106,11 @@ export async function fetchCsrfToken(): Promise<string> {
 }
 
 export async function fetchMe(): Promise<User> {
-  const user = await request<User>('/api/v1/auth/me');
-  return user;
+  const res = await request<LoginResponse | User>('/api/v1/auth/me');
+  if ('user' in res && res.user) {
+    return res.user;
+  }
+  return res as User;
 }
 
 export async function login(
@@ -246,3 +262,109 @@ export function subscribeJobEvents(
     eventSource.close();
   };
 }
+
+// Plans API
+export async function fetchPlans(): Promise<Plan[]> {
+  const res = await request<PlanListResponse>('/api/v1/plans');
+  return res.plans;
+}
+
+export async function fetchPlan(id: number): Promise<Plan> {
+  const res = await request<PlanResponse>(`/api/v1/plans/${id}`);
+  return res.plan;
+}
+
+export async function createPlan(data: CreatePlanRequest): Promise<Plan> {
+  const res = await request<PlanResponse>('/api/v1/plans', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return res.plan;
+}
+
+export async function updatePlan(id: number, data: UpdatePlanRequest): Promise<Plan> {
+  const res = await request<PlanResponse>(`/api/v1/plans/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+  return res.plan;
+}
+
+export async function deletePlan(id: number): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(`/api/v1/plans/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+// Tenants API
+export async function fetchTenants(query?: { search?: string; status?: string }): Promise<TenantListItem[]> {
+  const params = new URLSearchParams();
+  if (query?.search) params.append('search', query.search);
+  if (query?.status) params.append('status', query.status);
+  const q = params.toString() ? `?${params.toString()}` : '';
+  const res = await request<TenantListResponse>(`/api/v1/tenants${q}`);
+  return res.tenants;
+}
+
+export async function fetchTenantDetail(id: number): Promise<TenantDetailResponse> {
+  return request<TenantDetailResponse>(`/api/v1/tenants/${id}`);
+}
+
+export async function createTenant(data: CreateTenantRequest): Promise<TenantDetailResponse> {
+  return request<TenantDetailResponse>('/api/v1/tenants', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchTenantResources(id: number): Promise<TenantResourceUsage> {
+  return request<TenantResourceUsage>(`/api/v1/tenants/${id}/resources`);
+}
+
+export async function suspendTenant(id: number): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(`/api/v1/tenants/${id}/suspend`, {
+    method: 'POST',
+  });
+}
+
+export async function unsuspendTenant(id: number): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(`/api/v1/tenants/${id}/unsuspend`, {
+    method: 'POST',
+  });
+}
+
+export async function deleteTenant(id: number, purge?: boolean): Promise<{ success: boolean; message: string }> {
+  const q = purge ? '?purge=true' : '';
+  return request<{ success: boolean; message: string }>(`/api/v1/tenants/${id}${q}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function impersonateTenant(id: number): Promise<User> {
+  const res = await request<{ user: User; csrf_token: string; impersonated_by: string }>(`/api/v1/tenants/${id}/impersonate`, {
+    method: 'POST',
+  });
+  if (res.csrf_token) {
+    setCsrfToken(res.csrf_token);
+  }
+  return res.user;
+}
+
+export async function stopImpersonating(): Promise<void> {
+  await request<{ success: boolean; message: string }>('/api/v1/auth/stop-impersonating', {
+    method: 'POST',
+  });
+}
+
+// System Hardening API
+export async function fetchHardeningStatus(): Promise<HardeningStatus> {
+  return request<HardeningStatus>('/api/v1/system/hardening');
+}
+
+export async function applyHardening(data: HardeningApplyRequest): Promise<HardeningApplyResponse> {
+  return request<HardeningApplyResponse>('/api/v1/system/hardening/apply', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+

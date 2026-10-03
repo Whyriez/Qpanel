@@ -25,7 +25,7 @@
 - [x] P2-T3 Quota disk: deteksi dukungan FS (ext4/XFS), set/get quota, job pelaporan pemakaian (`quota.report`), scanner direktori rekursif aman anti-symlink traversal (`quota.scan`) — test: quota_ipc_test, quota::tests, ADR-0009
 - [x] P2-T4 Pembaca resource: baca cgroup v2 per slice (`cpu.stat`, `memory.current`, `memory.peak`, `io.stat`, `pids.current`, `pids.peak`) lewat agent RPC — test: resource_ipc_test, resource::tests, ADR-0010
 - [x] P2-T5 Hardening host: opsi `hidepid=2` untuk `/proc`, pembuatan grup `panel-tenants`, pengecekan prasyarat (cgroup v2, ACL, quota) dengan pesan diagnostik jelas — test: hardening_ipc_test, hardening::tests, ADR-0011
-- [ ] P2-T6 API + UI: tenant management & plan UI
+- [x] P2-T6 API + UI: CRUD plan (sinkronisasi batas ke slice & kuota tenant aktif), wizard provisioning tenant 3 langkah, suspend/unsuspend/delete dengan ConfirmDangerDialog, impersonasi admin dengan banner & audit trail, live resource meter cgroup v2 & disk, hardening diagnostics & apply — test: tenants_plans_api_test, TenantsPage.test, PlansPage.test, ADR-0012
 - [ ] P2-T7 Suite isolasi: cross-tenant integration tests
 
 ## Phase 3 — Site engine: static + Nginx + domain + SSL

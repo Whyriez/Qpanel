@@ -18,6 +18,8 @@
   "nav": {
     "dashboard": "Dashboard",
     "sites": "Sites",
+    "tenants": "Tenants",
+    "plans": "Hosting Plans",
     "users": "Users",
     "analytics": "Analytics",
     "runtime": "Runtime",

@@ -18,6 +18,8 @@
   "nav": {
     "dashboard": "Beranda",
     "sites": "Situs",
+    "tenants": "Tenant",
+    "plans": "Paket Hosting",
     "users": "Pengguna",
     "analytics": "Analitik",
     "runtime": "Runtime",

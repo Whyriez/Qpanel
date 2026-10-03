@@ -34,13 +34,15 @@ pub struct LoginRequest {
     pub code: Option<String>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
 pub struct UserInfo {
     pub id: i64,
     pub username: String,
     pub role: String,
     pub email: Option<String>,
     pub totp_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impersonated_by: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -341,6 +343,7 @@ pub async fn login_handler(
             role: user.role,
             email: user.email,
             totp_enabled: user.totp_enabled,
+            impersonated_by: None,
         }),
         csrf_token: Some(csrf_token),
         requires_2fa: false,
@@ -413,6 +416,7 @@ pub async fn me_handler(RequireAuth(user): RequireAuth) -> impl IntoResponse {
             role: user.role,
             email: user.email,
             totp_enabled: user.totp_enabled,
+            impersonated_by: user.impersonated_by,
         }),
         csrf_token: Some(user.csrf_token),
         requires_2fa: false,
@@ -582,6 +586,7 @@ pub async fn change_password_handler(
             role: user.role,
             email: user.email,
             totp_enabled: user.totp_enabled,
+            impersonated_by: None,
         }),
         csrf_token: Some(new_csrf),
         requires_2fa: false,

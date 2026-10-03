@@ -4,8 +4,10 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod jobs;
+pub mod plans;
 pub mod routes;
 pub mod static_files;
+pub mod tenants;
 
 use axum::{
     Router,
@@ -74,6 +76,55 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/jobs/{id}", get(jobs::get_job_handler))
         .route("/api/v1/jobs/{id}/cancel", post(jobs::cancel_job_handler))
         .route("/api/v1/jobs/{id}/events", get(jobs::job_events_handler))
+        // Plans endpoints
+        .route(
+            "/api/v1/plans",
+            get(plans::list_plans_handler).post(plans::create_plan_handler),
+        )
+        .route(
+            "/api/v1/plans/{id}",
+            get(plans::get_plan_handler)
+                .put(plans::update_plan_handler)
+                .delete(plans::delete_plan_handler),
+        )
+        // Tenants endpoints
+        .route(
+            "/api/v1/tenants",
+            get(tenants::list_tenants_handler).post(tenants::create_tenant_handler),
+        )
+        .route(
+            "/api/v1/tenants/{id}",
+            get(tenants::get_tenant_handler).delete(tenants::delete_tenant_handler),
+        )
+        .route(
+            "/api/v1/tenants/{id}/resources",
+            get(tenants::get_tenant_resources_handler),
+        )
+        .route(
+            "/api/v1/tenants/{id}/suspend",
+            post(tenants::suspend_tenant_handler),
+        )
+        .route(
+            "/api/v1/tenants/{id}/unsuspend",
+            post(tenants::unsuspend_tenant_handler),
+        )
+        .route(
+            "/api/v1/tenants/{id}/impersonate",
+            post(tenants::impersonate_tenant_handler),
+        )
+        .route(
+            "/api/v1/auth/stop-impersonating",
+            post(tenants::stop_impersonating_handler),
+        )
+        // Hardening & Prerequisites endpoints
+        .route(
+            "/api/v1/system/hardening",
+            get(tenants::get_hardening_status_handler),
+        )
+        .route(
+            "/api/v1/system/hardening/apply",
+            post(tenants::apply_hardening_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
