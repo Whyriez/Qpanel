@@ -11,6 +11,7 @@ members = [
     "crates/panel-fs",
     "crates/panel-analytics",
     "crates/panel-cli",
+    "tests/isolation",
 ]
 
 [workspace.package]

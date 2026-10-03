@@ -1,0 +1,23 @@
+[package]
+name = "isolation-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "isolation_tests"
+path = "src/lib.rs"
+
+[dependencies]
+panel-core = { workspace = true }
+panel-proto = { workspace = true }
+panel-agent = { workspace = true }
+tokio = { workspace = true }
+tempfile = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

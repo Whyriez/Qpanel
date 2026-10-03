@@ -31,6 +31,11 @@ test-vm:
     @echo "==> Running test suite inside dev VM..."
     ./scripts/dev-vm.sh test
 
+# Run cross-tenant isolation test suite
+test-isolation:
+    @echo "==> Running cross-tenant isolation test suite..."
+    cargo test -p isolation-tests
+
 # Build all binaries and frontend assets
 build:
     @echo "==> Building Web assets..."

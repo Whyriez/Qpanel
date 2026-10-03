@@ -26,7 +26,7 @@
 - [x] P2-T4 Pembaca resource: baca cgroup v2 per slice (`cpu.stat`, `memory.current`, `memory.peak`, `io.stat`, `pids.current`, `pids.peak`) lewat agent RPC — test: resource_ipc_test, resource::tests, ADR-0010
 - [x] P2-T5 Hardening host: opsi `hidepid=2` untuk `/proc`, pembuatan grup `panel-tenants`, pengecekan prasyarat (cgroup v2, ACL, quota) dengan pesan diagnostik jelas — test: hardening_ipc_test, hardening::tests, ADR-0011
 - [x] P2-T6 API + UI: CRUD plan (sinkronisasi batas ke slice & kuota tenant aktif), wizard provisioning tenant 3 langkah, suspend/unsuspend/delete dengan ConfirmDangerDialog, impersonasi admin dengan banner & audit trail, live resource meter cgroup v2 & disk, hardening diagnostics & apply — test: tenants_plans_api_test, TenantsPage.test, PlansPage.test, ADR-0012
-- [ ] P2-T7 Suite isolasi: cross-tenant integration tests
+- [x] P2-T7 Suite isolasi: cross-tenant integration tests (cross-tenant read/write/list, /proc hidepid, OOM terkurung, fork bomb tertahan TasksMax, symlink escape, suspend isolation, vm_runner) — test: isolation-tests (13 tests), ADR-0013
 
 ## Phase 3 — Site engine: static + Nginx + domain + SSL
 - [ ] P3-T1 Model site dan domain
