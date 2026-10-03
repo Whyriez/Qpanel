@@ -6,12 +6,12 @@ use panel_proto::{
     NginxBaselineAppliedResponse, NginxBaselineApplyRequest, ProtoError, QuotaGetRequest,
     QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse,
     RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
-    SiteAppliedResponse, SiteApplyRequest, SiteProvisionRequest, SiteProvisionResponse,
-    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
-    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SslCertDeployRequest,
-    SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
-    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
-    UserUnsuspendedResponse, VersionInfo,
+    SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
+    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
+    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
+    SliceResourceMetrics, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
+    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
+    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -757,6 +757,36 @@ impl AgentClient {
             ResponsePayload::SslCertDeployed(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SslCertDeployed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn read_site_logs(
+        &self,
+        req: SiteLogsReadRequest,
+    ) -> Result<SiteLogsReadResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-logs-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteLogsRead(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteLogsRead(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteLogsRead",
                 got: format!("{other:?}"),
             }),
         }

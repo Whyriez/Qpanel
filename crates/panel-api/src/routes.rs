@@ -48,6 +48,7 @@ use panel_db::pool::DbPool;
         crate::ssl::custom_site_ssl_handler,
         crate::ssl::renew_site_ssl_handler,
         crate::ssl::delete_site_ssl_handler,
+        crate::logs::get_site_logs_handler,
     ),
     components(
         schemas(
@@ -85,6 +86,7 @@ use panel_db::pool::DbPool;
             crate::ssl::SslStatusResponse,
             crate::ssl::CertificateDetailResponse,
             crate::ssl::SslActionResponse,
+            crate::logs::SiteLogsResponse,
         )
     ),
     tags(

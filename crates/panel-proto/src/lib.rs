@@ -64,6 +64,7 @@ pub enum RequestPayload {
     AcmeChallengeDeploy(AcmeChallengeDeployRequest),
     AcmeChallengeCleanup(AcmeChallengeCleanupRequest),
     SslCertDeploy(SslCertDeployRequest),
+    SiteLogsRead(SiteLogsReadRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -195,6 +196,7 @@ pub enum ResponsePayload {
     AcmeChallengeDeployed(AcmeChallengeDeployedResponse),
     AcmeChallengeCleaned(AcmeChallengeCleanedResponse),
     SslCertDeployed(SslCertDeployedResponse),
+    SiteLogsRead(SiteLogsReadResponse),
     Error(String),
 }
 
@@ -435,6 +437,22 @@ pub struct SslCertDeployedResponse {
     pub domain: String,
     pub cert_path: String,
     pub key_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteLogsReadRequest {
+    pub username: String,
+    pub site_domain: String,
+    pub log_type: String,
+    pub lines: usize,
+    pub query: Option<String>,
+    pub log_base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteLogsReadResponse {
+    pub lines: Vec<String>,
+    pub total_matched: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -791,6 +809,36 @@ mod tests {
         let s_res = serde_json::to_string(&res).expect("serialize NginxBaselineApplied");
         let de_res: RpcResponse =
             serde_json::from_str(&s_res).expect("deserialize NginxBaselineApplied");
+        assert_eq!(res, de_res);
+    }
+
+    #[test]
+    fn test_rpc_site_logs_read_payloads() {
+        let req = RpcRequest::new(
+            "logs-1",
+            RequestPayload::SiteLogsRead(SiteLogsReadRequest {
+                username: "p_alice".to_string(),
+                site_domain: "example.org".to_string(),
+                log_type: "access".to_string(),
+                lines: 50,
+                query: Some("404".to_string()),
+                log_base_dir: Some("/var/log/panel".to_string()),
+            }),
+        );
+        let s = serde_json::to_string(&req).expect("serialize SiteLogsRead");
+        let de: RpcRequest = serde_json::from_str(&s).expect("deserialize SiteLogsRead");
+        assert_eq!(req, de);
+
+        let res = RpcResponse::ok(
+            "logs-1",
+            ResponsePayload::SiteLogsRead(SiteLogsReadResponse {
+                lines: vec!["{\"status\":404,\"request_uri\":\"/missing\"}".to_string()],
+                total_matched: 1,
+            }),
+        );
+        let s_res = serde_json::to_string(&res).expect("serialize SiteLogsRead response");
+        let de_res: RpcResponse =
+            serde_json::from_str(&s_res).expect("deserialize SiteLogsRead response");
         assert_eq!(res, de_res);
     }
 }

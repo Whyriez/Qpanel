@@ -361,6 +361,10 @@ impl AgentServer {
                 RequestPayload::SslCertDeploy(d) => {
                     ("ssl.cert_deploy".to_string(), d.domain.clone())
                 }
+                RequestPayload::SiteLogsRead(d) => (
+                    "nginx.site_logs_read".to_string(),
+                    format!("{}/{}", d.username, d.site_domain),
+                ),
             };
 
             let response = match req.payload {
@@ -488,6 +492,14 @@ impl AgentServer {
                     match self.webserver_manager.deploy_ssl_cert(data) {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::SslCertDeployed(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteLogsRead(data) => {
+                    match self.webserver_manager.read_site_logs(data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SiteLogsRead(res))
                         }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

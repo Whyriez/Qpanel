@@ -39,7 +39,7 @@
 - [x] P3-T4 Site static: docroot provisioning (/home/p\_<slug>/sites/<domain>/public), izin POSIX ACL www-data, placeholder index.html ramah pengguna, CRUD API, lifecycle (enable/disable/delete), audit log — test: static_site_api_test, ADR-0017
 - [x] P3-T5 Alias dan redirect domain: alias, subdomain, www ↔ non-www, force HTTPS, pencegahan injeksi redirect target, kompilasi ulang vhost atomik — test: template::tests (domain redirects + malicious target injection), domain_redirect_api_test, ADR-0018
 - [x] P3-T6 ACME: Let's Encrypt auto-SSL, HTTP-01 challenge, fallback self-signed, custom cert upload, strict 0600 key storage, renewal scheduler (30 hari), backoff + staging support — test: ssl_acme_api_test, ADR-0019
-- [ ] P3-T7 Log per site & WebSocket live tail
+- [x] P3-T7 Log per site & WebSocket live tail: logrotate baseline Nginx format panel_json (14 hari kompresi, kill USR1), typed IPC SiteLogsReadRequest/Response, REST endpoint filter & tail, WebSocket live tailing dengan CSWSH origin defense, autentikasi session, dan backlog — test: site_logs_api_test (3 tests), ADR-0020
 - [ ] P3-T8 UI site management & detail
 
 ## Phase 4 — PHP multi-versi terisolasi

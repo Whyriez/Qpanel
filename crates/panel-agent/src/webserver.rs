@@ -5,8 +5,9 @@ use crate::system::SystemRunner;
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
     AcmeChallengeDeployedResponse, NginxBaselineAppliedResponse, NginxBaselineApplyRequest,
-    SiteAppliedResponse, SiteApplyRequest, SiteProvisionRequest, SiteProvisionResponse,
-    SiteRemoveRequest, SiteRemovedResponse, SslCertDeployRequest, SslCertDeployedResponse,
+    SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
+    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
+    SslCertDeployRequest, SslCertDeployedResponse,
 };
 use panel_webserver::baseline::NginxBaselineConfig;
 use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
@@ -406,6 +407,69 @@ impl NginxManager {
             key_path: key_path.to_string_lossy().to_string(),
         })
     }
+
+    /// Safely reads access or error logs for a site with pagination/tail limit and query filter.
+    pub fn read_site_logs(
+        &self,
+        req: SiteLogsReadRequest,
+    ) -> Result<SiteLogsReadResponse, AgentError> {
+        let username = panel_core::Username::parse(&req.username)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+        let domain = panel_core::domain::DomainName::parse(&req.site_domain)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+        if req.log_type != "access" && req.log_type != "error" {
+            return Err(AgentError::InvalidInput(format!(
+                "Invalid log type '{}'. Expected 'access' or 'error'",
+                req.log_type
+            )));
+        }
+
+        let base_dir = req
+            .log_base_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/var/log/panel"));
+
+        let log_file = base_dir
+            .join(username.as_str())
+            .join(domain.as_ascii())
+            .join(format!("{}.log", req.log_type));
+
+        if !self.runner.path_exists(&log_file) {
+            return Ok(SiteLogsReadResponse {
+                lines: Vec::new(),
+                total_matched: 0,
+            });
+        }
+
+        let content_bytes = self.runner.read_file(&log_file)?;
+        let content_str = String::from_utf8_lossy(&content_bytes);
+
+        let lines_limit = req.lines.clamp(1, 1000);
+        let query_lower = req.query.as_ref().map(|q| q.to_lowercase());
+
+        let all_matching: Vec<String> = content_str
+            .lines()
+            .filter(|line| {
+                if let Some(ref q) = query_lower {
+                    line.to_lowercase().contains(q)
+                } else {
+                    true
+                }
+            })
+            .map(|s| s.to_string())
+            .collect();
+
+        let total_matched = all_matching.len();
+        let start_idx = total_matched.saturating_sub(lines_limit);
+        let result_lines = all_matching[start_idx..].to_vec();
+
+        Ok(SiteLogsReadResponse {
+            lines: result_lines,
+            total_matched,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -546,5 +610,80 @@ mod tests {
             key_action.is_some(),
             "Private key MUST be written with strict mode 0600"
         );
+    }
+
+    #[test]
+    fn test_read_site_logs_tail_and_query_filter() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(Arc::clone(&runner) as Arc<dyn SystemRunner>);
+
+        let log_dir = PathBuf::from("/var/log/panel/p_alice/example.com");
+        let access_log_path = log_dir.join("access.log");
+
+        let log_content = "\
+{\"time_local\":\"2026-10-03T10:00:00Z\",\"status\":200,\"request_uri\":\"/index.html\"}\n\
+{\"time_local\":\"2026-10-03T10:01:00Z\",\"status\":404,\"request_uri\":\"/not-found\"}\n\
+{\"time_local\":\"2026-10-03T10:02:00Z\",\"status\":200,\"request_uri\":\"/about\"}\n\
+{\"time_local\":\"2026-10-03T10:03:00Z\",\"status\":500,\"request_uri\":\"/server-error\"}\n\
+{\"time_local\":\"2026-10-03T10:04:00Z\",\"status\":200,\"request_uri\":\"/contact\"}\n";
+
+        runner.set_file_content(&access_log_path, log_content.as_bytes());
+
+        // 1. Read last 2 lines
+        let req = SiteLogsReadRequest {
+            username: "p_alice".to_string(),
+            site_domain: "example.com".to_string(),
+            log_type: "access".to_string(),
+            lines: 2,
+            query: None,
+            log_base_dir: Some("/var/log/panel".to_string()),
+        };
+        let res = manager.read_site_logs(req).expect("read logs");
+        assert_eq!(res.lines.len(), 2);
+        assert_eq!(res.total_matched, 5);
+        assert!(res.lines[0].contains("/server-error"));
+        assert!(res.lines[1].contains("/contact"));
+
+        // 2. Query filter for status 404
+        let req_filter = SiteLogsReadRequest {
+            username: "p_alice".to_string(),
+            site_domain: "example.com".to_string(),
+            log_type: "access".to_string(),
+            lines: 10,
+            query: Some("404".to_string()),
+            log_base_dir: Some("/var/log/panel".to_string()),
+        };
+        let res_filter = manager
+            .read_site_logs(req_filter)
+            .expect("read filtered logs");
+        assert_eq!(res_filter.lines.len(), 1);
+        assert_eq!(res_filter.total_matched, 1);
+        assert!(res_filter.lines[0].contains("/not-found"));
+
+        // 3. Non-existent log file returns empty lines without error
+        let req_missing = SiteLogsReadRequest {
+            username: "p_alice".to_string(),
+            site_domain: "nonexistent.com".to_string(),
+            log_type: "access".to_string(),
+            lines: 10,
+            query: None,
+            log_base_dir: Some("/var/log/panel".to_string()),
+        };
+        let res_missing = manager
+            .read_site_logs(req_missing)
+            .expect("read missing logs");
+        assert!(res_missing.lines.is_empty());
+        assert_eq!(res_missing.total_matched, 0);
+
+        // 4. Invalid log_type rejected
+        let req_bad_type = SiteLogsReadRequest {
+            username: "p_alice".to_string(),
+            site_domain: "example.com".to_string(),
+            log_type: "something_else".to_string(),
+            lines: 10,
+            query: None,
+            log_base_dir: Some("/var/log/panel".to_string()),
+        };
+        assert!(manager.read_site_logs(req_bad_type).is_err());
     }
 }

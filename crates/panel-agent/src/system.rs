@@ -35,6 +35,7 @@ pub trait SystemRunner: Send + Sync {
     fn remove_dir_all(&self, path: &Path) -> Result<(), AgentError>;
     fn path_exists(&self, path: &Path) -> bool;
     fn write_file(&self, path: &Path, content: &[u8], mode: u32) -> Result<(), AgentError>;
+    fn read_file(&self, path: &Path) -> Result<Vec<u8>, AgentError>;
     fn remove_file(&self, path: &Path) -> Result<(), AgentError>;
 }
 
@@ -152,6 +153,10 @@ impl SystemRunner for RealSystemRunner {
         Ok(())
     }
 
+    fn read_file(&self, path: &Path) -> Result<Vec<u8>, AgentError> {
+        std::fs::read(path).map_err(AgentError::Io)
+    }
+
     fn remove_file(&self, path: &Path) -> Result<(), AgentError> {
         if path.exists() {
             std::fs::remove_file(path)?;
@@ -211,6 +216,7 @@ pub type MockCommandResponse = (i32, Vec<u8>, Vec<u8>);
 pub struct MockSystemRunner {
     pub actions: Arc<Mutex<Vec<MockAction>>>,
     pub responses: Arc<Mutex<std::collections::HashMap<String, MockCommandResponse>>>,
+    pub files: Arc<Mutex<std::collections::HashMap<PathBuf, Vec<u8>>>>,
 }
 
 impl MockSystemRunner {
@@ -218,6 +224,13 @@ impl MockSystemRunner {
         Self {
             actions: Arc::new(Mutex::new(Vec::new())),
             responses: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            files: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    pub fn set_file_content(&self, path: impl AsRef<Path>, content: &[u8]) {
+        if let Ok(mut lock) = self.files.lock() {
+            lock.insert(path.as_ref().to_path_buf(), content.to_vec());
         }
     }
 
@@ -345,11 +358,22 @@ impl SystemRunner for MockSystemRunner {
         Ok(())
     }
 
-    fn path_exists(&self, _path: &Path) -> bool {
-        true
+    fn path_exists(&self, path: &Path) -> bool {
+        if self
+            .files
+            .lock()
+            .ok()
+            .is_some_and(|lock| lock.contains_key(path))
+        {
+            return true;
+        }
+        path.exists()
     }
 
     fn write_file(&self, path: &Path, content: &[u8], mode: u32) -> Result<(), AgentError> {
+        if let Ok(mut lock) = self.files.lock() {
+            lock.insert(path.to_path_buf(), content.to_vec());
+        }
         if let Ok(mut lock) = self.actions.lock() {
             lock.push(MockAction::WriteFile {
                 path: path.to_path_buf(),
@@ -360,7 +384,29 @@ impl SystemRunner for MockSystemRunner {
         Ok(())
     }
 
+    fn read_file(&self, path: &Path) -> Result<Vec<u8>, AgentError> {
+        if let Some(content) = self
+            .files
+            .lock()
+            .ok()
+            .and_then(|lock| lock.get(path).cloned())
+        {
+            return Ok(content);
+        }
+        if path.exists() {
+            std::fs::read(path).map_err(AgentError::Io)
+        } else {
+            Err(AgentError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Mock file not found: {:?}", path),
+            )))
+        }
+    }
+
     fn remove_file(&self, path: &Path) -> Result<(), AgentError> {
+        if let Ok(mut lock) = self.files.lock() {
+            lock.remove(path);
+        }
         if let Ok(mut lock) = self.actions.lock() {
             lock.push(MockAction::RemoveFile {
                 path: path.to_path_buf(),

@@ -324,6 +324,32 @@ fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
         .to_string()
     }
 
+    /// Generates logrotate configuration for virtual host site logs under `/var/log/panel/*/*/*.log`.
+    pub fn render_logrotate_conf(&self) -> String {
+        let pattern = self
+            .log_dir
+            .join("*/*/*.log")
+            .to_string_lossy()
+            .replace('\\', "/");
+        format!(
+            r#"# Nusa Panel Logrotate Configuration for Virtual Host Site Logs
+{pattern} {{
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 www-data adm
+    sharedscripts
+    postrotate
+        [ -f /run/nginx.pid ] && kill -USR1 `cat /run/nginx.pid`
+    endscript
+}}
+"#
+        )
+    }
+
     /// Creates all required directories and installs baseline configuration files.
     pub fn install_baseline(&self) -> Result<(), WebserverError> {
         // 1. Create directories
@@ -366,6 +392,12 @@ fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
             &self.render_fastcgi_params_snippet(),
         )?;
 
+        // 5. Write logrotate configuration
+        write_file_atomic(
+            &self.base_dir.join("logrotate.d/panel-sites"),
+            &self.render_logrotate_conf(),
+        )?;
+
         Ok(())
     }
 }
@@ -387,6 +419,20 @@ fn write_file_atomic(dest: &Path, content: &str) -> Result<(), WebserverError> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_render_logrotate_conf_format() {
+        let config = NginxBaselineConfig::default();
+        let logrotate = config.render_logrotate_conf();
+        assert!(logrotate.contains("/var/log/panel/*/*/*.log"));
+        assert!(logrotate.contains("daily"));
+        assert!(logrotate.contains("rotate 14"));
+        assert!(logrotate.contains("compress"));
+        assert!(logrotate.contains("delaycompress"));
+        assert!(logrotate.contains("create 0640 www-data adm"));
+        assert!(logrotate.contains("postrotate"));
+        assert!(logrotate.contains("kill -USR1"));
+    }
 
     #[test]
     fn test_render_nginx_conf_structure_and_json_logging() {

@@ -4,6 +4,7 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod jobs;
+pub mod logs;
 pub mod plans;
 pub mod routes;
 pub mod sites;
@@ -177,6 +178,9 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/sites/{id}/ssl/renew",
             post(ssl::renew_site_ssl_handler),
         )
+        // Site Logs & WebSocket Live Tail
+        .route("/api/v1/sites/{id}/logs", get(logs::get_site_logs_handler))
+        .route("/ws/logs/{id}", get(logs::site_logs_ws_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
