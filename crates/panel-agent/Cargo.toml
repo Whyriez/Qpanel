@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 panel-core = { workspace = true }
 panel-proto = { workspace = true }
+panel-webserver = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 serde = { workspace = true }

@@ -7,6 +7,7 @@ pub mod resource;
 pub mod slice;
 pub mod system;
 pub mod user;
+pub mod webserver;
 
 use panel_proto::{
     PROTOCOL_VERSION, ProtoError, RequestPayload, ResponsePayload, RpcResponse, RpcStream,
@@ -65,6 +66,7 @@ pub struct AgentServer {
     quota_manager: Arc<quota::QuotaManager>,
     resource_reader: Arc<resource::CgroupReader>,
     hardening_manager: Arc<hardening::HardeningManager>,
+    webserver_manager: Arc<webserver::NginxManager>,
 }
 
 impl AgentServer {
@@ -81,6 +83,9 @@ impl AgentServer {
         ));
         let resource_reader = Arc::new(resource::CgroupReader::default());
         let hardening_manager = Arc::new(hardening::HardeningManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let webserver_manager = Arc::new(webserver::NginxManager::new(
             runner as Arc<dyn system::SystemRunner>,
         ));
         Self {
@@ -90,6 +95,7 @@ impl AgentServer {
             quota_manager,
             resource_reader,
             hardening_manager,
+            webserver_manager,
         }
     }
 
@@ -106,6 +112,9 @@ impl AgentServer {
         ));
         let resource_reader = Arc::new(resource::CgroupReader::default());
         let hardening_manager = Arc::new(hardening::HardeningManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let webserver_manager = Arc::new(webserver::NginxManager::new(
             runner as Arc<dyn system::SystemRunner>,
         ));
         Self {
@@ -115,6 +124,7 @@ impl AgentServer {
             quota_manager,
             resource_reader,
             hardening_manager,
+            webserver_manager,
         }
     }
 
@@ -126,6 +136,10 @@ impl AgentServer {
         resource_reader: Arc<resource::CgroupReader>,
         hardening_manager: Arc<hardening::HardeningManager>,
     ) -> Self {
+        let runner = Arc::new(system::RealSystemRunner);
+        let webserver_manager = Arc::new(webserver::NginxManager::new(
+            runner as Arc<dyn system::SystemRunner>,
+        ));
         Self {
             config,
             user_manager,
@@ -133,6 +147,27 @@ impl AgentServer {
             quota_manager,
             resource_reader,
             hardening_manager,
+            webserver_manager,
+        }
+    }
+
+    pub fn with_all_managers(
+        config: AgentConfig,
+        user_manager: Arc<user::UserLifecycleManager>,
+        slice_manager: Arc<slice::SliceManager>,
+        quota_manager: Arc<quota::QuotaManager>,
+        resource_reader: Arc<resource::CgroupReader>,
+        hardening_manager: Arc<hardening::HardeningManager>,
+        webserver_manager: Arc<webserver::NginxManager>,
+    ) -> Self {
+        Self {
+            config,
+            user_manager,
+            slice_manager,
+            quota_manager,
+            resource_reader,
+            hardening_manager,
+            webserver_manager,
         }
     }
 
@@ -304,6 +339,12 @@ impl AgentServer {
                 RequestPayload::HardeningApply(_) => {
                     ("hardening.apply".to_string(), "host".to_string())
                 }
+                RequestPayload::NginxBaselineApply(d) => (
+                    "nginx.baseline_apply".to_string(),
+                    d.base_dir
+                        .clone()
+                        .unwrap_or_else(|| "/etc/panel/nginx".to_string()),
+                ),
             };
 
             let response = match req.payload {
@@ -380,6 +421,15 @@ impl AgentServer {
                     }
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
+                RequestPayload::NginxBaselineApply(data) => {
+                    match self.webserver_manager.apply_baseline(data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::NginxBaselineApplied(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
             };
 
             let audit_record = audit::AgentAuditRecord::new(

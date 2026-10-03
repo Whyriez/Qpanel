@@ -1,4 +1,7 @@
 //! `panel-webserver`: Nginx template renderer, atomic apply, and rollback mechanisms.
 
-/// Webserver configuration placeholder for Phase 3.
-pub struct WebserverConfig;
+pub mod baseline;
+pub mod error;
+
+pub use baseline::NginxBaselineConfig;
+pub use error::WebserverError;

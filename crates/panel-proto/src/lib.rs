@@ -57,6 +57,7 @@ pub enum RequestPayload {
     ResourceRead(ResourceReadRequest),
     HardeningCheck,
     HardeningApply(HardeningApplyRequest),
+    NginxBaselineApply(NginxBaselineApplyRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -181,6 +182,7 @@ pub enum ResponsePayload {
     ResourceRead(ResourceReadResponse),
     HardeningStatus(Box<HardeningStatus>),
     HardeningApplied(HardeningApplyResponse),
+    NginxBaselineApplied(NginxBaselineAppliedResponse),
     Error(String),
 }
 
@@ -307,6 +309,31 @@ pub struct HardeningApplyResponse {
     pub hidepid_applied: bool,
     pub tenant_group_created: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NginxBaselineApplyRequest {
+    pub base_dir: Option<String>,
+    pub log_dir: Option<String>,
+    pub acme_dir: Option<String>,
+    pub panel_api_port: Option<u16>,
+    pub panel_listen_port: Option<u16>,
+    pub test_config: bool,
+    pub reload: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NginxBaselineAppliedResponse {
+    pub base_dir: String,
+    pub nginx_conf_path: String,
+    pub conf_d_dir: String,
+    pub snippets_dir: String,
+    pub sites_available_dir: String,
+    pub sites_enabled_dir: String,
+    pub log_dir: String,
+    pub acme_dir: String,
+    pub test_passed: bool,
+    pub reloaded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -625,5 +652,44 @@ mod tests {
         let de_stat: RpcResponse =
             serde_json::from_str(&s_stat).expect("deserialize HardeningStatus");
         assert_eq!(status_res, de_stat);
+    }
+
+    #[test]
+    fn test_rpc_nginx_baseline_payloads() {
+        let req = RpcRequest::new(
+            "baseline-1",
+            RequestPayload::NginxBaselineApply(NginxBaselineApplyRequest {
+                base_dir: Some("/etc/panel/nginx".to_string()),
+                log_dir: Some("/var/log/panel".to_string()),
+                acme_dir: Some("/var/lib/panel/acme".to_string()),
+                panel_api_port: Some(3000),
+                panel_listen_port: Some(8443),
+                test_config: true,
+                reload: true,
+            }),
+        );
+        let s = serde_json::to_string(&req).expect("serialize NginxBaselineApply");
+        let de: RpcRequest = serde_json::from_str(&s).expect("deserialize NginxBaselineApply");
+        assert_eq!(req, de);
+
+        let res = RpcResponse::ok(
+            "baseline-1",
+            ResponsePayload::NginxBaselineApplied(NginxBaselineAppliedResponse {
+                base_dir: "/etc/panel/nginx".to_string(),
+                nginx_conf_path: "/etc/panel/nginx/nginx.conf".to_string(),
+                conf_d_dir: "/etc/panel/nginx/conf.d".to_string(),
+                snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+                sites_available_dir: "/etc/panel/nginx/sites-available".to_string(),
+                sites_enabled_dir: "/etc/panel/nginx/sites-enabled".to_string(),
+                log_dir: "/var/log/panel".to_string(),
+                acme_dir: "/var/lib/panel/acme".to_string(),
+                test_passed: true,
+                reloaded: true,
+            }),
+        );
+        let s_res = serde_json::to_string(&res).expect("serialize NginxBaselineApplied");
+        let de_res: RpcResponse =
+            serde_json::from_str(&s_res).expect("deserialize NginxBaselineApplied");
+        assert_eq!(res, de_res);
     }
 }

@@ -21,6 +21,7 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "findmnt",
     "mount",
     "getent",
+    "nginx",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
