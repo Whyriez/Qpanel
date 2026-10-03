@@ -125,6 +125,102 @@ impl SqliteJobRepository {
         Ok(())
     }
 
+    /// Atomically claims the oldest 'queued' job and updates its status to 'running'.
+    pub async fn claim_next_queued(&self) -> Result<Option<Job>, DbError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let job = sqlx::query_as::<_, Job>(
+            r#"
+            UPDATE jobs
+            SET status = 'running', updated_at = ?
+            WHERE id = (
+                SELECT id FROM jobs
+                WHERE status = 'queued'
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+            )
+            RETURNING id, user_id, name, status, progress, payload_json,
+                      result_json, error_message, retry_count, max_retries, created_at, updated_at
+            "#,
+        )
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(job)
+    }
+
+    /// Cancels a job if it is currently 'queued' or 'running'.
+    pub async fn cancel(&self, id: &str) -> Result<bool, DbError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let res = sqlx::query(
+            r#"
+            UPDATE jobs
+            SET status = 'cancelled', updated_at = ?
+            WHERE id = ? AND status IN ('queued', 'running')
+            "#,
+        )
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// Increments retry count. If retries remain, requeues the job; otherwise marks it failed.
+    pub async fn increment_retry_or_fail(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<Job, DbError> {
+        let job = match self.find_by_id(id).await? {
+            Some(j) => j,
+            None => return Err(DbError::NotFound(format!("Job {} not found", id))),
+        };
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let new_retry = job.retry_count + 1;
+        let new_status = if new_retry < job.max_retries {
+            "queued"
+        } else {
+            "failed"
+        };
+
+        sqlx::query(
+            r#"
+            UPDATE jobs
+            SET status = ?, retry_count = ?, error_message = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(new_status)
+        .bind(new_retry)
+        .bind(error_message)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        let mut updated = job;
+        updated.status = new_status.to_string();
+        updated.retry_count = new_retry;
+        updated.error_message = Some(error_message.to_string());
+        updated.updated_at = now;
+        Ok(updated)
+    }
+
     pub async fn list_by_status(&self, status: &str) -> Result<Vec<Job>, DbError> {
         let jobs = sqlx::query_as::<_, Job>(
             r#"
@@ -144,23 +240,59 @@ impl SqliteJobRepository {
     }
 
     pub async fn list_by_user(&self, user_id: i64, limit: i64) -> Result<Vec<Job>, DbError> {
-        let jobs = sqlx::query_as::<_, Job>(
-            r#"
-            SELECT
-                id, user_id, name, status, progress, payload_json,
-                result_json, error_message, retry_count, max_retries, created_at, updated_at
-            FROM jobs
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            "#,
-        )
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
+        self.list_paginated(Some(user_id), None, limit, 0).await
+    }
 
+    pub async fn list_paginated(
+        &self,
+        user_id: Option<i64>,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Job>, DbError> {
+        let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT id, user_id, name, status, progress, payload_json, result_json, error_message, retry_count, max_retries, created_at, updated_at FROM jobs WHERE 1=1",
+        );
+
+        if let Some(uid) = user_id {
+            builder.push(" AND user_id = ");
+            builder.push_bind(uid);
+        }
+        if let Some(st) = status {
+            builder.push(" AND status = ");
+            builder.push_bind(st);
+        }
+
+        builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
+        builder.push_bind(limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(offset);
+
+        let query = builder.build_query_as::<Job>();
+        let jobs = query.fetch_all(&self.pool).await?;
         Ok(jobs)
+    }
+
+    pub async fn count_filtered(
+        &self,
+        user_id: Option<i64>,
+        status: Option<&str>,
+    ) -> Result<i64, DbError> {
+        let mut builder =
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT COUNT(*) FROM jobs WHERE 1=1");
+
+        if let Some(uid) = user_id {
+            builder.push(" AND user_id = ");
+            builder.push_bind(uid);
+        }
+        if let Some(st) = status {
+            builder.push(" AND status = ");
+            builder.push_bind(st);
+        }
+
+        let query = builder.build_query_scalar::<i64>();
+        let count = query.fetch_one(&self.pool).await?;
+        Ok(count)
     }
 
     /// Recovers jobs left in 'running' state after an unexpected server restart.

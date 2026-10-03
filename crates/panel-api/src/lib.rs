@@ -3,6 +3,7 @@ pub mod agent_client;
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod jobs;
 pub mod routes;
 pub mod static_files;
 
@@ -66,6 +67,13 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/v1/audit/logs", get(audit::list_audit_logs_handler))
         .route("/api/v1/audit/logs/{id}", get(audit::get_audit_log_handler))
+        .route(
+            "/api/v1/jobs",
+            post(jobs::create_job_handler).get(jobs::list_jobs_handler),
+        )
+        .route("/api/v1/jobs/{id}", get(jobs::get_job_handler))
+        .route("/api/v1/jobs/{id}/cancel", post(jobs::cancel_job_handler))
+        .route("/api/v1/jobs/{id}/events", get(jobs::job_events_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

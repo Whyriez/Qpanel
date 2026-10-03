@@ -696,10 +696,10 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 - [x] **P1-T1 Database**: SQLite WAL (`busy_timeout`, `foreign_keys`), migrasi `sqlx`, repository untuk `users`, `sessions`, `audit_logs`, `jobs`, `settings`, `api_tokens`.
 - [x] **P1-T2 Bootstrap admin**: `panelctl admin create` dan token setup sekali pakai untuk first-run.
 - [x] **P1-T3 Auth**: login/logout, Argon2id, sesi cookie, rotasi sesi, CSRF, rate limit + lockout, ganti password.
-- [ ] **P1-T4 2FA**: TOTP + recovery codes, enrol dan verifikasi.
-- [ ] **P1-T5 RBAC**: middleware `admin`/`user`, fungsi policy terpusat, test authz untuk setiap rute.
-- [ ] **P1-T6 Audit log**: penulis audit (API dan agent), API list + filter.
-- [ ] **P1-T7 Job system**: tabel `jobs`, worker, state machine, retry + backoff, idempotensi, SSE progres, pemulihan setelah restart.
+- [x] **P1-T4 2FA**: TOTP + recovery codes, enrol dan verifikasi.
+- [x] **P1-T5 RBAC**: middleware `admin`/`user`, fungsi policy terpusat, test authz untuk setiap rute.
+- [x] **P1-T6 Audit log**: penulis audit (API dan agent), API list + filter.
+- [x] **P1-T7 Job system**: tabel `jobs`, worker, state machine, retry + backoff, idempotensi, SSE progres, pemulihan setelah restart.
 - [ ] **P1-T8 UI inti**: login, 2FA, wizard first-run, halaman profil/keamanan (sesi aktif, 2FA, API token), halaman Audit, `JobTray`, command palette (dasar).
 
 **Acceptance**: tidak ada rute mutasi tanpa auth + CSRF; test authz lulus; login brute-force terkunci; job bertahan saat `panel-api` di-restart; UI lolos cek aksesibilitas dasar (keyboard, kontras).

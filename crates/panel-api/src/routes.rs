@@ -37,6 +37,11 @@ use panel_db::pool::DbPool;
         crate::admin::handlers::user_get_profile_handler,
         crate::audit::handlers::list_audit_logs_handler,
         crate::audit::handlers::get_audit_log_handler,
+        crate::jobs::handlers::create_job_handler,
+        crate::jobs::handlers::list_jobs_handler,
+        crate::jobs::handlers::get_job_handler,
+        crate::jobs::handlers::cancel_job_handler,
+        crate::jobs::handlers::job_events_handler,
     ),
     components(
         schemas(
@@ -58,6 +63,10 @@ use panel_db::pool::DbPool;
             crate::admin::SettingResponse,
             crate::audit::AuditLogItem,
             crate::audit::AuditLogListResponse,
+            crate::jobs::JobItem,
+            crate::jobs::CreateJobRequest,
+            crate::jobs::JobListResponse,
+            crate::jobs::JobProgressEvent,
         )
     ),
     tags(
@@ -65,7 +74,8 @@ use panel_db::pool::DbPool;
         (name = "auth", description = "Authentication and session management"),
         (name = "admin", description = "Administrator-only management endpoints"),
         (name = "user", description = "Tenant user resource endpoints"),
-        (name = "audit", description = "Audit log query and tracking endpoints")
+        (name = "audit", description = "Audit log query and tracking endpoints"),
+        (name = "jobs", description = "Background jobs and real-time progress tracking endpoints")
     ),
     info(
         title = "Nusa Panel API",
@@ -102,6 +112,7 @@ pub struct AppState {
     pub auth_config: AuthConfig,
     pub lockout_manager: Arc<LockoutManager>,
     pub audit_writer: Arc<crate::audit::AuditWriter>,
+    pub job_runner: Arc<crate::jobs::JobRunner>,
 }
 
 impl AppState {
@@ -113,6 +124,7 @@ impl AppState {
         lockout_manager: Arc<LockoutManager>,
     ) -> Self {
         let audit_writer = Arc::new(crate::audit::AuditWriter::new(pool.clone()));
+        let job_runner = Arc::new(crate::jobs::JobRunner::new(pool.clone()));
         Self {
             agent_client,
             pool,
@@ -120,6 +132,7 @@ impl AppState {
             auth_config,
             lockout_manager,
             audit_writer,
+            job_runner,
         }
     }
 }

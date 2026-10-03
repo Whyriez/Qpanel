@@ -33,6 +33,7 @@ tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
 rust-embed = { workspace = true }
 mime_guess = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
 panel-agent = { workspace = true }

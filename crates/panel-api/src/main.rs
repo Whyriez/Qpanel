@@ -51,6 +51,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lockout_manager,
     );
 
+    // Startup recovery: mark any interrupted running jobs as failed
+    match state.job_runner.recover_interrupted().await {
+        Ok(count) if count > 0 => {
+            info!(
+                "Recovered {} interrupted running jobs from previous session",
+                count
+            );
+        }
+        Ok(_) => {}
+        Err(e) => {
+            error!("Failed to recover interrupted jobs: {}", e);
+        }
+    }
+
+    // Spawn background job worker loop
+    let (worker_shutdown_tx, worker_shutdown_rx) = tokio::sync::watch::channel(false);
+    let worker_runner = Arc::clone(&state.job_runner);
+    let worker_handle = tokio::spawn(async move {
+        panel_api::jobs::run_worker(worker_runner, worker_shutdown_rx).await;
+    });
+
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.server.listen_addr).await?;
@@ -62,6 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    info!("Initiating shutdown: stopping background job worker...");
+    let _ = worker_shutdown_tx.send(true);
+    let _ = worker_handle.await;
 
     info!("Panel API shutdown gracefully.");
     Ok(())
