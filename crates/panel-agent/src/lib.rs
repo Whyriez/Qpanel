@@ -1,6 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod hardening;
 pub mod quota;
 pub mod resource;
 pub mod slice;
@@ -63,6 +64,7 @@ pub struct AgentServer {
     slice_manager: Arc<slice::SliceManager>,
     quota_manager: Arc<quota::QuotaManager>,
     resource_reader: Arc<resource::CgroupReader>,
+    hardening_manager: Arc<hardening::HardeningManager>,
 }
 
 impl AgentServer {
@@ -75,15 +77,19 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let quota_manager = Arc::new(quota::QuotaManager::new(
-            runner as Arc<dyn system::SystemRunner>,
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let resource_reader = Arc::new(resource::CgroupReader::default());
+        let hardening_manager = Arc::new(hardening::HardeningManager::new(
+            runner as Arc<dyn system::SystemRunner>,
+        ));
         Self {
             config,
             user_manager,
             slice_manager,
             quota_manager,
             resource_reader,
+            hardening_manager,
         }
     }
 
@@ -96,15 +102,19 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let quota_manager = Arc::new(quota::QuotaManager::new(
-            runner as Arc<dyn system::SystemRunner>,
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let resource_reader = Arc::new(resource::CgroupReader::default());
+        let hardening_manager = Arc::new(hardening::HardeningManager::new(
+            runner as Arc<dyn system::SystemRunner>,
+        ));
         Self {
             config,
             user_manager,
             slice_manager,
             quota_manager,
             resource_reader,
+            hardening_manager,
         }
     }
 
@@ -114,6 +124,7 @@ impl AgentServer {
         slice_manager: Arc<slice::SliceManager>,
         quota_manager: Arc<quota::QuotaManager>,
         resource_reader: Arc<resource::CgroupReader>,
+        hardening_manager: Arc<hardening::HardeningManager>,
     ) -> Self {
         Self {
             config,
@@ -121,6 +132,7 @@ impl AgentServer {
             slice_manager,
             quota_manager,
             resource_reader,
+            hardening_manager,
         }
     }
 
@@ -286,6 +298,12 @@ impl AgentServer {
                     "resource.read".to_string(),
                     format!("panel-u{}.slice", d.uid),
                 ),
+                RequestPayload::HardeningCheck => {
+                    ("hardening.check".to_string(), "host".to_string())
+                }
+                RequestPayload::HardeningApply(_) => {
+                    ("hardening.apply".to_string(), "host".to_string())
+                }
             };
 
             let response = match req.payload {
@@ -352,6 +370,16 @@ impl AgentServer {
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }
+                RequestPayload::HardeningCheck => RpcResponse::ok(
+                    &req.request_id,
+                    ResponsePayload::HardeningStatus(Box::new(self.hardening_manager.check_all())),
+                ),
+                RequestPayload::HardeningApply(data) => match self.hardening_manager.apply(data) {
+                    Ok(res) => {
+                        RpcResponse::ok(&req.request_id, ResponsePayload::HardeningApplied(res))
+                    }
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
             };
 
             let audit_record = audit::AgentAuditRecord::new(

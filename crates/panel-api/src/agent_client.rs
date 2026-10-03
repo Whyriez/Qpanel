@@ -1,12 +1,13 @@
 //! IPC client to communicate with `panel-agent` over a Unix domain socket.
 
 use panel_proto::{
-    ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse,
-    QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload,
-    RpcRequest, RpcStream, SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest,
-    SliceRemovedResponse, SliceResourceMetrics, UserCreateRequest, UserCreatedResponse,
-    UserDeleteRequest, UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse,
-    UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    HardeningApplyRequest, HardeningApplyResponse, HardeningStatus, ProtoError, QuotaGetRequest,
+    QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse,
+    RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
+    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
+    SliceResourceMetrics, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
+    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
+    UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -482,6 +483,63 @@ impl AgentClient {
             ResponsePayload::ResourceRead(data) => Ok(data.metrics),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "ResourceRead",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn check_hardening(&self) -> Result<HardeningStatus, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "hardening-check-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::HardeningCheck);
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::HardeningStatus(data) => Ok(*data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "HardeningStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_hardening(
+        &self,
+        req: HardeningApplyRequest,
+    ) -> Result<HardeningApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "hardening-apply-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::HardeningApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::HardeningApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "HardeningApplied",
                 got: format!("{other:?}"),
             }),
         }

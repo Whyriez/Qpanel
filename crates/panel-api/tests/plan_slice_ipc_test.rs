@@ -71,12 +71,16 @@ async fn test_plan_crud_and_slice_limits_over_ipc() {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
     let resource_reader = Arc::new(panel_agent::resource::CgroupReader::new(tmp.path()));
+    let hardening_manager = Arc::new(panel_agent::hardening::HardeningManager::new(Arc::clone(
+        &runner_arc,
+    )));
     let server = Arc::new(AgentServer::with_managers(
         config,
         user_manager,
         slice_manager,
         quota_manager,
         resource_reader,
+        hardening_manager,
     ));
 
     let server_task = tokio::spawn(async move {

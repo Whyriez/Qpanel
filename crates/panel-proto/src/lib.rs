@@ -55,6 +55,8 @@ pub enum RequestPayload {
     QuotaGet(QuotaGetRequest),
     QuotaScan(QuotaScanRequest),
     ResourceRead(ResourceReadRequest),
+    HardeningCheck,
+    HardeningApply(HardeningApplyRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +179,8 @@ pub enum ResponsePayload {
     QuotaGet(QuotaGetResponse),
     QuotaScan(QuotaScanResponse),
     ResourceRead(ResourceReadResponse),
+    HardeningStatus(Box<HardeningStatus>),
+    HardeningApplied(HardeningApplyResponse),
     Error(String),
 }
 
@@ -272,6 +276,37 @@ pub struct SliceResourceMetrics {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResourceReadResponse {
     pub metrics: SliceResourceMetrics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrerequisiteCheckItem {
+    pub name: String,
+    pub ok: bool,
+    pub message: String,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HardeningStatus {
+    pub cgroup_v2: PrerequisiteCheckItem,
+    pub acl: PrerequisiteCheckItem,
+    pub quota: PrerequisiteCheckItem,
+    pub hidepid: PrerequisiteCheckItem,
+    pub tenant_group: PrerequisiteCheckItem,
+    pub overall_ok: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HardeningApplyRequest {
+    pub enable_hidepid: bool,
+    pub ensure_tenant_group: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HardeningApplyResponse {
+    pub hidepid_applied: bool,
+    pub tenant_group_created: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -530,5 +565,65 @@ mod tests {
         let de_res: RpcResponse =
             serde_json::from_str(&s_res).expect("deserialize ResourceRead response");
         assert_eq!(res, de_res);
+    }
+
+    #[test]
+    fn test_rpc_hardening_payloads() {
+        let check_req = RpcRequest::new("h-1", RequestPayload::HardeningCheck);
+        let s_chk = serde_json::to_string(&check_req).expect("serialize HardeningCheck");
+        let de_chk: RpcRequest = serde_json::from_str(&s_chk).expect("deserialize HardeningCheck");
+        assert_eq!(check_req, de_chk);
+
+        let apply_req = RpcRequest::new(
+            "h-2",
+            RequestPayload::HardeningApply(HardeningApplyRequest {
+                enable_hidepid: true,
+                ensure_tenant_group: true,
+            }),
+        );
+        let s_app = serde_json::to_string(&apply_req).expect("serialize HardeningApply");
+        let de_app: RpcRequest = serde_json::from_str(&s_app).expect("deserialize HardeningApply");
+        assert_eq!(apply_req, de_app);
+
+        let status_res = RpcResponse::ok(
+            "h-3",
+            ResponsePayload::HardeningStatus(Box::new(HardeningStatus {
+                cgroup_v2: PrerequisiteCheckItem {
+                    name: "cgroup_v2".to_string(),
+                    ok: true,
+                    message: "cgroup v2 is active".to_string(),
+                    details: None,
+                },
+                acl: PrerequisiteCheckItem {
+                    name: "acl".to_string(),
+                    ok: true,
+                    message: "ACL is supported".to_string(),
+                    details: None,
+                },
+                quota: PrerequisiteCheckItem {
+                    name: "quota".to_string(),
+                    ok: true,
+                    message: "Quota is supported".to_string(),
+                    details: None,
+                },
+                hidepid: PrerequisiteCheckItem {
+                    name: "hidepid".to_string(),
+                    ok: false,
+                    message: "hidepid=2 not active".to_string(),
+                    details: None,
+                },
+                tenant_group: PrerequisiteCheckItem {
+                    name: "tenant_group".to_string(),
+                    ok: true,
+                    message: "Group exists".to_string(),
+                    details: None,
+                },
+                overall_ok: false,
+            })),
+        );
+        let s_stat = serde_json::to_string(&status_res).expect("serialize HardeningStatus");
+        let de_stat: RpcResponse =
+            serde_json::from_str(&s_stat).expect("deserialize HardeningStatus");
+        assert_eq!(status_res, de_stat);
     }
 }

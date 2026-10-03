@@ -12,12 +12,15 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "groupadd",
     "groupdel",
     "setfacl",
+    "getfacl",
     "pkill",
     "systemctl",
     "setquota",
     "repquota",
     "xfs_quota",
     "findmnt",
+    "mount",
+    "getent",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
@@ -200,16 +203,29 @@ pub enum MockAction {
     },
 }
 
+pub type MockCommandResponse = (i32, Vec<u8>, Vec<u8>);
+
 /// In-memory mock runner for test assertions and safe non-root validation.
 #[derive(Debug, Clone, Default)]
 pub struct MockSystemRunner {
     pub actions: Arc<Mutex<Vec<MockAction>>>,
+    pub responses: Arc<Mutex<std::collections::HashMap<String, MockCommandResponse>>>,
 }
 
 impl MockSystemRunner {
     pub fn new() -> Self {
         Self {
             actions: Arc::new(Mutex::new(Vec::new())),
+            responses: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    pub fn set_response(&self, key: &str, exit_code: i32, stdout: &[u8], stderr: &[u8]) {
+        if let Ok(mut lock) = self.responses.lock() {
+            lock.insert(
+                key.to_string(),
+                (exit_code, stdout.to_vec(), stderr.to_vec()),
+            );
         }
     }
 
@@ -234,23 +250,34 @@ impl SystemRunner for MockSystemRunner {
             });
         }
 
+        let cmd_key = format!("{binary} {}", args.join(" "));
+        let (exit_code, stdout, stderr) = if let Ok(lock) = self.responses.lock() {
+            if let Some((code, out, err)) = lock.get(&cmd_key).or_else(|| lock.get(binary)) {
+                (*code, out.clone(), err.clone())
+            } else {
+                (0, Vec::new(), Vec::new())
+            }
+        } else {
+            (0, Vec::new(), Vec::new())
+        };
+
         #[cfg(unix)]
         let status = {
             use std::os::unix::process::ExitStatusExt;
-            std::process::ExitStatus::from_raw(0)
+            std::process::ExitStatus::from_raw(exit_code)
         };
         #[cfg(not(unix))]
         let status = {
             std::process::Command::new("cmd")
-                .args(["/c", "exit 0"])
+                .args(["/c", &format!("exit {exit_code}")])
                 .status()
                 .unwrap_or_else(|_| panic!("Failed to get dummy ExitStatus"))
         };
 
         Ok(std::process::Output {
             status,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
+            stdout,
+            stderr,
         })
     }
 

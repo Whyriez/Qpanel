@@ -29,6 +29,10 @@ async fn test_cgroup_resource_reading_over_ipc() {
         Arc::clone(&runner) as Arc<dyn panel_agent::system::SystemRunner>
     ));
     let resource_reader = Arc::new(panel_agent::resource::CgroupReader::new(temp_cgroup.path()));
+    let hardening_manager = Arc::new(panel_agent::hardening::HardeningManager::new(Arc::clone(
+        &runner,
+    )
+        as Arc<dyn panel_agent::system::SystemRunner>));
 
     let config = AgentConfig {
         socket_path: sock_path.clone(),
@@ -42,6 +46,7 @@ async fn test_cgroup_resource_reading_over_ipc() {
         slice_manager,
         quota_manager,
         resource_reader,
+        hardening_manager,
     ));
 
     let server_task = tokio::spawn(async move {
