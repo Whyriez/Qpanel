@@ -72,6 +72,31 @@ server {
         {% endif %}
     }
 }
+
+{% if redirects %}
+# Domain Redirects (Alias / Subdomain / www / non-www / Custom)
+{% for redir in redirects %}
+server {
+    listen 80;
+    listen [::]:80;
+    {% if has_ssl %}
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    ssl_certificate {{ ssl_cert }};
+    ssl_certificate_key {{ ssl_key }};
+    {% endif %}
+
+    server_name {{ redir.domain }};
+
+    include {{ snippets_dir }}/acme.conf;
+
+    location / {
+        return {{ redir.status_code }} {{ redir.target }};
+    }
+}
+{% endfor %}
+{% endif %}
 "#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -80,11 +105,20 @@ pub struct HeaderConfig {
     pub value: String,
 }
 
+/// Redirection configuration for alias or auxiliary domains.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DomainRedirectConfig {
+    pub domain: String,
+    pub target: String,
+    pub status_code: u16,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StaticVhostContext {
     pub site_id: String,
     pub primary_domain: String,
     pub alias_domains: Vec<String>,
+    pub redirects: Vec<DomainRedirectConfig>,
     pub docroot: String,
     pub log_dir: String,
     pub snippets_dir: String,
@@ -197,6 +231,59 @@ pub fn validate_vhost_inputs(ctx: &StaticVhostContext) -> Result<(), WebserverEr
             return Err(WebserverError::SecurityViolation(format!(
                 "Invalid characters in HTTP header value: '{}'",
                 h.value
+            )));
+        }
+    }
+
+    // 5. Redirects validation
+    for r in &ctx.redirects {
+        validate_domain_input(&r.domain)?;
+        validate_redirect_target(&r.target)?;
+        if r.status_code != 301
+            && r.status_code != 302
+            && r.status_code != 307
+            && r.status_code != 308
+        {
+            return Err(WebserverError::SecurityViolation(format!(
+                "Invalid redirect status code: {}",
+                r.status_code
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_redirect_target(target: &str) -> Result<(), WebserverError> {
+    const FORBIDDEN_CHARS: &[char] = &[
+        ';', '{', '}', '\n', '\r', '\0', '"', '\'', ' ', '\t', '<', '>',
+    ];
+    for ch in FORBIDDEN_CHARS {
+        if target.contains(*ch) {
+            return Err(WebserverError::SecurityViolation(format!(
+                "Redirect target '{target}' contains forbidden character '{ch}'"
+            )));
+        }
+    }
+
+    if !target.starts_with("http://")
+        && !target.starts_with("https://")
+        && !target.starts_with('/')
+        && !target.starts_with("$scheme://")
+    {
+        return Err(WebserverError::SecurityViolation(format!(
+            "Redirect target '{target}' must start with http://, https://, /, or $scheme://"
+        )));
+    }
+
+    for (idx, _) in target.match_indices('$') {
+        let remainder = &target[idx..];
+        let allowed = remainder.starts_with("$request_uri")
+            || remainder.starts_with("$host")
+            || remainder.starts_with("$scheme");
+        if !allowed {
+            return Err(WebserverError::SecurityViolation(format!(
+                "Unrecognized or forbidden variable in redirect target '{target}'"
             )));
         }
     }
@@ -400,6 +487,7 @@ mod tests {
             ssl_key: None,
             force_https: false,
             custom_headers: vec![],
+            redirects: vec![],
         };
 
         let conf = renderer.render_static(&ctx).expect("render static");
@@ -418,6 +506,7 @@ mod tests {
             site_id: "site_spa_2".to_string(),
             primary_domain: "my-app.id".to_string(),
             alias_domains: vec![],
+            redirects: vec![],
             docroot: "/home/p_bob/sites/my-app.id/dist".to_string(),
             log_dir: "/var/log/panel/p_bob/my-app.id".to_string(),
             snippets_dir: "/etc/panel/nginx/snippets".to_string(),
@@ -443,6 +532,51 @@ mod tests {
     }
 
     #[test]
+    fn test_golden_static_vhost_with_domain_redirects() {
+        let renderer = NginxTemplateRenderer::new();
+        let ctx = StaticVhostContext {
+            site_id: "site_redir_3".to_string(),
+            primary_domain: "example.com".to_string(),
+            alias_domains: vec!["alias.com".to_string()],
+            redirects: vec![
+                DomainRedirectConfig {
+                    domain: "www.example.com".to_string(),
+                    target: "https://example.com$request_uri".to_string(),
+                    status_code: 301,
+                },
+                DomainRedirectConfig {
+                    domain: "old-domain.com".to_string(),
+                    target: "https://example.com$request_uri".to_string(),
+                    status_code: 301,
+                },
+                DomainRedirectConfig {
+                    domain: "promo.example.com".to_string(),
+                    target: "https://landing.com/promo".to_string(),
+                    status_code: 302,
+                },
+            ],
+            docroot: "/home/p_alice/sites/example.com/public".to_string(),
+            log_dir: "/var/log/panel/p_alice/example.com".to_string(),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            index_files: None,
+            spa_fallback: false,
+            has_ssl: true,
+            ssl_cert: Some("/var/lib/panel/certs/example.com/fullchain.pem".to_string()),
+            ssl_key: Some("/var/lib/panel/certs/example.com/privkey.pem".to_string()),
+            force_https: true,
+            custom_headers: vec![],
+        };
+
+        let conf = renderer.render_static(&ctx).expect("render with redirects");
+        assert!(conf.contains("server_name example.com alias.com;"));
+        assert!(conf.contains("server_name www.example.com;"));
+        assert!(conf.contains("return 301 https://example.com$request_uri;"));
+        assert!(conf.contains("server_name old-domain.com;"));
+        assert!(conf.contains("server_name promo.example.com;"));
+        assert!(conf.contains("return 302 https://landing.com/promo;"));
+    }
+
+    #[test]
     fn test_anti_injection_rejects_malicious_domains() {
         let renderer = NginxTemplateRenderer::new();
         let malicious_domains = vec![
@@ -461,6 +595,7 @@ mod tests {
                 site_id: "site_test".to_string(),
                 primary_domain: bad.to_string(),
                 alias_domains: vec![],
+                redirects: vec![],
                 docroot: "/home/p_alice/public".to_string(),
                 log_dir: "/var/log/panel/site".to_string(),
                 snippets_dir: "/etc/panel/nginx/snippets".to_string(),
@@ -497,6 +632,7 @@ mod tests {
                 site_id: "site_test".to_string(),
                 primary_domain: "valid-site.com".to_string(),
                 alias_domains: vec![],
+                redirects: vec![],
                 docroot: bad_path.to_string(),
                 log_dir: "/var/log/panel/site".to_string(),
                 snippets_dir: "/etc/panel/nginx/snippets".to_string(),
@@ -514,6 +650,51 @@ mod tests {
                 err.is_err(),
                 "Malicious docroot '{}' should have been rejected!",
                 bad_path
+            );
+        }
+    }
+
+    #[test]
+    fn test_anti_injection_rejects_malicious_redirect_targets() {
+        let renderer = NginxTemplateRenderer::new();
+        let malicious_targets = vec![
+            "https://evil.com; return 403;",
+            "https://evil.com\nserver { listen 80; }",
+            "https://evil.com$document_root",
+            "javascript:alert(1)",
+            "ftp://not-http.com",
+            "https://evil.com\"foo",
+            "https://evil.com'bar",
+            "https://evil.com/path with spaces",
+        ];
+
+        for bad_target in malicious_targets {
+            let ctx = StaticVhostContext {
+                site_id: "site_test".to_string(),
+                primary_domain: "valid-site.com".to_string(),
+                alias_domains: vec![],
+                redirects: vec![DomainRedirectConfig {
+                    domain: "redirect.valid-site.com".to_string(),
+                    target: bad_target.to_string(),
+                    status_code: 301,
+                }],
+                docroot: "/home/p_alice/public".to_string(),
+                log_dir: "/var/log/panel/site".to_string(),
+                snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+                index_files: None,
+                spa_fallback: false,
+                has_ssl: false,
+                ssl_cert: None,
+                ssl_key: None,
+                force_https: false,
+                custom_headers: vec![],
+            };
+
+            let err = renderer.render_static(&ctx);
+            assert!(
+                err.is_err(),
+                "Malicious redirect target '{}' should have been rejected!",
+                bad_target
             );
         }
     }

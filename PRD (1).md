@@ -734,7 +734,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 - [x] **P3-T2 Baseline nginx**: installer menulis `nginx.conf` ter-tuning dan direktori include; server default menolak host tak dikenal (444); vhost panel (`:8443`); snippet (acme, security-headers, deny-sensitive, fastcgi-params); log format `panel_json`.
 - [x] **P3-T3 Renderer + apply atomic**: render `minijinja` → staging → `nginx -t` → swap → reload debounce → **rollback otomatis**. Test golden, test injeksi (domain jahat), test rollback dengan config sengaja rusak.
 - [x] **P3-T4 Site static**: buat/aktif/nonaktif/hapus, halaman placeholder, docroot, SPA fallback, header cache.
-- [ ] **P3-T5 Alias dan redirect domain**: alias, subdomain, www ↔ non-www, force HTTPS.
+- [x] **P3-T5 Alias dan redirect domain**: alias, subdomain, www ↔ non-www, force HTTPS.
 - [ ] **P3-T6 ACME**: akun, HTTP-01, terbit, simpan sertifikat (`0600`), scheduler renew (30 hari sebelum expiry), OCSP stapling, upload sertifikat custom, fallback self-signed, backoff + dukungan staging LE.
 - [ ] **P3-T7 Log**: log per site di `/var/log/panel/<user>/<site>/`, logrotate, API tail + pencarian (dibatasi), live tail via WebSocket.
 - [ ] **P3-T8 UI**: daftar situs (dengan `PulseStrip` placeholder), wizard buat site (pilih tipe → domain → tenant → tinjau), detail situs: Ringkasan, Domain, SSL, Log, Pengaturan.

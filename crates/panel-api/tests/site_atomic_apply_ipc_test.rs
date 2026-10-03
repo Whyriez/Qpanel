@@ -107,6 +107,7 @@ async fn test_site_atomic_apply_and_rollback_over_ipc() {
         ssl_key: None,
         force_https: false,
         custom_headers: vec![],
+        redirects: vec![],
     };
 
     let valid_conf = renderer.render_static(&site_ctx).expect("render static");

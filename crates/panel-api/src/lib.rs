@@ -12,7 +12,7 @@ pub mod tenants;
 
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use routes::{ApiDoc, AppState, healthz_handler, system_info_handler};
 use tower_http::cors::CorsLayer;
@@ -142,6 +142,18 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/disable",
             post(sites::disable_site_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/force-https",
+            post(sites::set_force_https_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/domains",
+            get(sites::list_site_domains_handler).post(sites::add_site_domain_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/domains/{domain_id}",
+            put(sites::update_site_domain_handler).delete(sites::delete_site_domain_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

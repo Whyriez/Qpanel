@@ -251,6 +251,7 @@ async fn test_static_site_crud_and_lifecycle() {
         domain: "hello-static.test".to_string(),
         user_id: Some(ctx.alice_id),
         spa_fallback: Some(true),
+        force_https: Some(false),
         docroot: None,
     };
 
@@ -303,6 +304,7 @@ async fn test_static_site_crud_and_lifecycle() {
         domain: "bad_domain;rm -rf".to_string(),
         user_id: Some(ctx.alice_id),
         spa_fallback: None,
+        force_https: None,
         docroot: None,
     };
     let bad_req = Request::builder()
