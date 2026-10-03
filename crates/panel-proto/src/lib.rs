@@ -58,6 +58,8 @@ pub enum RequestPayload {
     HardeningCheck,
     HardeningApply(HardeningApplyRequest),
     NginxBaselineApply(NginxBaselineApplyRequest),
+    SiteApply(SiteApplyRequest),
+    SiteRemove(SiteRemoveRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -183,6 +185,8 @@ pub enum ResponsePayload {
     HardeningStatus(Box<HardeningStatus>),
     HardeningApplied(HardeningApplyResponse),
     NginxBaselineApplied(NginxBaselineAppliedResponse),
+    SiteApplied(SiteAppliedResponse),
+    SiteRemoved(SiteRemovedResponse),
     Error(String),
 }
 
@@ -333,6 +337,38 @@ pub struct NginxBaselineAppliedResponse {
     pub log_dir: String,
     pub acme_dir: String,
     pub test_passed: bool,
+    pub reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteApplyRequest {
+    pub site_id: String,
+    pub config_content: String,
+    pub enable: bool,
+    pub nginx_base_dir: Option<String>,
+    pub test_config: bool,
+    pub reload: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteAppliedResponse {
+    pub site_id: String,
+    pub available_path: String,
+    pub enabled_path: Option<String>,
+    pub enabled: bool,
+    pub reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteRemoveRequest {
+    pub site_id: String,
+    pub nginx_base_dir: Option<String>,
+    pub reload: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteRemovedResponse {
+    pub site_id: String,
     pub reloaded: bool,
 }
 

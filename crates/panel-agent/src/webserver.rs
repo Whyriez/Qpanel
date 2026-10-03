@@ -2,19 +2,27 @@
 
 use crate::AgentError;
 use crate::system::SystemRunner;
-use panel_proto::{NginxBaselineAppliedResponse, NginxBaselineApplyRequest};
+use panel_proto::{
+    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, SiteAppliedResponse, SiteApplyRequest,
+    SiteRemoveRequest, SiteRemovedResponse,
+};
 use panel_webserver::baseline::NginxBaselineConfig;
+use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{info, warn};
 
 pub struct NginxManager {
     runner: Arc<dyn SystemRunner>,
+    debouncer: ReloadDebouncer,
 }
 
 impl NginxManager {
     pub fn new(runner: Arc<dyn SystemRunner>) -> Self {
-        Self { runner }
+        Self {
+            runner,
+            debouncer: ReloadDebouncer::default(),
+        }
     }
 
     fn build_config(&self, req: &NginxBaselineApplyRequest) -> NginxBaselineConfig {
@@ -66,6 +74,10 @@ impl NginxManager {
     }
 
     fn reload_nginx(&self) -> bool {
+        if !self.debouncer.should_reload() {
+            info!("Nginx reload debounced (coalesced within 500ms)");
+            return true;
+        }
         match self.runner.run_command("systemctl", &["reload", "nginx"]) {
             Ok(_) => {
                 info!("Nginx reloaded successfully via systemctl");
@@ -111,6 +123,97 @@ impl NginxManager {
             log_dir: config.log_dir.to_string_lossy().to_string(),
             acme_dir: config.acme_dir.to_string_lossy().to_string(),
             test_passed,
+            reloaded,
+        })
+    }
+
+    /// Applies a virtual host configuration atomically with syntax verification and automatic rollback.
+    pub fn apply_site(&self, req: SiteApplyRequest) -> Result<SiteAppliedResponse, AgentError> {
+        let base_dir = req
+            .nginx_base_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
+        let pipeline = NginxApplyPipeline::new(&base_dir);
+        let nginx_conf_path = base_dir.join("nginx.conf");
+        let runner = Arc::clone(&self.runner);
+
+        let conf_path_str = nginx_conf_path.to_string_lossy().to_string();
+        let syntax_check = move || -> Result<(), String> {
+            match runner.run_command("nginx", &["-t", "-c", &conf_path_str]) {
+                Ok(out) => {
+                    if out.status.success() {
+                        Ok(())
+                    } else {
+                        Err(String::from_utf8_lossy(&out.stderr).to_string())
+                    }
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        };
+
+        let result = if req.test_config {
+            pipeline.apply_site_config(&req.site_id, &req.config_content, req.enable, syntax_check)
+        } else {
+            pipeline.apply_site_config(&req.site_id, &req.config_content, req.enable, || Ok(()))
+        };
+
+        let apply_res = result.map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+        let reloaded = if req.reload {
+            self.reload_nginx()
+        } else {
+            false
+        };
+
+        Ok(SiteAppliedResponse {
+            site_id: apply_res.site_id,
+            available_path: apply_res.available_path.to_string_lossy().to_string(),
+            enabled_path: apply_res
+                .enabled_path
+                .map(|p| p.to_string_lossy().to_string()),
+            enabled: apply_res.enabled,
+            reloaded,
+        })
+    }
+
+    /// Removes a virtual host configuration with automatic rollback on syntax failure.
+    pub fn remove_site(&self, req: SiteRemoveRequest) -> Result<SiteRemovedResponse, AgentError> {
+        let base_dir = req
+            .nginx_base_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
+        let pipeline = NginxApplyPipeline::new(&base_dir);
+        let nginx_conf_path = base_dir.join("nginx.conf");
+        let runner = Arc::clone(&self.runner);
+
+        let conf_path_str = nginx_conf_path.to_string_lossy().to_string();
+        let syntax_check = move || -> Result<(), String> {
+            match runner.run_command("nginx", &["-t", "-c", &conf_path_str]) {
+                Ok(out) => {
+                    if out.status.success() {
+                        Ok(())
+                    } else {
+                        Err(String::from_utf8_lossy(&out.stderr).to_string())
+                    }
+                }
+                Err(e) => Err(e.to_string()),
+            }
+        };
+
+        pipeline
+            .remove_site(&req.site_id, syntax_check)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+        let reloaded = if req.reload {
+            self.reload_nginx()
+        } else {
+            false
+        };
+
+        Ok(SiteRemovedResponse {
+            site_id: req.site_id,
             reloaded,
         })
     }

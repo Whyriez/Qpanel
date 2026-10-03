@@ -2,6 +2,10 @@
 
 pub mod baseline;
 pub mod error;
+pub mod pipeline;
+pub mod template;
 
 pub use baseline::NginxBaselineConfig;
 pub use error::WebserverError;
+pub use pipeline::{ApplyResult, NginxApplyPipeline, ReloadDebouncer};
+pub use template::{HeaderConfig, NginxTemplateRenderer, StaticVhostContext};

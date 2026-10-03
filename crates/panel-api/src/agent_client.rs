@@ -4,7 +4,8 @@ use panel_proto::{
     HardeningApplyRequest, HardeningApplyResponse, HardeningStatus, NginxBaselineAppliedResponse,
     NginxBaselineApplyRequest, ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
     QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
-    ResponsePayload, RpcRequest, RpcStream, SliceAppliedResponse, SliceApplyRequest,
+    ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
+    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
     SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, UserCreateRequest,
     UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
     UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
@@ -570,6 +571,68 @@ impl AgentClient {
             ResponsePayload::NginxBaselineApplied(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "NginxBaselineApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_site(
+        &self,
+        req: SiteApplyRequest,
+    ) -> Result<SiteAppliedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-apply-{}-{}",
+            req.site_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_site(
+        &self,
+        req: SiteRemoveRequest,
+    ) -> Result<SiteRemovedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-remove-{}-{}",
+            req.site_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteRemoved",
                 got: format!("{other:?}"),
             }),
         }

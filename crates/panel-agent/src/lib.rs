@@ -345,6 +345,10 @@ impl AgentServer {
                         .clone()
                         .unwrap_or_else(|| "/etc/panel/nginx".to_string()),
                 ),
+                RequestPayload::SiteApply(d) => ("nginx.site_apply".to_string(), d.site_id.clone()),
+                RequestPayload::SiteRemove(d) => {
+                    ("nginx.site_remove".to_string(), d.site_id.clone())
+                }
             };
 
             let response = match req.payload {
@@ -427,6 +431,18 @@ impl AgentServer {
                             &req.request_id,
                             ResponsePayload::NginxBaselineApplied(res),
                         ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteApply(data) => match self.webserver_manager.apply_site(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::SiteApplied(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::SiteRemove(data) => {
+                    match self.webserver_manager.remove_site(data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SiteRemoved(res))
+                        }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }

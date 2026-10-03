@@ -37,6 +37,7 @@ futures-util = { workspace = true }
 
 [dev-dependencies]
 panel-agent = { workspace = true }
+panel-webserver = { workspace = true }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }
 

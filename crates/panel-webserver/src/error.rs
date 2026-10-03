@@ -11,8 +11,14 @@ pub enum WebserverError {
     #[error("Template rendering error: {0}")]
     Template(String),
 
+    #[error("Security violation: {0}")]
+    SecurityViolation(String),
+
     #[error("Nginx configuration syntax check failed: {0}")]
     SyntaxCheckFailed(String),
+
+    #[error("Configuration validation failed (rolled_back: {rolled_back}): {stderr}")]
+    ValidationFailed { stderr: String, rolled_back: bool },
 
     #[error("Rollback failed: {0}")]
     RollbackFailed(String),
