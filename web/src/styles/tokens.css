@@ -1,0 +1,50 @@
+:root {
+  /* Nusa Panel Design Tokens - Light Theme (Kabut) */
+  --bg: #EDF1F2;
+  --surface: #FAFCFC;
+  --raised: #FFFFFF;
+  --line: #D5DEE1;
+  --ink: #0C1E26;
+  --ink-muted: #51656E;
+  --primary: #0B7A85;
+  --primary-hover: #08636C;
+  --primary-foreground: #FFFFFF;
+  --accent: #D9962B;
+  --accent-foreground: #0C1E26;
+  --success: #2F9E62;
+  --danger: #C23B3B;
+  --info: #3B76C9;
+
+  /* Radius Hierarchy */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-floating: 0 8px 24px -8px rgba(9, 25, 31, 0.20);
+
+  /* Typography */
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.dark {
+  /* Nusa Panel Design Tokens - Dark Theme (Laut Dalam) */
+  --bg: #09191F;
+  --surface: #0F252D;
+  --raised: #143039;
+  --line: #1F3A45;
+  --ink: #E4EEF0;
+  --ink-muted: #8CA5AD;
+  --primary: #3FC1C9;
+  --primary-hover: #56CCD3;
+  --primary-foreground: #09191F;
+  --accent: #F0B455;
+  --accent-foreground: #09191F;
+  --success: #4CC58A;
+  --danger: #EF6B6B;
+  --info: #6FA3EE;
+
+  --shadow-floating: 0 8px 24px -8px rgba(0, 0, 0, 0.50);
+}

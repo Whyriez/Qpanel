@@ -1,0 +1,193 @@
+//! `panel-proto`: RPC protocol types, versioning, and length-delimited framing.
+
+use bytes::Bytes;
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
+
+pub const PROTOCOL_VERSION: u32 = 1;
+
+#[derive(Debug, Error)]
+pub enum ProtoError {
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("JSON error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("Protocol version mismatch: expected {expected}, got {got}")]
+    VersionMismatch { expected: u32, got: u32 },
+    #[error("Connection closed prematurely")]
+    ConnectionClosed,
+    #[error("Agent error: {0}")]
+    AgentError(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpcRequest {
+    pub proto_version: u32,
+    pub request_id: String,
+    pub payload: RequestPayload,
+}
+
+impl RpcRequest {
+    pub fn new(request_id: impl Into<String>, payload: RequestPayload) -> Self {
+        Self {
+            proto_version: PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            payload,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "cmd", content = "data")]
+pub enum RequestPayload {
+    Ping,
+    Version,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RpcResponse {
+    pub proto_version: u32,
+    pub request_id: String,
+    pub success: bool,
+    pub payload: ResponsePayload,
+    pub error: Option<String>,
+}
+
+impl RpcResponse {
+    pub fn ok(request_id: impl Into<String>, payload: ResponsePayload) -> Self {
+        Self {
+            proto_version: PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            success: true,
+            payload,
+            error: None,
+        }
+    }
+
+    pub fn err(request_id: impl Into<String>, message: impl Into<String>) -> Self {
+        let msg = message.into();
+        Self {
+            proto_version: PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            success: false,
+            payload: ResponsePayload::Error(msg.clone()),
+            error: Some(msg),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", content = "data")]
+pub enum ResponsePayload {
+    Pong,
+    Version(VersionInfo),
+    Error(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VersionInfo {
+    pub version: String,
+    pub proto_version: u32,
+    pub os: String,
+    pub arch: String,
+}
+
+/// Helper to wrap any async IO stream with length-delimited JSON RPC framing.
+pub struct RpcStream<S> {
+    inner: Framed<S, LengthDelimitedCodec>,
+}
+
+impl<S> RpcStream<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    pub fn new(stream: S) -> Self {
+        let codec = LengthDelimitedCodec::builder()
+            .max_frame_length(16 * 1024 * 1024) // 16 MB max frame
+            .new_codec();
+        Self {
+            inner: Framed::new(stream, codec),
+        }
+    }
+
+    pub async fn send_request(&mut self, req: &RpcRequest) -> Result<(), ProtoError> {
+        let bytes = serde_json::to_vec(req)?;
+        self.inner.send(Bytes::from(bytes)).await?;
+        Ok(())
+    }
+
+    pub async fn recv_request(&mut self) -> Result<RpcRequest, ProtoError> {
+        match self.inner.next().await {
+            Some(Ok(bytes)) => {
+                let req: RpcRequest = serde_json::from_slice(&bytes)?;
+                if req.proto_version != PROTOCOL_VERSION {
+                    return Err(ProtoError::VersionMismatch {
+                        expected: PROTOCOL_VERSION,
+                        got: req.proto_version,
+                    });
+                }
+                Ok(req)
+            }
+            Some(Err(e)) => Err(ProtoError::Io(e)),
+            None => Err(ProtoError::ConnectionClosed),
+        }
+    }
+
+    pub async fn send_response(&mut self, res: &RpcResponse) -> Result<(), ProtoError> {
+        let bytes = serde_json::to_vec(res)?;
+        self.inner.send(Bytes::from(bytes)).await?;
+        Ok(())
+    }
+
+    pub async fn recv_response(&mut self) -> Result<RpcResponse, ProtoError> {
+        match self.inner.next().await {
+            Some(Ok(bytes)) => {
+                let res: RpcResponse = serde_json::from_slice(&bytes)?;
+                Ok(res)
+            }
+            Some(Err(e)) => Err(ProtoError::Io(e)),
+            None => Err(ProtoError::ConnectionClosed),
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rpc_serialization_ping() {
+        let req = RpcRequest::new("req-1", RequestPayload::Ping);
+        let serialized = serde_json::to_string(&req).expect("serialize");
+        let deserialized: RpcRequest = serde_json::from_str(&serialized).expect("deserialize");
+        assert_eq!(req, deserialized);
+    }
+
+    #[tokio::test]
+    async fn test_rpc_roundtrip_stream() {
+        let (client_io, server_io) = tokio::io::duplex(1024);
+        let mut client_rpc = RpcStream::new(client_io);
+        let mut server_rpc = RpcStream::new(server_io);
+
+        let client_task = tokio::spawn(async move {
+            let req = RpcRequest::new("test-123", RequestPayload::Ping);
+            client_rpc.send_request(&req).await.expect("send request");
+            let res = client_rpc.recv_response().await.expect("recv response");
+            assert_eq!(res.request_id, "test-123");
+            assert_eq!(res.payload, ResponsePayload::Pong);
+        });
+
+        let server_task = tokio::spawn(async move {
+            let req = server_rpc.recv_request().await.expect("recv request");
+            assert_eq!(req.payload, RequestPayload::Ping);
+            let res = RpcResponse::ok(req.request_id, ResponsePayload::Pong);
+            server_rpc.send_response(&res).await.expect("send response");
+        });
+
+        let _ = tokio::try_join!(client_task, server_task).expect("roundtrip successful");
+    }
+}

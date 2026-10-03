@@ -1,0 +1,55 @@
+{
+  "common": {
+    "appName": "Nusa Panel",
+    "loading": "Loading...",
+    "search": "Search or type a command...",
+    "refresh": "Refresh",
+    "status": "Status",
+    "actions": "Actions",
+    "save": "Save changes",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "theme": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    }
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "sites": "Sites",
+    "users": "Users",
+    "analytics": "Analytics",
+    "runtime": "Runtime",
+    "jobs": "Jobs",
+    "audit": "Audit",
+    "settings": "Settings"
+  },
+  "dashboard": {
+    "overview": "All systems normal",
+    "attentionNeeded": "{{count}} sites require attention",
+    "systemInfo": "System Information",
+    "apiVersion": "API Version",
+    "agentVersion": "Agent Version",
+    "agentStatus": "Agent Connection",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "osArch": "OS / Architecture",
+    "quickStats": {
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk",
+      "network": "Network"
+    },
+    "sitesTable": {
+      "title": "Sites",
+      "newSite": "New site",
+      "domain": "Domain",
+      "runtime": "Runtime",
+      "pulse": "60m Activity",
+      "requests": "Traffic",
+      "latency": "p95 Latency",
+      "viewDetails": "View details"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (Rust)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting (rustfmt)
+        run: cargo fmt --check
+
+      - name: Run Clippy lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run Rust tests
+        run: cargo test --workspace
+
+      - name: Install cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  frontend:
+    name: Frontend (React & TypeScript)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck (tsc)
+        working-directory: web
+        run: npm run check
+
+      - name: Lint (eslint)
+        working-directory: web
+        run: npm run lint
+
+      - name: Run frontend unit tests
+        working-directory: web
+        run: npm test -- --run
+
+      - name: Build frontend production bundle
+        working-directory: web
+        run: npm run build

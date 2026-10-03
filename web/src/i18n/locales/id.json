@@ -1,0 +1,55 @@
+{
+  "common": {
+    "appName": "Nusa Panel",
+    "loading": "Memuat...",
+    "search": "Cari atau jalankan perintah...",
+    "refresh": "Segarkan",
+    "status": "Status",
+    "actions": "Aksi",
+    "save": "Simpan perubahan",
+    "cancel": "Batal",
+    "delete": "Hapus",
+    "theme": {
+      "light": "Terang",
+      "dark": "Gelap",
+      "system": "Ikuti sistem"
+    }
+  },
+  "nav": {
+    "dashboard": "Beranda",
+    "sites": "Situs",
+    "users": "Pengguna",
+    "analytics": "Analitik",
+    "runtime": "Runtime",
+    "jobs": "Tugas",
+    "audit": "Audit",
+    "settings": "Pengaturan"
+  },
+  "dashboard": {
+    "overview": "Semua layanan normal",
+    "attentionNeeded": "{{count}} situs perlu perhatian",
+    "systemInfo": "Informasi Sistem",
+    "apiVersion": "Versi API",
+    "agentVersion": "Versi Agent",
+    "agentStatus": "Koneksi Agent",
+    "connected": "Terhubung",
+    "disconnected": "Terputus",
+    "osArch": "OS / Arsitektur",
+    "quickStats": {
+      "cpu": "CPU",
+      "memory": "Memori",
+      "disk": "Disk",
+      "network": "Jaringan"
+    },
+    "sitesTable": {
+      "title": "Daftar Situs",
+      "newSite": "Situs baru",
+      "domain": "Domain",
+      "runtime": "Runtime",
+      "pulse": "Aktivitas 60 mnt",
+      "requests": "Traffic",
+      "latency": "Latensi p95",
+      "viewDetails": "Lihat detail"
+    }
+  }
+}

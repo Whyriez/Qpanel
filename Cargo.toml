@@ -1,0 +1,78 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/panel-core",
+    "crates/panel-proto",
+    "crates/panel-api",
+    "crates/panel-agent",
+    "crates/panel-db",
+    "crates/panel-webserver",
+    "crates/panel-runtime",
+    "crates/panel-fs",
+    "crates/panel-analytics",
+    "crates/panel-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Nusa Panel Contributors"]
+repository = "https://github.com/nusa-panel/panel"
+
+[workspace.dependencies]
+# Internal workspace crates
+panel-core = { path = "crates/panel-core" }
+panel-proto = { path = "crates/panel-proto" }
+panel-api = { path = "crates/panel-api" }
+panel-agent = { path = "crates/panel-agent" }
+panel-db = { path = "crates/panel-db" }
+panel-webserver = { path = "crates/panel-webserver" }
+panel-runtime = { path = "crates/panel-runtime" }
+panel-fs = { path = "crates/panel-fs" }
+panel-analytics = { path = "crates/panel-analytics" }
+
+# Async & Networking
+tokio = { version = "1.43", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures-util = "0.3"
+bytes = "1.10"
+http-body-util = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
+
+# Serialization & OpenAPI
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+utoipa = { version = "5.3", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+
+# Logging & Errors
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = "2.0"
+
+# Embed assets
+rust-embed = { version = "8.6", features = ["interpolate-folder-path"] }
+mime_guess = "2.0"
+
+# Utilities
+tempfile = "3.17"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+clone_on_ref_ptr = "warn"
+cognitive_complexity = "warn"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "unwind"

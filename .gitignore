@@ -1,0 +1,34 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node & Frontend
+node_modules/
+web/dist/
+web/.vite/
+web/coverage/
+
+# Panel runtime & data files
+*.db
+*.db-wal
+*.db-shm
+*.sock
+/run/
+/etc/panel/
+secret.key
+*.env
+!.env.example
+*.log
+/var/
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Tests & Coverage
+coverage/
+lcov.info
