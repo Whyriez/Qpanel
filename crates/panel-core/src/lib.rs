@@ -4,10 +4,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod auth;
+pub mod domain;
 pub mod rbac;
 pub mod tenant;
 pub mod totp;
 pub use auth::{hash_password, hash_token, verify_password};
+pub use domain::{DomainName, DomainValidationError};
 pub use rbac::{Action, Role, authorize, check_permission};
 pub use tenant::{MAX_TENANT_UID, MIN_TENANT_UID, ShellPolicy, TenantUid, is_reserved_username};
 pub use totp::{

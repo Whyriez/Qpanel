@@ -730,7 +730,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 **Tujuan**: situs static pertama bisa online dengan HTTPS, dan pipeline apply config aman.
 **Prasyarat**: Phase 2.
 
-- [ ] **P3-T1 Model site dan domain**: validasi (IDN/punycode lewat `idna`), keunikan domain, status.
+- [x] **P3-T1 Model site dan domain**: validasi (IDN/punycode lewat `idna`), keunikan domain, status.
 - [ ] **P3-T2 Baseline nginx**: installer menulis `nginx.conf` ter-tuning dan direktori include; server default menolak host tak dikenal (444); vhost panel (`:8443`); snippet (acme, security-headers, deny-sensitive, fastcgi-params); log format `panel_json`.
 - [ ] **P3-T3 Renderer + apply atomic**: render `minijinja` → staging → `nginx -t` → swap → reload debounce → **rollback otomatis**. Test golden, test injeksi (domain jahat), test rollback dengan config sengaja rusak.
 - [ ] **P3-T4 Site static**: buat/aktif/nonaktif/hapus, halaman placeholder, docroot, SPA fallback, header cache.

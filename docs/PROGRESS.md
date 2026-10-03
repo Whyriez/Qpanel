@@ -29,7 +29,7 @@
 - [x] P2-T7 Suite isolasi: cross-tenant integration tests (cross-tenant read/write/list, /proc hidepid, OOM terkurung, fork bomb tertahan TasksMax, symlink escape, suspend isolation, vm_runner) — test: isolation-tests (13 tests), ADR-0013
 
 ## Phase 3 — Site engine: static + Nginx + domain + SSL
-- [ ] P3-T1 Model site dan domain
+- [x] P3-T1 Model site dan domain: validasi IDN/punycode via idna, anti-injeksi, keunikan domain global, model Site & Domain, SqliteSiteRepository & SqliteDomainRepository, migrasi schema — test: domain::tests, site_domain_repository_test, ADR-0014
 - [ ] P3-T2 Baseline nginx
 - [ ] P3-T3 Renderer + apply atomic
 - [ ] P3-T4 Site static

@@ -1,17 +1,21 @@
 pub mod api_token_repo;
 pub mod audit_log_repo;
+pub mod domain_repo;
 pub mod job_repo;
 pub mod plan_repo;
 pub mod recovery_code_repo;
 pub mod session_repo;
 pub mod setting_repo;
+pub mod site_repo;
 pub mod user_repo;
 
 pub use api_token_repo::SqliteApiTokenRepository;
 pub use audit_log_repo::{AuditLogFilter, SqliteAuditLogRepository};
+pub use domain_repo::SqliteDomainRepository;
 pub use job_repo::SqliteJobRepository;
 pub use plan_repo::SqlitePlanRepository;
 pub use recovery_code_repo::SqliteRecoveryCodeRepository;
 pub use session_repo::SqliteSessionRepository;
 pub use setting_repo::SqliteSettingRepository;
+pub use site_repo::SqliteSiteRepository;
 pub use user_repo::SqliteUserRepository;

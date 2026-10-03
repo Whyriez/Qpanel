@@ -1415,6 +1415,7 @@ name = "panel-core"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "idna",
  "rand_core 0.6.4",
  "serde",
  "sha2 0.10.9",
