@@ -3,9 +3,11 @@
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
     AcmeChallengeDeployedResponse, HardeningApplyRequest, HardeningApplyResponse, HardeningStatus,
-    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, ProtoError, QuotaGetRequest,
-    QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse,
-    RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
+    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, PhpRepoSetupRequest,
+    PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
+    PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
+    QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
+    QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
     SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
     SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
     SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
@@ -787,6 +789,133 @@ impl AgentClient {
             ResponsePayload::SiteLogsRead(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SiteLogsRead",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn setup_php_repo(&self) -> Result<PhpRepoSetupResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-repo-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PhpRepoSetup(PhpRepoSetupRequest {}));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpRepoSetup(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpRepoSetup",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn list_php_runtimes(&self) -> Result<PhpRuntimeListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpRuntimeList(PhpRuntimeListRequest {}),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpRuntimeList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpRuntimeList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn install_php_runtime(
+        &self,
+        version: impl Into<String>,
+    ) -> Result<PhpRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-install-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpRuntimeInstall(PhpRuntimeInstallRequest {
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpRuntimeInstalled(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpRuntimeInstalled",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_php_runtime(
+        &self,
+        version: impl Into<String>,
+    ) -> Result<PhpRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-remove-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpRuntimeRemove(PhpRuntimeRemoveRequest {
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpRuntimeRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpRuntimeRemoved",
                 got: format!("{other:?}"),
             }),
         }

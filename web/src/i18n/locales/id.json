@@ -233,5 +233,35 @@
         "actions": "Aksi"
       }
     }
+  },
+  "runtime": {
+    "title": "Manajer Runtime PHP",
+    "subtitle": "Kelola versi PHP sistem, repositori Sury PPA, dan isolasi FPM tenant.",
+    "ppaStatus": "Status Repositori Sury PPA",
+    "ppaConfigured": "Terkonfigurasi",
+    "ppaNotConfigured": "Belum Terkonfigurasi",
+    "setupRepo": "Konfigurasi Repositori Sury PPA",
+    "setupRepoDesc": "Tambahkan ppa:ondrej/php untuk mendapatkan rilis PHP terbaru dan pembaruan keamanan.",
+    "settingUpRepo": "Menyiapkan repositori...",
+    "version": "Versi PHP",
+    "status": "Status",
+    "service": "Service OS",
+    "binaries": "Path Biner",
+    "actions": "Aksi",
+    "installed": "Terpasang",
+    "available": "Tersedia",
+    "masked": "Dimask (Aman)",
+    "notMasked": "Tidak Dimask",
+    "install": "Pasang",
+    "installing": "Memasang...",
+    "remove": "Hapus",
+    "removing": "Menghapus...",
+    "removeConfirm": "Apakah Anda yakin ingin menghapus PHP {{version}}?",
+    "fpmBinary": "Biner FPM",
+    "cliBinary": "Biner CLI",
+    "serviceName": "Nama Service",
+    "maskingNote": "Service FPM tingkat OS otomatis di-mask agar tidak berjalan sebagai root atau global. Setiap tenant akan menggunakan master FPM terisolasi sendiri.",
+    "inUseWarning": "Versi PHP ini sedang digunakan oleh situs aktif dan tidak dapat dihapus."
   }
 }
+

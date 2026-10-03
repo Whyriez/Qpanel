@@ -233,5 +233,35 @@
         "actions": "Actions"
       }
     }
+  },
+  "runtime": {
+    "title": "PHP Runtime Manager",
+    "subtitle": "Manage system PHP versions, Sury PPA repository, and tenant FPM isolation.",
+    "ppaStatus": "Sury PPA Repository Status",
+    "ppaConfigured": "Configured",
+    "ppaNotConfigured": "Not Configured",
+    "setupRepo": "Configure Sury PPA Repository",
+    "setupRepoDesc": "Add ppa:ondrej/php to receive the latest PHP releases and security updates.",
+    "settingUpRepo": "Configuring repository...",
+    "version": "PHP Version",
+    "status": "Status",
+    "service": "OS Service",
+    "binaries": "Binary Paths",
+    "actions": "Actions",
+    "installed": "Installed",
+    "available": "Available",
+    "masked": "Masked (Secure)",
+    "notMasked": "Not Masked",
+    "install": "Install",
+    "installing": "Installing...",
+    "remove": "Remove",
+    "removing": "Removing...",
+    "removeConfirm": "Are you sure you want to remove PHP {{version}}?",
+    "fpmBinary": "FPM Binary",
+    "cliBinary": "CLI Binary",
+    "serviceName": "Service Name",
+    "maskingNote": "OS-level FPM service is automatically masked so it never runs globally or as root. Each tenant uses their own isolated FPM master.",
+    "inUseWarning": "This PHP version is currently in use by active websites and cannot be removed."
   }
 }
+

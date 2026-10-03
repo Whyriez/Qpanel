@@ -37,6 +37,7 @@ import {
   CustomCertRequest,
   SslActionResponse,
   SiteLogsResponse,
+  PhpRuntimeListApiResponse,
 } from '../types/api';
 
 const API_BASE = '';
@@ -524,6 +525,32 @@ export async function fetchSiteLogs(
   if (lines) params.set('lines', lines.toString());
   if (query) params.set('query', query);
   return request<SiteLogsResponse>(`/api/v1/sites/${siteId}/logs?${params.toString()}`);
+}
+
+// ==========================================
+// PHP Runtime API
+// ==========================================
+
+export async function fetchPhpVersions(): Promise<PhpRuntimeListApiResponse> {
+  return request<PhpRuntimeListApiResponse>('/api/v1/php/versions');
+}
+
+export async function setupPhpRepo(): Promise<JobItem> {
+  return request<JobItem>('/api/v1/php/repo/setup', {
+    method: 'POST',
+  });
+}
+
+export async function installPhpVersion(version: string): Promise<JobItem> {
+  return request<JobItem>(`/api/v1/php/versions/${encodeURIComponent(version)}/install`, {
+    method: 'POST',
+  });
+}
+
+export async function removePhpVersion(version: string): Promise<JobItem> {
+  return request<JobItem>(`/api/v1/php/versions/${encodeURIComponent(version)}/remove`, {
+    method: 'POST',
+  });
 }
 
 

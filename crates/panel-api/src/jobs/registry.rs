@@ -251,6 +251,194 @@ impl JobHandler for QuotaScanHandler {
     }
 }
 
+/// PHP Sury/PPA repository setup handler.
+pub struct PhpRepoSetupHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl PhpRepoSetupHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for PhpRepoSetupHandler {
+    fn run<'a>(&'a self, _job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let _ = ctx
+                .report_progress(10, Some("Menyiapkan repositori Sury PHP PPA..."))
+                .await;
+
+            if ctx.is_cancelled() {
+                return Err("Job was cancelled before execution".to_string());
+            }
+
+            let res = self
+                .agent_client
+                .setup_php_repo()
+                .await
+                .map_err(|e| format!("Setup repositori PHP gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(100, Some("Repositori PHP berhasil dikonfigurasi"))
+                .await;
+
+            let result = serde_json::json!({
+                "success": res.success,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// PHP runtime installation handler.
+pub struct PhpInstallHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl PhpInstallHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for PhpInstallHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let version = payload
+                .get("version")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'version' wajib disertakan dalam payload".to_string())?;
+
+            panel_runtime::php::PhpVersion::parse(version)
+                .map_err(|e| format!("Versi PHP tidak valid: {e}"))?;
+
+            let _ = ctx
+                .report_progress(15, Some(&format!("Memulai instalasi PHP {}...", version)))
+                .await;
+
+            if ctx.is_cancelled() {
+                return Err("Job was cancelled before installation".to_string());
+            }
+
+            let _ = ctx
+                .report_progress(
+                    35,
+                    Some(&format!(
+                        "Memasang paket PHP {} dan melakukan masking service FPM...",
+                        version
+                    )),
+                )
+                .await;
+
+            let res = self
+                .agent_client
+                .install_php_runtime(version)
+                .await
+                .map_err(|e| format!("Instalasi PHP {version} gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(
+                    100,
+                    Some(&format!(
+                        "PHP {} berhasil dipasang dan service FPM dimask",
+                        version
+                    )),
+                )
+                .await;
+
+            let result = serde_json::json!({
+                "version": res.version,
+                "success": res.success,
+                "masked": res.masked,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// PHP runtime removal handler.
+pub struct PhpRemoveHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl PhpRemoveHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for PhpRemoveHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let version = payload
+                .get("version")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'version' wajib disertakan dalam payload".to_string())?;
+
+            panel_runtime::php::PhpVersion::parse(version)
+                .map_err(|e| format!("Versi PHP tidak valid: {e}"))?;
+
+            let _ = ctx
+                .report_progress(
+                    10,
+                    Some(&format!(
+                        "Memeriksa penggunaan PHP {} pada situs aktif...",
+                        version
+                    )),
+                )
+                .await;
+
+            // Check if any sites are using this PHP version
+            let site_repo = panel_db::repositories::SqliteSiteRepository::new(ctx.pool.clone());
+            let count = site_repo
+                .count_by_runtime_and_version("php", version)
+                .await
+                .map_err(|e| format!("Gagal memeriksa penggunaan PHP di database: {e}"))?;
+
+            if count > 0 {
+                return Err(format!(
+                    "Tidak dapat menghapus PHP {}: sedang digunakan oleh {} situs.",
+                    version, count
+                ));
+            }
+
+            if ctx.is_cancelled() {
+                return Err("Job was cancelled before removal".to_string());
+            }
+
+            let _ = ctx
+                .report_progress(40, Some(&format!("Menghapus paket PHP {}...", version)))
+                .await;
+
+            let res = self
+                .agent_client
+                .remove_php_runtime(version)
+                .await
+                .map_err(|e| format!("Penghapusan PHP {version} gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(100, Some(&format!("PHP {} berhasil dihapus", version)))
+                .await;
+
+            let result = serde_json::json!({
+                "version": res.version,
+                "success": res.success,
+                "masked": res.masked,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
 /// Central registry mapping job names to their respective handlers.
 pub struct JobRegistry {
     handlers: HashMap<String, Arc<dyn JobHandler>>,
@@ -279,7 +467,19 @@ impl JobRegistry {
             "quota.report",
             QuotaReportHandler::new(Arc::clone(&agent_client)),
         );
-        reg.register("quota.scan", QuotaScanHandler::new(agent_client));
+        reg.register(
+            "quota.scan",
+            QuotaScanHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "php.repo.setup",
+            PhpRepoSetupHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "php.install",
+            PhpInstallHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register("php.remove", PhpRemoveHandler::new(agent_client));
         reg
     }
 

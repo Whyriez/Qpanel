@@ -28,6 +28,10 @@ impl NginxManager {
         }
     }
 
+    pub fn runner(&self) -> &Arc<dyn SystemRunner> {
+        &self.runner
+    }
+
     fn build_config(&self, req: &NginxBaselineApplyRequest) -> NginxBaselineConfig {
         let base_dir = req
             .base_dir

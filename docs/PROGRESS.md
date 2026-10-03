@@ -44,7 +44,7 @@
 
 ## Phase 4 — PHP multi-versi terisolasi
 
-- [ ] P4-T1 Manajer runtime PHP
+- [x] P4-T1 Manajer runtime PHP: repositori Sury PHP PPA (`ppa:ondrej/php`), instalasi/penghapusan versi PHP (7.4, 8.0, 8.1, 8.2, 8.3, 8.4) via background jobs dengan progress, pencegahan penghapusan versi aktif di database, masking otomatis `systemctl mask phpX.Y-fpm.service` pada instalasi agar FPM OS tidak pernah berjalan sebagai root, UI RuntimePage & konfirmasi bahaya — test: panel-runtime::tests, panel-proto::tests, panel-agent::tests, php_runtime_test, RuntimePage.test, ADR-0022
 - [ ] P4-T2 Ekstensi PHP
 - [ ] P4-T3 Master PHP-FPM per (tenant, versi)
 - [ ] P4-T4 Template Nginx PHP

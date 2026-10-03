@@ -65,6 +65,10 @@ pub enum RequestPayload {
     AcmeChallengeCleanup(AcmeChallengeCleanupRequest),
     SslCertDeploy(SslCertDeployRequest),
     SiteLogsRead(SiteLogsReadRequest),
+    PhpRepoSetup(PhpRepoSetupRequest),
+    PhpRuntimeList(PhpRuntimeListRequest),
+    PhpRuntimeInstall(PhpRuntimeInstallRequest),
+    PhpRuntimeRemove(PhpRuntimeRemoveRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -197,6 +201,10 @@ pub enum ResponsePayload {
     AcmeChallengeCleaned(AcmeChallengeCleanedResponse),
     SslCertDeployed(SslCertDeployedResponse),
     SiteLogsRead(SiteLogsReadResponse),
+    PhpRepoSetup(PhpRepoSetupResponse),
+    PhpRuntimeList(PhpRuntimeListResponse),
+    PhpRuntimeInstalled(PhpRuntimeActionResponse),
+    PhpRuntimeRemoved(PhpRuntimeActionResponse),
     Error(String),
 }
 
@@ -453,6 +461,56 @@ pub struct SiteLogsReadRequest {
 pub struct SiteLogsReadResponse {
     pub lines: Vec<String>,
     pub total_matched: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRepoSetupRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRepoSetupResponse {
+    pub success: bool,
+    pub ppa_configured: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRuntimeListRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpVersionStatusDto {
+    pub version: String,
+    pub installed: bool,
+    pub fpm_binary_exists: bool,
+    pub cli_binary_exists: bool,
+    pub service_masked: bool,
+    pub status: String,
+    pub fpm_binary_path: String,
+    pub cli_binary_path: String,
+    pub service_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRuntimeListResponse {
+    pub ppa_configured: bool,
+    pub versions: Vec<PhpVersionStatusDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRuntimeInstallRequest {
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRuntimeRemoveRequest {
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpRuntimeActionResponse {
+    pub version: String,
+    pub success: bool,
+    pub masked: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -840,5 +898,65 @@ mod tests {
         let de_res: RpcResponse =
             serde_json::from_str(&s_res).expect("deserialize SiteLogsRead response");
         assert_eq!(res, de_res);
+    }
+
+    #[test]
+    fn test_rpc_php_runtime_payloads() {
+        let req_install = RpcRequest::new(
+            "php-inst-1",
+            RequestPayload::PhpRuntimeInstall(PhpRuntimeInstallRequest {
+                version: "8.3".to_string(),
+            }),
+        );
+        let s_req = serde_json::to_string(&req_install).expect("serialize PhpRuntimeInstall");
+        let de_req: RpcRequest =
+            serde_json::from_str(&s_req).expect("deserialize PhpRuntimeInstall");
+        assert_eq!(req_install, de_req);
+
+        let res_install = RpcResponse::ok(
+            "php-inst-1",
+            ResponsePayload::PhpRuntimeInstalled(PhpRuntimeActionResponse {
+                version: "8.3".to_string(),
+                success: true,
+                masked: true,
+                message: "PHP 8.3 installed and php8.3-fpm service masked".to_string(),
+            }),
+        );
+        let s_res = serde_json::to_string(&res_install).expect("serialize PhpRuntimeInstalled");
+        let de_res: RpcResponse =
+            serde_json::from_str(&s_res).expect("deserialize PhpRuntimeInstalled");
+        assert_eq!(res_install, de_res);
+
+        let req_list = RpcRequest::new(
+            "php-list-1",
+            RequestPayload::PhpRuntimeList(PhpRuntimeListRequest {}),
+        );
+        let s_list = serde_json::to_string(&req_list).expect("serialize PhpRuntimeList");
+        let de_list: RpcRequest =
+            serde_json::from_str(&s_list).expect("deserialize PhpRuntimeList");
+        assert_eq!(req_list, de_list);
+
+        let res_list = RpcResponse::ok(
+            "php-list-1",
+            ResponsePayload::PhpRuntimeList(PhpRuntimeListResponse {
+                ppa_configured: true,
+                versions: vec![PhpVersionStatusDto {
+                    version: "8.3".to_string(),
+                    installed: true,
+                    fpm_binary_exists: true,
+                    cli_binary_exists: true,
+                    service_masked: true,
+                    status: "installed".to_string(),
+                    fpm_binary_path: "/usr/sbin/php-fpm8.3".to_string(),
+                    cli_binary_path: "/usr/bin/php8.3".to_string(),
+                    service_name: "php8.3-fpm.service".to_string(),
+                }],
+            }),
+        );
+        let s_res_list =
+            serde_json::to_string(&res_list).expect("serialize PhpRuntimeListResponse");
+        let de_res_list: RpcResponse =
+            serde_json::from_str(&s_res_list).expect("deserialize PhpRuntimeListResponse");
+        assert_eq!(res_list, de_res_list);
     }
 }

@@ -22,6 +22,9 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "mount",
     "getent",
     "nginx",
+    "apt-get",
+    "add-apt-repository",
+    "dpkg-query",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
@@ -245,6 +248,22 @@ impl MockSystemRunner {
 
     pub fn recorded_actions(&self) -> Vec<MockAction> {
         self.actions.lock().map(|l| l.clone()).unwrap_or_default()
+    }
+
+    pub fn get_commands(&self) -> Vec<String> {
+        self.recorded_actions()
+            .into_iter()
+            .filter_map(|action| match action {
+                MockAction::Command { binary, args } => {
+                    Some(format!("{} {}", binary, args.join(" ")))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn add_existing_path(&self, path: impl AsRef<Path>) {
+        self.set_file_content(path, b"");
     }
 }
 

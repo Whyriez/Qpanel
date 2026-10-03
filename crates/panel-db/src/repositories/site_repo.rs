@@ -201,4 +201,21 @@ impl SqliteSiteRepository {
 
         Ok(count.0)
     }
+
+    /// Counts sites configured with a specific runtime and version.
+    pub async fn count_by_runtime_and_version(
+        &self,
+        runtime: &str,
+        version: &str,
+    ) -> Result<i64, DbError> {
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM sites WHERE runtime = ? AND version = ?")
+                .bind(runtime)
+                .bind(version)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(DbError::Sqlx)?;
+
+        Ok(count.0)
+    }
 }

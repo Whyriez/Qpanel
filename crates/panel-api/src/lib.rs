@@ -5,6 +5,7 @@ pub mod auth;
 pub mod config;
 pub mod jobs;
 pub mod logs;
+pub mod php;
 pub mod plans;
 pub mod routes;
 pub mod sites;
@@ -181,6 +182,17 @@ pub fn create_router(state: AppState) -> Router {
         // Site Logs & WebSocket Live Tail
         .route("/api/v1/sites/{id}/logs", get(logs::get_site_logs_handler))
         .route("/ws/logs/{id}", get(logs::site_logs_ws_handler))
+        // PHP Runtime management endpoints
+        .route("/api/v1/php/versions", get(php::list_php_versions_handler))
+        .route("/api/v1/php/repo/setup", post(php::setup_php_repo_handler))
+        .route(
+            "/api/v1/php/versions/{version}/install",
+            post(php::install_php_version_handler),
+        )
+        .route(
+            "/api/v1/php/versions/{version}/remove",
+            post(php::remove_php_version_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

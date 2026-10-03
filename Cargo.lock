@@ -1638,6 +1638,7 @@ version = "0.1.0"
 dependencies = [
  "panel-core",
  "panel-proto",
+ "panel-runtime",
  "panel-webserver",
  "serde",
  "serde_json",
@@ -1671,6 +1672,7 @@ dependencies = [
  "panel-core",
  "panel-db",
  "panel-proto",
+ "panel-runtime",
  "panel-webserver",
  "rcgen",
  "rust-embed",

@@ -1,0 +1,216 @@
+//! PHP runtime domain models, version definitions, package lists, and service helpers.
+
+use crate::error::RuntimeError;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::path::{Path, PathBuf};
+
+/// Whitelisted, supported PHP versions in Nusa Panel.
+/// Parallel versions provided via Ondřej Surý PPA / Debian repo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum PhpVersion {
+    #[serde(rename = "7.4")]
+    Php74,
+    #[serde(rename = "8.0")]
+    Php80,
+    #[serde(rename = "8.1")]
+    Php81,
+    #[serde(rename = "8.2")]
+    Php82,
+    #[serde(rename = "8.3")]
+    Php83,
+    #[serde(rename = "8.4")]
+    Php84,
+}
+
+impl PhpVersion {
+    /// Returns all supported PHP versions ordered from oldest to newest.
+    pub const fn all_supported() -> &'static [PhpVersion] {
+        &[
+            PhpVersion::Php74,
+            PhpVersion::Php80,
+            PhpVersion::Php81,
+            PhpVersion::Php82,
+            PhpVersion::Php83,
+            PhpVersion::Php84,
+        ]
+    }
+
+    /// Parses a version string with strict whitelisting. Prevents command injection.
+    pub fn parse(s: &str) -> Result<Self, RuntimeError> {
+        let clean = s.trim().to_ascii_lowercase();
+        let stripped = clean.strip_prefix("php").unwrap_or(&clean);
+
+        match stripped {
+            "7.4" => Ok(Self::Php74),
+            "8.0" => Ok(Self::Php80),
+            "8.1" => Ok(Self::Php81),
+            "8.2" => Ok(Self::Php82),
+            "8.3" => Ok(Self::Php83),
+            "8.4" => Ok(Self::Php84),
+            _ => Err(RuntimeError::UnsupportedPhpVersion(s.to_string())),
+        }
+    }
+
+    /// Returns the canonical version string (e.g. "8.3").
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Php74 => "7.4",
+            Self::Php80 => "8.0",
+            Self::Php81 => "8.1",
+            Self::Php82 => "8.2",
+            Self::Php83 => "8.3",
+            Self::Php84 => "8.4",
+        }
+    }
+
+    /// Systemd unit name for the default OS FPM service (must be masked by the panel).
+    pub fn fpm_service_name(&self) -> String {
+        format!("php{}-fpm.service", self.as_str())
+    }
+
+    /// Default path to the FPM binary.
+    pub fn fpm_binary_path(&self) -> PathBuf {
+        PathBuf::from(format!("/usr/sbin/php-fpm{}", self.as_str()))
+    }
+
+    /// Default path to the CLI binary.
+    pub fn cli_binary_path(&self) -> PathBuf {
+        PathBuf::from(format!("/usr/bin/php{}", self.as_str()))
+    }
+
+    /// Default path to the FPM configuration directory.
+    pub fn fpm_config_dir(&self) -> PathBuf {
+        PathBuf::from(format!("/etc/php/{}/fpm", self.as_str()))
+    }
+
+    /// Default path to the CLI configuration directory.
+    pub fn cli_config_dir(&self) -> PathBuf {
+        PathBuf::from(format!("/etc/php/{}/cli", self.as_str()))
+    }
+
+    /// Returns list of Debian/Ubuntu packages to install for this PHP version.
+    pub fn base_packages(&self) -> Vec<String> {
+        let v = self.as_str();
+        vec![
+            format!("php{v}-fpm"),
+            format!("php{v}-cli"),
+            format!("php{v}-common"),
+            format!("php{v}-opcache"),
+            format!("php{v}-curl"),
+            format!("php{v}-mbstring"),
+            format!("php{v}-xml"),
+            format!("php{v}-zip"),
+            format!("php{v}-mysql"),
+        ]
+    }
+}
+
+impl fmt::Display for PhpVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Detailed status information about a PHP runtime version on the host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhpVersionInfo {
+    pub version: String,
+    pub installed: bool,
+    pub fpm_binary_exists: bool,
+    pub cli_binary_exists: bool,
+    pub service_masked: bool,
+    pub status: String,
+    pub fpm_binary_path: String,
+    pub cli_binary_path: String,
+    pub service_name: String,
+}
+
+impl PhpVersionInfo {
+    /// Creates status from version and host check indicators.
+    pub fn new(
+        version: PhpVersion,
+        fpm_binary_exists: bool,
+        cli_binary_exists: bool,
+        service_masked: bool,
+    ) -> Self {
+        let installed = fpm_binary_exists && cli_binary_exists;
+        let status = if installed {
+            "installed".to_string()
+        } else {
+            "not_installed".to_string()
+        };
+
+        Self {
+            version: version.as_str().to_string(),
+            installed,
+            fpm_binary_exists,
+            cli_binary_exists,
+            service_masked,
+            status,
+            fpm_binary_path: version.fpm_binary_path().to_string_lossy().to_string(),
+            cli_binary_path: version.cli_binary_path().to_string_lossy().to_string(),
+            service_name: version.fpm_service_name(),
+        }
+    }
+}
+
+/// Helper that checks whether Sury PPA repository files exist in apt sources.
+pub fn is_sury_repo_installed(path_checker: impl Fn(&Path) -> bool) -> bool {
+    let candidates = [
+        Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-jammy.list"),
+        Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-noble.list"),
+        Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php.list"),
+        Path::new("/etc/apt/sources.list.d/php.list"),
+    ];
+    candidates.iter().any(|p| path_checker(p))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_php_version_parsing_and_whitelist() {
+        assert_eq!(PhpVersion::parse("7.4").unwrap(), PhpVersion::Php74);
+        assert_eq!(PhpVersion::parse("8.0").unwrap(), PhpVersion::Php80);
+        assert_eq!(PhpVersion::parse("8.1").unwrap(), PhpVersion::Php81);
+        assert_eq!(PhpVersion::parse("8.2").unwrap(), PhpVersion::Php82);
+        assert_eq!(PhpVersion::parse("8.3").unwrap(), PhpVersion::Php83);
+        assert_eq!(PhpVersion::parse("8.4").unwrap(), PhpVersion::Php84);
+        assert_eq!(PhpVersion::parse("php8.3").unwrap(), PhpVersion::Php83);
+
+        // Reject arbitrary versions or injections
+        assert!(PhpVersion::parse("5.6").is_err());
+        assert!(PhpVersion::parse("8.3; rm -rf /").is_err());
+        assert!(PhpVersion::parse("latest").is_err());
+        assert!(PhpVersion::parse("../etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_php_version_binary_paths_and_packages() {
+        let v83 = PhpVersion::Php83;
+        assert_eq!(v83.as_str(), "8.3");
+        assert_eq!(v83.fpm_service_name(), "php8.3-fpm.service");
+        assert_eq!(v83.fpm_binary_path(), PathBuf::from("/usr/sbin/php-fpm8.3"));
+        assert_eq!(v83.cli_binary_path(), PathBuf::from("/usr/bin/php8.3"));
+
+        let pkgs = v83.base_packages();
+        assert!(pkgs.contains(&"php8.3-fpm".to_string()));
+        assert!(pkgs.contains(&"php8.3-cli".to_string()));
+        assert!(pkgs.contains(&"php8.3-mbstring".to_string()));
+    }
+
+    #[test]
+    fn test_php_version_info_status() {
+        let info = PhpVersionInfo::new(PhpVersion::Php83, true, true, true);
+        assert!(info.installed);
+        assert_eq!(info.status, "installed");
+        assert!(info.service_masked);
+
+        let uninstalled = PhpVersionInfo::new(PhpVersion::Php83, false, false, false);
+        assert!(!uninstalled.installed);
+        assert_eq!(uninstalled.status, "not_installed");
+    }
+}

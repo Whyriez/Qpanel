@@ -49,6 +49,10 @@ use panel_db::pool::DbPool;
         crate::ssl::renew_site_ssl_handler,
         crate::ssl::delete_site_ssl_handler,
         crate::logs::get_site_logs_handler,
+        crate::php::list_php_versions_handler,
+        crate::php::setup_php_repo_handler,
+        crate::php::install_php_version_handler,
+        crate::php::remove_php_version_handler,
     ),
     components(
         schemas(
@@ -87,6 +91,8 @@ use panel_db::pool::DbPool;
             crate::ssl::CertificateDetailResponse,
             crate::ssl::SslActionResponse,
             crate::logs::SiteLogsResponse,
+            crate::php::PhpVersionStatusItem,
+            crate::php::PhpRuntimeListApiResponse,
         )
     ),
     tags(
@@ -96,7 +102,8 @@ use panel_db::pool::DbPool;
         (name = "user", description = "Tenant user resource endpoints"),
         (name = "audit", description = "Audit log query and tracking endpoints"),
         (name = "jobs", description = "Background jobs and real-time progress tracking endpoints"),
-        (name = "ssl", description = "SSL/TLS and ACME certificate management")
+        (name = "ssl", description = "SSL/TLS and ACME certificate management"),
+        (name = "runtime", description = "Runtime and PHP version management")
     ),
     info(
         title = "Nusa Panel API",
@@ -145,7 +152,11 @@ impl AppState {
         lockout_manager: Arc<LockoutManager>,
     ) -> Self {
         let audit_writer = Arc::new(crate::audit::AuditWriter::new(pool.clone()));
-        let job_runner = Arc::new(crate::jobs::JobRunner::new(pool.clone()));
+        let job_registry = crate::jobs::JobRegistry::new_with_agent(Arc::clone(&agent_client));
+        let job_runner = Arc::new(crate::jobs::JobRunner::with_registry(
+            pool.clone(),
+            job_registry,
+        ));
         Self {
             agent_client,
             pool,

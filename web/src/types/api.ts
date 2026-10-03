@@ -380,4 +380,21 @@ export interface SiteLogsResponse {
   file_size_bytes: number;
 }
 
+export interface PhpVersionStatusItem {
+  version: string;
+  installed: boolean;
+  fpm_binary_exists: boolean;
+  cli_binary_exists: boolean;
+  service_masked: boolean;
+  status: string;
+  fpm_binary_path: string;
+  cli_binary_path: string;
+  service_name: string;
+}
+
+export interface PhpRuntimeListApiResponse {
+  ppa_configured: boolean;
+  versions: PhpVersionStatusItem[];
+}
+
 

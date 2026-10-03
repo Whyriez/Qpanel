@@ -2,6 +2,7 @@
 
 pub mod audit;
 pub mod hardening;
+pub mod php;
 pub mod quota;
 pub mod resource;
 pub mod slice;
@@ -61,6 +62,7 @@ impl Default for AgentConfig {
 
 pub struct AgentServer {
     config: AgentConfig,
+    runner: Arc<dyn system::SystemRunner>,
     user_manager: Arc<user::UserLifecycleManager>,
     slice_manager: Arc<slice::SliceManager>,
     quota_manager: Arc<quota::QuotaManager>,
@@ -86,10 +88,11 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let webserver_manager = Arc::new(webserver::NginxManager::new(
-            runner as Arc<dyn system::SystemRunner>,
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         Self {
             config,
+            runner,
             user_manager,
             slice_manager,
             quota_manager,
@@ -115,10 +118,11 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let webserver_manager = Arc::new(webserver::NginxManager::new(
-            runner as Arc<dyn system::SystemRunner>,
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         Self {
             config,
+            runner,
             user_manager,
             slice_manager,
             quota_manager,
@@ -138,10 +142,11 @@ impl AgentServer {
     ) -> Self {
         let runner = Arc::new(system::RealSystemRunner);
         let webserver_manager = Arc::new(webserver::NginxManager::new(
-            runner as Arc<dyn system::SystemRunner>,
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         Self {
             config,
+            runner,
             user_manager,
             slice_manager,
             quota_manager,
@@ -160,8 +165,10 @@ impl AgentServer {
         hardening_manager: Arc<hardening::HardeningManager>,
         webserver_manager: Arc<webserver::NginxManager>,
     ) -> Self {
+        let runner = Arc::clone(webserver_manager.runner());
         Self {
             config,
+            runner,
             user_manager,
             slice_manager,
             quota_manager,
@@ -299,6 +306,7 @@ impl AgentServer {
         Ok(())
     }
 
+    #[allow(clippy::cognitive_complexity)]
     async fn handle_connection(&self, stream: IpcStream) -> Result<(), AgentError> {
         self.verify_peer(&stream)?;
         let mut rpc = RpcStream::new(stream);
@@ -365,6 +373,18 @@ impl AgentServer {
                     "nginx.site_logs_read".to_string(),
                     format!("{}/{}", d.username, d.site_domain),
                 ),
+                RequestPayload::PhpRepoSetup(_) => {
+                    ("php.repo_setup".to_string(), "sury_ppa".to_string())
+                }
+                RequestPayload::PhpRuntimeList(_) => {
+                    ("php.runtime_list".to_string(), "host".to_string())
+                }
+                RequestPayload::PhpRuntimeInstall(d) => {
+                    ("php.runtime_install".to_string(), d.version.clone())
+                }
+                RequestPayload::PhpRuntimeRemove(d) => {
+                    ("php.runtime_remove".to_string(), d.version.clone())
+                }
             };
 
             let response = match req.payload {
@@ -501,6 +521,40 @@ impl AgentServer {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::SiteLogsRead(res))
                         }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpRepoSetup(_) => {
+                    match php::setup_php_repository(self.runner.as_ref()) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpRepoSetup(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpRuntimeList(_) => {
+                    match php::list_php_runtimes(self.runner.as_ref()) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpRuntimeList(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpRuntimeInstall(data) => {
+                    match php::install_php_runtime(self.runner.as_ref(), &data.version) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpRuntimeInstalled(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpRuntimeRemove(data) => {
+                    match php::remove_php_runtime(self.runner.as_ref(), &data.version) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpRuntimeRemoved(res),
+                        ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }
