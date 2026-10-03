@@ -50,11 +50,13 @@ async fn test_quota_management_and_job_over_ipc() {
     };
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
+    let resource_reader = Arc::new(panel_agent::resource::CgroupReader::new(tmp.path()));
     let server = Arc::new(AgentServer::with_managers(
         config,
         user_manager,
         slice_manager,
         quota_manager,
+        resource_reader,
     ));
 
     let server_task = tokio::spawn(async move {

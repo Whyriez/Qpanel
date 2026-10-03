@@ -2,11 +2,11 @@
 
 use panel_proto::{
     ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse,
-    QuotaSetRequest, QuotaSetResponse, RequestPayload, ResponsePayload, RpcRequest, RpcStream,
-    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
-    UserCreateRequest, UserCreatedResponse, UserDeleteRequest, UserDeletedResponse,
-    UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse,
-    VersionInfo,
+    QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload,
+    RpcRequest, RpcStream, SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest,
+    SliceRemovedResponse, SliceResourceMetrics, UserCreateRequest, UserCreatedResponse,
+    UserDeleteRequest, UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse,
+    UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -448,6 +448,40 @@ impl AgentClient {
             ResponsePayload::QuotaScan(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "QuotaScan",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn read_slice_resources(
+        &self,
+        uid: u32,
+    ) -> Result<SliceResourceMetrics, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "resource-read-{}-{}",
+            uid,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::ResourceRead(ResourceReadRequest { uid }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::ResourceRead(data) => Ok(data.metrics),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "ResourceRead",
                 got: format!("{other:?}"),
             }),
         }

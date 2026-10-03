@@ -54,6 +54,7 @@ pub enum RequestPayload {
     QuotaSet(QuotaSetRequest),
     QuotaGet(QuotaGetRequest),
     QuotaScan(QuotaScanRequest),
+    ResourceRead(ResourceReadRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,6 +93,11 @@ pub struct QuotaScanRequest {
     pub uid: u32,
     pub username: String,
     pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceReadRequest {
+    pub uid: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -170,6 +176,7 @@ pub enum ResponsePayload {
     QuotaSet(QuotaSetResponse),
     QuotaGet(QuotaGetResponse),
     QuotaScan(QuotaScanResponse),
+    ResourceRead(ResourceReadResponse),
     Error(String),
 }
 
@@ -239,6 +246,32 @@ pub struct QuotaScanResponse {
     pub bytes_used: u64,
     pub inodes_used: u64,
     pub scan_duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SliceResourceMetrics {
+    pub uid: u32,
+    pub slice_name: String,
+    pub exists: bool,
+    pub cpu_usage_usec: u64,
+    pub cpu_user_usec: u64,
+    pub cpu_system_usec: u64,
+    pub cpu_nr_periods: u64,
+    pub cpu_nr_throttled: u64,
+    pub cpu_throttled_usec: u64,
+    pub memory_current_bytes: u64,
+    pub memory_peak_bytes: Option<u64>,
+    pub pids_current: u64,
+    pub pids_peak: Option<u64>,
+    pub io_read_bytes: u64,
+    pub io_write_bytes: u64,
+    pub io_read_ops: u64,
+    pub io_write_ops: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResourceReadResponse {
+    pub metrics: SliceResourceMetrics,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -457,5 +490,45 @@ mod tests {
         let s_scan = serde_json::to_string(&scan_res).expect("serialize QuotaScan");
         let de_scan: RpcResponse = serde_json::from_str(&s_scan).expect("deserialize QuotaScan");
         assert_eq!(scan_res, de_scan);
+    }
+
+    #[test]
+    fn test_rpc_resource_read_payloads() {
+        let req = RpcRequest::new(
+            "res-1",
+            RequestPayload::ResourceRead(ResourceReadRequest { uid: 10001 }),
+        );
+        let s_req = serde_json::to_string(&req).expect("serialize ResourceRead");
+        let de_req: RpcRequest = serde_json::from_str(&s_req).expect("deserialize ResourceRead");
+        assert_eq!(req, de_req);
+
+        let res = RpcResponse::ok(
+            "res-2",
+            ResponsePayload::ResourceRead(ResourceReadResponse {
+                metrics: SliceResourceMetrics {
+                    uid: 10001,
+                    slice_name: "panel-u10001.slice".to_string(),
+                    exists: true,
+                    cpu_usage_usec: 500_000,
+                    cpu_user_usec: 400_000,
+                    cpu_system_usec: 100_000,
+                    cpu_nr_periods: 100,
+                    cpu_nr_throttled: 2,
+                    cpu_throttled_usec: 20_000,
+                    memory_current_bytes: 64 * 1024 * 1024,
+                    memory_peak_bytes: Some(128 * 1024 * 1024),
+                    pids_current: 5,
+                    pids_peak: Some(12),
+                    io_read_bytes: 10 * 1024 * 1024,
+                    io_write_bytes: 5 * 1024 * 1024,
+                    io_read_ops: 256,
+                    io_write_ops: 128,
+                },
+            }),
+        );
+        let s_res = serde_json::to_string(&res).expect("serialize ResourceRead response");
+        let de_res: RpcResponse =
+            serde_json::from_str(&s_res).expect("deserialize ResourceRead response");
+        assert_eq!(res, de_res);
     }
 }

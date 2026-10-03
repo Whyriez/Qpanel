@@ -2,6 +2,7 @@
 
 pub mod audit;
 pub mod quota;
+pub mod resource;
 pub mod slice;
 pub mod system;
 pub mod user;
@@ -61,6 +62,7 @@ pub struct AgentServer {
     user_manager: Arc<user::UserLifecycleManager>,
     slice_manager: Arc<slice::SliceManager>,
     quota_manager: Arc<quota::QuotaManager>,
+    resource_reader: Arc<resource::CgroupReader>,
 }
 
 impl AgentServer {
@@ -75,11 +77,13 @@ impl AgentServer {
         let quota_manager = Arc::new(quota::QuotaManager::new(
             runner as Arc<dyn system::SystemRunner>,
         ));
+        let resource_reader = Arc::new(resource::CgroupReader::default());
         Self {
             config,
             user_manager,
             slice_manager,
             quota_manager,
+            resource_reader,
         }
     }
 
@@ -94,11 +98,13 @@ impl AgentServer {
         let quota_manager = Arc::new(quota::QuotaManager::new(
             runner as Arc<dyn system::SystemRunner>,
         ));
+        let resource_reader = Arc::new(resource::CgroupReader::default());
         Self {
             config,
             user_manager,
             slice_manager,
             quota_manager,
+            resource_reader,
         }
     }
 
@@ -107,12 +113,14 @@ impl AgentServer {
         user_manager: Arc<user::UserLifecycleManager>,
         slice_manager: Arc<slice::SliceManager>,
         quota_manager: Arc<quota::QuotaManager>,
+        resource_reader: Arc<resource::CgroupReader>,
     ) -> Self {
         Self {
             config,
             user_manager,
             slice_manager,
             quota_manager,
+            resource_reader,
         }
     }
 
@@ -274,6 +282,10 @@ impl AgentServer {
                 RequestPayload::QuotaSet(d) => ("quota.set".to_string(), d.username.clone()),
                 RequestPayload::QuotaGet(d) => ("quota.get".to_string(), d.username.clone()),
                 RequestPayload::QuotaScan(d) => ("quota.scan".to_string(), d.username.clone()),
+                RequestPayload::ResourceRead(d) => (
+                    "resource.read".to_string(),
+                    format!("panel-u{}.slice", d.uid),
+                ),
             };
 
             let response = match req.payload {
@@ -329,6 +341,17 @@ impl AgentServer {
                     Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::QuotaScan(res)),
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
+                RequestPayload::ResourceRead(data) => {
+                    match self.resource_reader.read_slice_resources(data.uid) {
+                        Ok(metrics) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::ResourceRead(panel_proto::ResourceReadResponse {
+                                metrics,
+                            }),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
             };
 
             let audit_record = audit::AgentAuditRecord::new(
