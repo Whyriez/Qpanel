@@ -135,6 +135,122 @@ impl JobHandler for EchoHandler {
     }
 }
 
+/// Quota report handler querying tenant quota usage via agent client.
+pub struct QuotaReportHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl QuotaReportHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for QuotaReportHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let uid = payload.get("uid").and_then(Value::as_u64).unwrap_or(10001) as u32;
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .unwrap_or("p_tenant")
+                .to_string();
+
+            let _ = ctx
+                .report_progress(10, Some("Querying quota metrics from agent..."))
+                .await;
+
+            let quota_res = self
+                .agent_client
+                .get_quota(panel_proto::QuotaGetRequest {
+                    uid,
+                    username: username.clone(),
+                    mount_point: None,
+                })
+                .await
+                .map_err(|e| format!("Agent quota query failed: {e}"))?;
+
+            let _ = ctx
+                .report_progress(70, Some("Aggregating quota usage data..."))
+                .await;
+
+            let result = serde_json::json!({
+                "uid": quota_res.uid,
+                "username": quota_res.username,
+                "bytes_used": quota_res.bytes_used,
+                "bytes_limit": quota_res.bytes_limit,
+                "inodes_used": quota_res.inodes_used,
+                "inodes_limit": quota_res.inodes_limit,
+                "backend": quota_res.backend,
+            });
+
+            let _ = ctx
+                .report_progress(100, Some("Quota report finished successfully"))
+                .await;
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// Quota scan handler executing recursive directory scan via agent client.
+pub struct QuotaScanHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl QuotaScanHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for QuotaScanHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let uid = payload.get("uid").and_then(Value::as_u64).unwrap_or(10001) as u32;
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .unwrap_or("p_tenant")
+                .to_string();
+
+            let _ = ctx
+                .report_progress(15, Some("Scanning tenant filesystem tree..."))
+                .await;
+
+            let scan_res = self
+                .agent_client
+                .scan_quota(panel_proto::QuotaScanRequest {
+                    uid,
+                    username: username.clone(),
+                    path: None,
+                })
+                .await
+                .map_err(|e| format!("Agent quota scan failed: {e}"))?;
+
+            let _ = ctx
+                .report_progress(80, Some("Finalizing directory scan metrics..."))
+                .await;
+
+            let result = serde_json::json!({
+                "uid": scan_res.uid,
+                "username": scan_res.username,
+                "bytes_used": scan_res.bytes_used,
+                "inodes_used": scan_res.inodes_used,
+                "scan_duration_ms": scan_res.scan_duration_ms,
+            });
+
+            let _ = ctx
+                .report_progress(100, Some("Filesystem scan complete"))
+                .await;
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
 /// Central registry mapping job names to their respective handlers.
 pub struct JobRegistry {
     handlers: HashMap<String, Arc<dyn JobHandler>>,
@@ -154,6 +270,16 @@ impl JobRegistry {
         reg.register("test.sleep", SleepHandler);
         reg.register("test.fail", FailHandler);
         reg.register("system.echo", EchoHandler);
+        reg
+    }
+
+    pub fn new_with_agent(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        let mut reg = Self::new();
+        reg.register(
+            "quota.report",
+            QuotaReportHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register("quota.scan", QuotaScanHandler::new(agent_client));
         reg
     }
 

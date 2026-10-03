@@ -51,6 +51,9 @@ pub enum RequestPayload {
     UserDelete(UserDeleteRequest),
     SliceApply(SliceApplyRequest),
     SliceRemove(SliceRemoveRequest),
+    QuotaSet(QuotaSetRequest),
+    QuotaGet(QuotaGetRequest),
+    QuotaScan(QuotaScanRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +69,29 @@ pub struct SliceApplyRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SliceRemoveRequest {
     pub uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuotaSetRequest {
+    pub uid: u32,
+    pub username: String,
+    pub disk_limit_bytes: u64,
+    pub inode_limit: u64,
+    pub mount_point: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuotaGetRequest {
+    pub uid: u32,
+    pub username: String,
+    pub mount_point: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuotaScanRequest {
+    pub uid: u32,
+    pub username: String,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -141,6 +167,9 @@ pub enum ResponsePayload {
     UserDeleted(UserDeletedResponse),
     SliceApplied(SliceAppliedResponse),
     SliceRemoved(SliceRemovedResponse),
+    QuotaSet(QuotaSetResponse),
+    QuotaGet(QuotaGetResponse),
+    QuotaScan(QuotaScanResponse),
     Error(String),
 }
 
@@ -182,6 +211,34 @@ pub struct SliceAppliedResponse {
 pub struct SliceRemovedResponse {
     pub uid: u32,
     pub slice_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuotaSetResponse {
+    pub uid: u32,
+    pub username: String,
+    pub applied: bool,
+    pub backend: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuotaGetResponse {
+    pub uid: u32,
+    pub username: String,
+    pub bytes_used: u64,
+    pub bytes_limit: u64,
+    pub inodes_used: u64,
+    pub inodes_limit: u64,
+    pub backend: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QuotaScanResponse {
+    pub uid: u32,
+    pub username: String,
+    pub bytes_used: u64,
+    pub inodes_used: u64,
+    pub scan_duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -353,5 +410,52 @@ mod tests {
         let s_rem = serde_json::to_string(&rem_req).expect("serialize SliceRemove");
         let de_rem: RpcRequest = serde_json::from_str(&s_rem).expect("deserialize SliceRemove");
         assert_eq!(rem_req, de_rem);
+    }
+
+    #[test]
+    fn test_rpc_quota_payloads() {
+        let set_req = RpcRequest::new(
+            "quota-1",
+            RequestPayload::QuotaSet(QuotaSetRequest {
+                uid: 10001,
+                username: "p_alice".to_string(),
+                disk_limit_bytes: 10 * 1024 * 1024 * 1024,
+                inode_limit: 500_000,
+                mount_point: Some("/home".to_string()),
+            }),
+        );
+        let s_set = serde_json::to_string(&set_req).expect("serialize QuotaSet");
+        let de_set: RpcRequest = serde_json::from_str(&s_set).expect("deserialize QuotaSet");
+        assert_eq!(set_req, de_set);
+
+        let get_res = RpcResponse::ok(
+            "quota-2",
+            ResponsePayload::QuotaGet(QuotaGetResponse {
+                uid: 10001,
+                username: "p_alice".to_string(),
+                bytes_used: 1024 * 1024 * 50,
+                bytes_limit: 10 * 1024 * 1024 * 1024,
+                inodes_used: 1200,
+                inodes_limit: 500_000,
+                backend: "ext4".to_string(),
+            }),
+        );
+        let s_get = serde_json::to_string(&get_res).expect("serialize QuotaGet");
+        let de_get: RpcResponse = serde_json::from_str(&s_get).expect("deserialize QuotaGet");
+        assert_eq!(get_res, de_get);
+
+        let scan_res = RpcResponse::ok(
+            "quota-3",
+            ResponsePayload::QuotaScan(QuotaScanResponse {
+                uid: 10001,
+                username: "p_alice".to_string(),
+                bytes_used: 2048,
+                inodes_used: 10,
+                scan_duration_ms: 15,
+            }),
+        );
+        let s_scan = serde_json::to_string(&scan_res).expect("serialize QuotaScan");
+        let de_scan: RpcResponse = serde_json::from_str(&s_scan).expect("deserialize QuotaScan");
+        assert_eq!(scan_res, de_scan);
     }
 }

@@ -714,7 +714,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 
 - [x] **P2-T1 Agent: lifecycle user**: `user.create` (validasi, alokasi UID, home, mode + ACL, umask, tanpa password), `user.suspend/unsuspend`, `user.delete` (retensi + purge).
 - [x] **P2-T2 Plan**: CRUD plan; penerapan batas ke slice `panel-u<uid>.slice` (drop-in `MemoryMax`, `CPUQuota`, `TasksMax`, `IOWeight`).
-- [ ] **P2-T3 Quota disk**: deteksi dukungan FS, set/get quota, job laporan pemakaian, fallback scan terjadwal.
+- [x] **P2-T3 Quota disk**: deteksi dukungan FS, set/get quota, job laporan pemakaian, fallback scan terjadwal.
 - [ ] **P2-T4 Pembaca resource**: baca cgroup v2 per slice (`cpu.stat`, `memory.current`, `io.stat`, `pids.current`) lewat agent.
 - [ ] **P2-T5 Hardening host**: opsi `hidepid=2` untuk `/proc`, pembuatan grup `panel-tenants`, pengecekan prasyarat (cgroup v2, ACL, quota) dengan pesan jelas bila tidak terpenuhi.
 - [ ] **P2-T6 API + UI**: daftar tenant, wizard buat tenant, halaman detail (ringkasan, resource, plan), suspend/unsuspend, hapus dengan `ConfirmDangerDialog`, halaman Plan, impersonate dengan banner + audit.

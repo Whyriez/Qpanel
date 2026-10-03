@@ -22,7 +22,7 @@
 ## Phase 2 — Tenant user dan isolasi
 - [x] P2-T1 Agent: lifecycle user Linux: user.create (validasi format `p_<slug>`, alokasi UID 10000–59999, mode home `0700` + ACL web server `u:www-data:--x`, subdirs `sites` `0750`/`tmp`/`.ssh`/`.panel-trash`, group `panel-tenants`, tanpa password login), user.suspend (kunci shadow + pkill proses), user.unsuspend (buka kunci + pulihkan shell), user.delete (retensi ke trash-index vs purge permanen) — test: user_lifecycle_ipc_test, user::tests, repository_test::test_user_repository_crud
 - [x] P2-T2 Plan: CRUD plan; penerapan batas ke slice `panel-u<uid>.slice` (drop-in `MemoryMax`, `MemoryHigh`, `CPUQuota`, `TasksMax`, `IOWeight`) — test: plan_slice_ipc_test, repository_test::test_plan_repository_crud, slice::tests
-- [ ] P2-T3 Quota disk: FS quota & scanner
+- [x] P2-T3 Quota disk: deteksi dukungan FS (ext4/XFS), set/get quota, job pelaporan pemakaian (`quota.report`), scanner direktori rekursif aman anti-symlink traversal (`quota.scan`) — test: quota_ipc_test, quota::tests, ADR-0009
 - [ ] P2-T4 Pembaca resource: cgroup v2
 - [ ] P2-T5 Hardening host: hidepid=2, group panel-tenants
 - [ ] P2-T6 API + UI: tenant management & plan UI

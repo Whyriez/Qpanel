@@ -1,10 +1,12 @@
 //! IPC client to communicate with `panel-agent` over a Unix domain socket.
 
 use panel_proto::{
-    ProtoError, RequestPayload, ResponsePayload, RpcRequest, RpcStream, SliceAppliedResponse,
-    SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse, UserCreateRequest,
-    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
-    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse,
+    QuotaSetRequest, QuotaSetResponse, RequestPayload, ResponsePayload, RpcRequest, RpcStream,
+    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
+    UserCreateRequest, UserCreatedResponse, UserDeleteRequest, UserDeletedResponse,
+    UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse,
+    VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -356,6 +358,113 @@ impl AgentClient {
                 got: format!("{other:?}"),
             }),
         }
+    }
+
+    pub async fn set_quota(
+        &self,
+        req: QuotaSetRequest,
+    ) -> Result<QuotaSetResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "quota-set-{}-{}",
+            req.uid,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::QuotaSet(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::QuotaSet(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "QuotaSet",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn get_quota(
+        &self,
+        req: QuotaGetRequest,
+    ) -> Result<QuotaGetResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "quota-get-{}-{}",
+            req.uid,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::QuotaGet(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::QuotaGet(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "QuotaGet",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn scan_quota(
+        &self,
+        req: QuotaScanRequest,
+    ) -> Result<QuotaScanResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "quota-scan-{}-{}",
+            req.uid,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::QuotaScan(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::QuotaScan(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "QuotaScan",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+}
+
+pub fn plan_to_quota_set_request(
+    uid: u32,
+    username: impl Into<String>,
+    plan: &panel_db::models::Plan,
+) -> QuotaSetRequest {
+    QuotaSetRequest {
+        uid,
+        username: username.into(),
+        disk_limit_bytes: plan.disk_limit_bytes as u64,
+        inode_limit: plan.inode_limit as u64,
+        mount_point: None,
     }
 }
 

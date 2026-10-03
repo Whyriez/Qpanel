@@ -1,6 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod quota;
 pub mod slice;
 pub mod system;
 pub mod user;
@@ -59,6 +60,7 @@ pub struct AgentServer {
     config: AgentConfig,
     user_manager: Arc<user::UserLifecycleManager>,
     slice_manager: Arc<slice::SliceManager>,
+    quota_manager: Arc<quota::QuotaManager>,
 }
 
 impl AgentServer {
@@ -68,12 +70,16 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let slice_manager = Arc::new(slice::SliceManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let quota_manager = Arc::new(quota::QuotaManager::new(
             runner as Arc<dyn system::SystemRunner>,
         ));
         Self {
             config,
             user_manager,
             slice_manager,
+            quota_manager,
         }
     }
 
@@ -83,12 +89,16 @@ impl AgentServer {
     ) -> Self {
         let runner = Arc::new(system::RealSystemRunner);
         let slice_manager = Arc::new(slice::SliceManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let quota_manager = Arc::new(quota::QuotaManager::new(
             runner as Arc<dyn system::SystemRunner>,
         ));
         Self {
             config,
             user_manager,
             slice_manager,
+            quota_manager,
         }
     }
 
@@ -96,11 +106,13 @@ impl AgentServer {
         config: AgentConfig,
         user_manager: Arc<user::UserLifecycleManager>,
         slice_manager: Arc<slice::SliceManager>,
+        quota_manager: Arc<quota::QuotaManager>,
     ) -> Self {
         Self {
             config,
             user_manager,
             slice_manager,
+            quota_manager,
         }
     }
 
@@ -259,6 +271,9 @@ impl AgentServer {
                     "slice.remove".to_string(),
                     format!("panel-u{}.slice", d.uid),
                 ),
+                RequestPayload::QuotaSet(d) => ("quota.set".to_string(), d.username.clone()),
+                RequestPayload::QuotaGet(d) => ("quota.get".to_string(), d.username.clone()),
+                RequestPayload::QuotaScan(d) => ("quota.scan".to_string(), d.username.clone()),
             };
 
             let response = match req.payload {
@@ -300,6 +315,18 @@ impl AgentServer {
                 },
                 RequestPayload::SliceRemove(data) => match self.slice_manager.remove_slice(data) {
                     Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::SliceRemoved(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::QuotaSet(data) => match self.quota_manager.set_quota(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::QuotaSet(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::QuotaGet(data) => match self.quota_manager.get_quota(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::QuotaGet(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::QuotaScan(data) => match self.quota_manager.scan_quota(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::QuotaScan(res)),
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
             };

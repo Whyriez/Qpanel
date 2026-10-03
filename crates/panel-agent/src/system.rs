@@ -14,6 +14,10 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "setfacl",
     "pkill",
     "systemctl",
+    "setquota",
+    "repquota",
+    "xfs_quota",
+    "findmnt",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.

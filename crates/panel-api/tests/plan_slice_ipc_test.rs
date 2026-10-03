@@ -60,6 +60,9 @@ async fn test_plan_crud_and_slice_limits_over_ipc() {
 
     let user_manager = Arc::new(UserLifecycleManager::new(Arc::clone(&runner_arc)));
     let slice_manager = Arc::new(SliceManager::new(Arc::clone(&runner_arc)));
+    let quota_manager = Arc::new(panel_agent::quota::QuotaManager::new(Arc::clone(
+        &runner_arc,
+    )));
 
     let config = AgentConfig {
         socket_path: sock_path.clone(),
@@ -71,6 +74,7 @@ async fn test_plan_crud_and_slice_limits_over_ipc() {
         config,
         user_manager,
         slice_manager,
+        quota_manager,
     ));
 
     let server_task = tokio::spawn(async move {
