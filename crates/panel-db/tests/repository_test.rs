@@ -1,10 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panel_db::{
-    AuditLogFilter, CreateApiToken, CreateAuditLog, CreateJob, CreateSession, CreateUser,
-    SqliteApiTokenRepository, SqliteAuditLogRepository, SqliteJobRepository,
-    SqliteSessionRepository, SqliteSettingRepository, SqliteUserRepository, init_pool,
-    run_migrations,
+    AuditLogFilter, CreateApiToken, CreateAuditLog, CreateJob, CreatePlan, CreateSession,
+    CreateUser, SqliteApiTokenRepository, SqliteAuditLogRepository, SqliteJobRepository,
+    SqlitePlanRepository, SqliteSessionRepository, SqliteSettingRepository, SqliteUserRepository,
+    UpdatePlan, init_pool, run_migrations,
 };
 
 async fn setup_test_db() -> panel_db::DbPool {
@@ -525,4 +525,107 @@ async fn test_recovery_code_repository() {
     // Delete all codes
     code_repo.delete_by_user_id(user.id).await.expect("delete");
     assert_eq!(code_repo.count_unused(user.id).await.expect("count"), 0);
+}
+
+#[tokio::test]
+async fn test_plan_repository_crud() {
+    let pool = setup_test_db().await;
+    let plan_repo = SqlitePlanRepository::new(pool.clone());
+    let user_repo = SqliteUserRepository::new(pool);
+
+    // Initial baseline plans created by migration
+    let all = plan_repo.list_all().await.expect("list plans");
+    assert!(all.len() >= 2);
+
+    // Create new plan
+    let new_plan = plan_repo
+        .create(&CreatePlan {
+            name: "Enterprise".to_string(),
+            description: Some("Custom high-performance plan".to_string()),
+            cpu_quota_percent: Some(400),
+            memory_limit_bytes: Some(4294967296),
+            memory_high_bytes: Some(3435973836),
+            tasks_max: Some(500),
+            io_weight: Some(500),
+            disk_limit_bytes: Some(107374182400),
+            inode_limit: Some(2000000),
+            max_sites: Some(50),
+            max_domains: Some(100),
+            max_databases: Some(50),
+            max_cron_jobs: Some(50),
+            max_terminal_sessions: Some(5),
+            max_upload_bytes: Some(524288000),
+            shell_policy: Some("full".to_string()),
+            allow_external_upstream: Some(true),
+        })
+        .await
+        .expect("create plan");
+
+    assert_eq!(new_plan.name, "Enterprise");
+    assert_eq!(new_plan.cpu_quota_percent, 400);
+    assert_eq!(new_plan.memory_limit_bytes, 4294967296);
+
+    // Duplicate name rejected
+    let dup_err = plan_repo
+        .create(&CreatePlan {
+            name: "Enterprise".to_string(),
+            description: None,
+            cpu_quota_percent: None,
+            memory_limit_bytes: None,
+            memory_high_bytes: None,
+            tasks_max: None,
+            io_weight: None,
+            disk_limit_bytes: None,
+            inode_limit: None,
+            max_sites: None,
+            max_domains: None,
+            max_databases: None,
+            max_cron_jobs: None,
+            max_terminal_sessions: None,
+            max_upload_bytes: None,
+            shell_policy: None,
+            allow_external_upstream: None,
+        })
+        .await;
+    assert!(dup_err.is_err());
+
+    // Update plan
+    let updated = plan_repo
+        .update(
+            new_plan.id,
+            &UpdatePlan {
+                name: Some("Enterprise Plus".to_string()),
+                cpu_quota_percent: Some(800),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("update plan");
+    assert_eq!(updated.name, "Enterprise Plus");
+    assert_eq!(updated.cpu_quota_percent, 800);
+
+    // Assign to a tenant user to test deletion prevention
+    let tenant = user_repo
+        .create(&CreateUser {
+            username: "ent_user".to_string(),
+            password_hash: "hash".to_string(),
+            role: "user".to_string(),
+            email: None,
+            linux_username: Some("p_ent_user".to_string()),
+            linux_uid: Some(10050),
+            plan_id: Some(new_plan.id),
+        })
+        .await
+        .expect("create user with plan");
+
+    // Cannot delete plan in use
+    let del_err = plan_repo.delete(new_plan.id).await;
+    assert!(del_err.is_err());
+
+    // Remove tenant, then delete should succeed
+    user_repo.delete(tenant.id).await.expect("delete user");
+    plan_repo.delete(new_plan.id).await.expect("delete plan");
+
+    let not_found = plan_repo.find_by_id(new_plan.id).await.expect("find");
+    assert!(not_found.is_none());
 }

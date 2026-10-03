@@ -1,7 +1,8 @@
 //! IPC client to communicate with `panel-agent` over a Unix domain socket.
 
 use panel_proto::{
-    ProtoError, RequestPayload, ResponsePayload, RpcRequest, RpcStream, UserCreateRequest,
+    ProtoError, RequestPayload, ResponsePayload, RpcRequest, RpcStream, SliceAppliedResponse,
+    SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse, UserCreateRequest,
     UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
     UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
@@ -294,5 +295,79 @@ impl AgentClient {
                 got: format!("{other:?}"),
             }),
         }
+    }
+    pub async fn apply_slice(
+        &self,
+        req: SliceApplyRequest,
+    ) -> Result<SliceAppliedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "slice-apply-{}-{}",
+            req.uid,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SliceApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SliceApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SliceApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_slice(&self, uid: u32) -> Result<SliceRemovedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "slice-remove-{}-{}",
+            uid,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::SliceRemove(SliceRemoveRequest { uid }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SliceRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SliceRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+}
+
+pub fn plan_to_slice_apply_request(uid: u32, plan: &panel_db::models::Plan) -> SliceApplyRequest {
+    SliceApplyRequest {
+        uid,
+        memory_max: Some(format!("{}M", plan.memory_limit_bytes / (1024 * 1024))),
+        memory_high: plan
+            .memory_high_bytes
+            .map(|b| format!("{}M", b / (1024 * 1024))),
+        cpu_quota: Some(format!("{}%", plan.cpu_quota_percent)),
+        tasks_max: Some(plan.tasks_max as u64),
+        io_weight: Some(plan.io_weight as u32),
     }
 }

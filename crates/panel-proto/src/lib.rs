@@ -49,6 +49,23 @@ pub enum RequestPayload {
     UserSuspend(UserSuspendRequest),
     UserUnsuspend(UserUnsuspendRequest),
     UserDelete(UserDeleteRequest),
+    SliceApply(SliceApplyRequest),
+    SliceRemove(SliceRemoveRequest),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SliceApplyRequest {
+    pub uid: u32,
+    pub memory_max: Option<String>,
+    pub memory_high: Option<String>,
+    pub cpu_quota: Option<String>,
+    pub tasks_max: Option<u64>,
+    pub io_weight: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SliceRemoveRequest {
+    pub uid: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,6 +139,8 @@ pub enum ResponsePayload {
     UserSuspended(UserSuspendedResponse),
     UserUnsuspended(UserUnsuspendedResponse),
     UserDeleted(UserDeletedResponse),
+    SliceApplied(SliceAppliedResponse),
+    SliceRemoved(SliceRemovedResponse),
     Error(String),
 }
 
@@ -150,6 +169,19 @@ pub struct UserDeletedResponse {
     pub uid: u32,
     pub purged: bool,
     pub archived_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SliceAppliedResponse {
+    pub uid: u32,
+    pub slice_name: String,
+    pub dropin_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SliceRemovedResponse {
+    pub uid: u32,
+    pub slice_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -283,5 +315,43 @@ mod tests {
         let s_res = serde_json::to_string(&res).expect("serialize UserCreated response");
         let de_res: RpcResponse = serde_json::from_str(&s_res).expect("deserialize UserCreated");
         assert_eq!(res, de_res);
+    }
+
+    #[test]
+    fn test_rpc_slice_payloads() {
+        let req = RpcRequest::new(
+            "slice-1",
+            RequestPayload::SliceApply(SliceApplyRequest {
+                uid: 10001,
+                memory_max: Some("1G".to_string()),
+                memory_high: Some("800M".to_string()),
+                cpu_quota: Some("150%".to_string()),
+                tasks_max: Some(250),
+                io_weight: Some(100),
+            }),
+        );
+        let s = serde_json::to_string(&req).expect("serialize SliceApply");
+        let de: RpcRequest = serde_json::from_str(&s).expect("deserialize SliceApply");
+        assert_eq!(req, de);
+
+        let res = RpcResponse::ok(
+            "slice-1",
+            ResponsePayload::SliceApplied(SliceAppliedResponse {
+                uid: 10001,
+                slice_name: "panel-u10001.slice".to_string(),
+                dropin_path: "/etc/systemd/system/panel-u10001.slice.d/50-limits.conf".to_string(),
+            }),
+        );
+        let s_res = serde_json::to_string(&res).expect("serialize SliceApplied");
+        let de_res: RpcResponse = serde_json::from_str(&s_res).expect("deserialize SliceApplied");
+        assert_eq!(res, de_res);
+
+        let rem_req = RpcRequest::new(
+            "slice-2",
+            RequestPayload::SliceRemove(SliceRemoveRequest { uid: 10001 }),
+        );
+        let s_rem = serde_json::to_string(&rem_req).expect("serialize SliceRemove");
+        let de_rem: RpcRequest = serde_json::from_str(&s_rem).expect("deserialize SliceRemove");
+        assert_eq!(rem_req, de_rem);
     }
 }

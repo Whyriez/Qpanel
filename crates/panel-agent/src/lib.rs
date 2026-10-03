@@ -1,6 +1,8 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod slice;
+pub mod system;
 pub mod user;
 
 use panel_proto::{
@@ -56,15 +58,22 @@ impl Default for AgentConfig {
 pub struct AgentServer {
     config: AgentConfig,
     user_manager: Arc<user::UserLifecycleManager>,
+    slice_manager: Arc<slice::SliceManager>,
 }
 
 impl AgentServer {
     pub fn new(config: AgentConfig) -> Self {
-        let runner = Arc::new(user::RealSystemRunner);
-        let user_manager = Arc::new(user::UserLifecycleManager::new(runner));
+        let runner = Arc::new(system::RealSystemRunner);
+        let user_manager = Arc::new(user::UserLifecycleManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let slice_manager = Arc::new(slice::SliceManager::new(
+            runner as Arc<dyn system::SystemRunner>,
+        ));
         Self {
             config,
             user_manager,
+            slice_manager,
         }
     }
 
@@ -72,9 +81,26 @@ impl AgentServer {
         config: AgentConfig,
         user_manager: Arc<user::UserLifecycleManager>,
     ) -> Self {
+        let runner = Arc::new(system::RealSystemRunner);
+        let slice_manager = Arc::new(slice::SliceManager::new(
+            runner as Arc<dyn system::SystemRunner>,
+        ));
         Self {
             config,
             user_manager,
+            slice_manager,
+        }
+    }
+
+    pub fn with_managers(
+        config: AgentConfig,
+        user_manager: Arc<user::UserLifecycleManager>,
+        slice_manager: Arc<slice::SliceManager>,
+    ) -> Self {
+        Self {
+            config,
+            user_manager,
+            slice_manager,
         }
     }
 
@@ -226,6 +252,13 @@ impl AgentServer {
                     ("user.unsuspend".to_string(), d.username.clone())
                 }
                 RequestPayload::UserDelete(d) => ("user.delete".to_string(), d.username.clone()),
+                RequestPayload::SliceApply(d) => {
+                    ("slice.apply".to_string(), format!("panel-u{}.slice", d.uid))
+                }
+                RequestPayload::SliceRemove(d) => (
+                    "slice.remove".to_string(),
+                    format!("panel-u{}.slice", d.uid),
+                ),
             };
 
             let response = match req.payload {
@@ -259,6 +292,14 @@ impl AgentServer {
                 }
                 RequestPayload::UserDelete(data) => match self.user_manager.delete_user(data) {
                     Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::UserDeleted(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::SliceApply(data) => match self.slice_manager.apply_slice(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::SliceApplied(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::SliceRemove(data) => match self.slice_manager.remove_slice(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::SliceRemoved(res)),
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
             };
