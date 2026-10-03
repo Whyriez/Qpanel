@@ -12,11 +12,17 @@ path = "src/main.rs"
 [dependencies]
 panel-core = { workspace = true }
 panel-proto = { workspace = true }
+panel-db = { workspace = true }
+clap = { workspace = true }
+uuid = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

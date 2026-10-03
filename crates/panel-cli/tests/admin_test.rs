@@ -1,0 +1,166 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use panel_cli::{
+    SetupStatus, create_admin, generate_setup_token, get_setup_status, list_admins, reset_password,
+};
+use panel_core::auth::verify_password;
+use panel_db::pool::{init_pool, run_migrations};
+use panel_db::repositories::SqliteUserRepository;
+use tempfile::NamedTempFile;
+
+#[tokio::test]
+async fn test_admin_create_and_verify() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    let user_id = create_admin(
+        &pool,
+        "superadmin",
+        "Password123!",
+        Some("admin@example.com".to_string()),
+    )
+    .await
+    .expect("create admin");
+    assert!(user_id > 0);
+
+    let user_repo = SqliteUserRepository::new(pool.clone());
+    let user = user_repo
+        .find_by_username("superadmin")
+        .await
+        .expect("find")
+        .expect("exists");
+    assert_eq!(user.username, "superadmin");
+    assert_eq!(user.role, "admin");
+    assert_eq!(user.email.as_deref(), Some("admin@example.com"));
+
+    let valid = verify_password("Password123!", &user.password_hash).expect("verify");
+    assert!(valid);
+}
+
+#[tokio::test]
+async fn test_admin_duplicate_username_fails() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    create_admin(&pool, "admin1", "Password123!", None)
+        .await
+        .expect("create admin");
+
+    let err = create_admin(&pool, "admin1", "AnotherPassword123!", None).await;
+    assert!(err.is_err());
+}
+
+#[tokio::test]
+async fn test_admin_short_password_fails() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    let err = create_admin(&pool, "admin2", "short", None).await;
+    assert!(err.is_err());
+}
+
+#[tokio::test]
+async fn test_admin_invalid_username_fails() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    // Invalid characters (spaces, special chars)
+    let err1 = create_admin(&pool, "admin user", "Password123!", None).await;
+    assert!(err1.is_err());
+
+    // Too short (< 3 chars)
+    let err2 = create_admin(&pool, "ad", "Password123!", None).await;
+    assert!(err2.is_err());
+}
+
+#[tokio::test]
+async fn test_admin_reset_password() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    create_admin(&pool, "admin_reset", "OldPassword123!", None)
+        .await
+        .expect("create admin");
+
+    reset_password(&pool, "admin_reset", "NewPassword456!")
+        .await
+        .expect("reset password");
+
+    let user_repo = SqliteUserRepository::new(pool.clone());
+    let user = user_repo
+        .find_by_username("admin_reset")
+        .await
+        .expect("find")
+        .expect("exists");
+
+    assert!(!verify_password("OldPassword123!", &user.password_hash).expect("verify"));
+    assert!(verify_password("NewPassword456!", &user.password_hash).expect("verify"));
+}
+
+#[tokio::test]
+async fn test_admin_list() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    create_admin(&pool, "admin_one", "Password123!", None)
+        .await
+        .expect("create 1");
+    create_admin(&pool, "admin_two", "Password123!", None)
+        .await
+        .expect("create 2");
+
+    let admins = list_admins(&pool).await.expect("list admins");
+    assert_eq!(admins.len(), 2);
+}
+
+#[tokio::test]
+async fn test_creating_admin_clears_setup_token() {
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    // Generate token first
+    let token = generate_setup_token(&pool)
+        .await
+        .expect("generate setup token");
+    assert!(!token.is_empty());
+
+    let status = get_setup_status(&pool).await.expect("status");
+    assert!(matches!(status, SetupStatus::Pending { .. }));
+
+    // Create admin
+    create_admin(&pool, "admin_final", "Password123!", None)
+        .await
+        .expect("create admin");
+
+    // Status should now be Completed
+    let status_after = get_setup_status(&pool).await.expect("status after");
+    assert_eq!(status_after, SetupStatus::Completed);
+}

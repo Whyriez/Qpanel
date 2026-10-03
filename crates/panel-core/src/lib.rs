@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod auth;
+pub use auth::{hash_password, verify_password};
+
 /// Common error types for domain operations.
 #[derive(Debug, Error, Serialize, Deserialize)]
 pub enum CoreError {
