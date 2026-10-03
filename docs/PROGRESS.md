@@ -14,7 +14,7 @@
 - [x] P1-T2 Bootstrap admin: `panelctl admin create`, `reset-password`, `list`, Argon2id password hashing, dan token setup sekali pakai (`setup-token [generate|status|verify]`) untuk first-run — test: admin_test, setup_token_test
 - [x] P1-T3 Auth: login/logout, Argon2id, cookie sesi (`HttpOnly+Secure+SameSite=Strict`), rotasi sesi, proteksi CSRF (`X-CSRF-Token`), lockout brute-force, ganti password — test: auth_test
 - [x] P1-T4 2FA: TOTP (SHA1, 6 digits, 30s, skew tolerance 1), URI/QR code base64 generation, verifikasi kode, 8 single-use recovery codes di-hash (SHA-256), challenge saat login, rescue command `panelctl admin reset-2fa <username>` — test: two_factor_test, totp::tests, repository_test::test_recovery_code_repository, admin_test::test_admin_reset_2fa
-- [ ] P1-T5 RBAC: middleware admin/user
+- [x] P1-T5 RBAC: role `admin`/`user`/`reseller`, middleware `RequireAdmin` & `RequireAdminCsrf`, fungsi policy terpusat (`panel_core::rbac`), isolasi resource tenant, rute manajemen admin + test authz rute lengkap — test: rbac_test, rbac::tests
 - [ ] P1-T6 Audit log: audit writer + API
 - [ ] P1-T7 Job system: tabel jobs, worker, SSE progress
 - [ ] P1-T8 UI inti: login, 2FA, wizard, security profile, job tray

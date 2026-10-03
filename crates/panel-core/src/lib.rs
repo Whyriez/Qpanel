@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod auth;
+pub mod rbac;
 pub mod totp;
 pub use auth::{hash_password, hash_token, verify_password};
+pub use rbac::{Action, Role, authorize, check_permission};
 pub use totp::{
     generate_recovery_codes, generate_totp_qr_base64, generate_totp_secret, generate_totp_uri,
     hash_recovery_code, normalize_recovery_code, verify_totp_code,
@@ -22,6 +24,10 @@ pub enum CoreError {
     InvalidPath(String),
     #[error("Validation error: {0}")]
     Validation(String),
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
 }
 
 /// Linux tenant username (e.g. `p_alice`).

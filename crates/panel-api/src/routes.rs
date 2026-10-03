@@ -29,6 +29,12 @@ use panel_db::pool::DbPool;
         crate::auth::handlers::two_factor_enable_handler,
         crate::auth::handlers::two_factor_disable_handler,
         crate::auth::handlers::two_factor_status_handler,
+        crate::admin::handlers::admin_list_users_handler,
+        crate::admin::handlers::admin_get_user_handler,
+        crate::admin::handlers::admin_update_user_status_handler,
+        crate::admin::handlers::admin_get_setting_handler,
+        crate::admin::handlers::admin_update_setting_handler,
+        crate::admin::handlers::user_get_profile_handler,
     ),
     components(
         schemas(
@@ -44,11 +50,17 @@ use panel_db::pool::DbPool;
             TwoFactorEnableRequest,
             TwoFactorDisableRequest,
             TwoFactorStatusResponse,
+            crate::admin::AdminUserItem,
+            crate::admin::UpdateUserStatusRequest,
+            crate::admin::UpdateSettingRequest,
+            crate::admin::SettingResponse,
         )
     ),
     tags(
         (name = "system", description = "System and health check endpoints"),
-        (name = "auth", description = "Authentication and session management")
+        (name = "auth", description = "Authentication and session management"),
+        (name = "admin", description = "Administrator-only management endpoints"),
+        (name = "user", description = "Tenant user resource endpoints")
     ),
     info(
         title = "Nusa Panel API",

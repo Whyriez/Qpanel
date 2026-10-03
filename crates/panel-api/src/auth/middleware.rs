@@ -1,4 +1,4 @@
-//! Authentication and CSRF extractors and middleware.
+//! Authentication, RBAC, and CSRF extractors and middleware.
 
 use axum::{
     Json,
@@ -6,7 +6,9 @@ use axum::{
     http::{HeaderMap, StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
+use panel_core::CoreError;
 use panel_core::auth::hash_token;
+use panel_core::rbac::{Action, Role, authorize};
 use panel_db::repositories::{SqliteSessionRepository, SqliteUserRepository};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,11 +29,63 @@ pub struct AuthenticatedUser {
     pub csrf_token: String,
 }
 
+impl AuthenticatedUser {
+    /// Returns the parsed `Role` enum.
+    pub fn role_enum(&self) -> Result<Role, CoreError> {
+        self.role.parse()
+    }
+
+    /// Checks if this user is an administrator.
+    pub fn is_admin(&self) -> bool {
+        self.role.eq_ignore_ascii_case("admin")
+    }
+
+    /// Checks whether this user is allowed to access target user's resources.
+    /// Admins can access any user, regular users can only access their own.
+    pub fn can_access_user(&self, target_user_id: i64) -> bool {
+        self.is_admin() || self.id == target_user_id
+    }
+
+    /// Evaluates permission against the centralized policy engine.
+    pub fn authorize(&self, action: &Action) -> bool {
+        let role = self.role_enum().unwrap_or(Role::User);
+        authorize(role, self.id, action)
+    }
+
+    /// Enforces permission against the centralized policy engine, returning 403 if forbidden.
+    pub fn require_permission(&self, action: &Action) -> Result<(), (StatusCode, &'static str)> {
+        if self.authorize(action) {
+            Ok(())
+        } else {
+            Err((
+                StatusCode::FORBIDDEN,
+                "Forbidden: Not authorized to perform action on requested resource",
+            ))
+        }
+    }
+}
+
+/// Extractor that requires any authenticated, active user.
 #[derive(Debug, Clone)]
 pub struct RequireAuth(pub AuthenticatedUser);
 
+/// Type alias for RequireAuth emphasizing user role.
+pub type RequireUser = RequireAuth;
+
+/// Extractor that requires any authenticated user and a valid CSRF token.
 #[derive(Debug, Clone)]
 pub struct RequireCsrf(pub AuthenticatedUser);
+
+/// Type alias for RequireCsrf emphasizing user role.
+pub type RequireUserCsrf = RequireCsrf;
+
+/// Extractor that requires an authenticated user with administrator role.
+#[derive(Debug, Clone)]
+pub struct RequireAdmin(pub AuthenticatedUser);
+
+/// Extractor that requires an administrator user and a valid CSRF token.
+#[derive(Debug, Clone)]
+pub struct RequireAdminCsrf(pub AuthenticatedUser);
 
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = Response;
@@ -160,6 +214,48 @@ impl FromRequestParts<AppState> for RequireCsrf {
             )
                 .into_response()),
         }
+    }
+}
+
+impl FromRequestParts<AppState> for RequireAdmin {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let user = AuthenticatedUser::from_request_parts(parts, state).await?;
+        if !user.is_admin() {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "Forbidden: Administrator privileges required"
+                })),
+            )
+                .into_response());
+        }
+        Ok(RequireAdmin(user))
+    }
+}
+
+impl FromRequestParts<AppState> for RequireAdminCsrf {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let RequireCsrf(user) = RequireCsrf::from_request_parts(parts, state).await?;
+        if !user.is_admin() {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "Forbidden: Administrator privileges required"
+                })),
+            )
+                .into_response());
+        }
+        Ok(RequireAdminCsrf(user))
     }
 }
 

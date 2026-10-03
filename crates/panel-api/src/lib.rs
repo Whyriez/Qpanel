@@ -1,5 +1,4 @@
-//! `panel-api`: HTTP API server, background job runner, and web UI host.
-
+pub mod admin;
 pub mod agent_client;
 pub mod auth;
 pub mod config;
@@ -42,6 +41,27 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/auth/2fa/status",
             get(auth::two_factor_status_handler),
+        )
+        .route("/api/v1/admin/users", get(admin::admin_list_users_handler))
+        .route(
+            "/api/v1/admin/users/{id}",
+            get(admin::admin_get_user_handler),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/status",
+            post(admin::admin_update_user_status_handler),
+        )
+        .route(
+            "/api/v1/admin/settings",
+            get(admin::admin_get_setting_handler),
+        )
+        .route(
+            "/api/v1/admin/settings",
+            post(admin::admin_update_setting_handler),
+        )
+        .route(
+            "/api/v1/user/{id}/profile",
+            get(admin::user_get_profile_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
