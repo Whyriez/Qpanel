@@ -12,7 +12,7 @@
 Agent **wajib** mencentang checklist ini dan menyalinnya ke `docs/PROGRESS.md` setiap selesai satu task.
 
 - [x] Phase 0 — Fondasi & tooling
-- [ ] Phase 1 — Core panel (auth, DB, job, audit)
+- [x] Phase 1 — Core panel (auth, DB, job, audit)
 - [ ] Phase 2 — Tenant user & isolasi
 - [ ] Phase 3 — Site engine: static + Nginx + domain + SSL
 - [ ] Phase 4 — PHP multi-versi terisolasi
@@ -700,7 +700,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 - [x] **P1-T5 RBAC**: middleware `admin`/`user`, fungsi policy terpusat, test authz untuk setiap rute.
 - [x] **P1-T6 Audit log**: penulis audit (API dan agent), API list + filter.
 - [x] **P1-T7 Job system**: tabel `jobs`, worker, state machine, retry + backoff, idempotensi, SSE progres, pemulihan setelah restart.
-- [ ] **P1-T8 UI inti**: login, 2FA, wizard first-run, halaman profil/keamanan (sesi aktif, 2FA, API token), halaman Audit, `JobTray`, command palette (dasar).
+- [x] **P1-T8 UI inti**: login, 2FA, wizard first-run, halaman profil/keamanan (sesi aktif, 2FA, API token), halaman Audit, `JobTray`, command palette (dasar).
 
 **Acceptance**: tidak ada rute mutasi tanpa auth + CSRF; test authz lulus; login brute-force terkunci; job bertahan saat `panel-api` di-restart; UI lolos cek aksesibilitas dasar (keyboard, kontras).
 **Jangan dulu**: user tenant, plan, hosting.

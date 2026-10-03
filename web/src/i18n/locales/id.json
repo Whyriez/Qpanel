@@ -23,7 +23,8 @@
     "runtime": "Runtime",
     "jobs": "Tugas",
     "audit": "Audit",
-    "settings": "Pengaturan"
+    "settings": "Pengaturan",
+    "profile": "Profil & Keamanan"
   },
   "dashboard": {
     "overview": "Semua layanan normal",
@@ -51,5 +52,86 @@
       "latency": "Latensi p95",
       "viewDetails": "Lihat detail"
     }
+  },
+  "auth": {
+    "loginTitle": "Masuk ke Panel",
+    "loginSubtitle": "Masukkan nama pengguna dan kata sandi Anda",
+    "username": "Nama Pengguna",
+    "password": "Kata Sandi",
+    "loginButton": "Masuk",
+    "logout": "Keluar",
+    "twoFactorTitle": "Verifikasi Dua Faktor",
+    "twoFactorSubtitle": "Masukkan 6 digit kode dari aplikasi autentikator Anda atau gunakan kode pemulihan",
+    "twoFactorCode": "Kode 2FA (6 digit)",
+    "verifyButton": "Verifikasi & Masuk",
+    "useRecoveryCode": "Gunakan kode pemulihan",
+    "useTotpCode": "Gunakan kode autentikator",
+    "recoveryCode": "Kode Pemulihan (8 karakter)",
+    "firstRunSetup": "Pertama kali memasang panel? Buka Wizard Setup"
+  },
+  "profile": {
+    "title": "Profil & Keamanan",
+    "subtitle": "Kelola kredensial, autentikasi dua faktor, dan keamanan akun Anda",
+    "myProfile": "Informasi Akun",
+    "role": "Peran",
+    "email": "Email",
+    "changePassword": "Ganti Kata Sandi",
+    "currentPassword": "Kata Sandi Saat Ini",
+    "newPassword": "Kata Sandi Baru",
+    "confirmPassword": "Konfirmasi Kata Sandi Baru",
+    "passwordUpdated": "Kata sandi berhasil diperbarui",
+    "twoFactor": "Autentikasi Dua Faktor (2FA)",
+    "twoFactorEnabled": "2FA aktif dan melindungi akun Anda.",
+    "twoFactorDisabled": "2FA belum diaktifkan.",
+    "setupTwoFactor": "Aktifkan 2FA",
+    "disableTwoFactor": "Nonaktifkan 2FA",
+    "scanQr": "Pindai kode QR berikut menggunakan aplikasi autentikator (Google Authenticator, Bitwarden, atau 1Password):",
+    "manualKey": "Atau masukkan kunci rahasia manual:",
+    "verifyAndEnable": "Verifikasi & Aktifkan 2FA",
+    "recoveryCodesTitle": "Simpan Kode Pemulihan Anda!",
+    "recoveryCodesDesc": "Setiap kode berikut hanya dapat digunakan satu kali bila Anda kehilangan akses ke aplikasi autentikator. Simpan di tempat yang aman.",
+    "copyCodes": "Salin Semua Kode",
+    "downloadCodes": "Unduh Teks",
+    "done": "Saya sudah menyimpan kode ini"
+  },
+  "audit": {
+    "title": "Catatan Audit Sistem",
+    "subtitle": "Histori lengkap aktivitas keamanan, autentikasi, dan konfigurasi server",
+    "timestamp": "Waktu",
+    "actor": "Aktor",
+    "action": "Aksi",
+    "target": "Resource Target",
+    "ip": "Alamat IP",
+    "status": "Status",
+    "filterAction": "Semua Aksi",
+    "filterStatus": "Semua Status",
+    "details": "Detail Payload",
+    "noLogs": "Belum ada catatan audit yang tercatat"
+  },
+  "jobs": {
+    "title": "Antrean Tugas Sistem",
+    "subtitle": "Daftar proses latar belakang dan pemantauan progres real-time",
+    "name": "Nama Tugas",
+    "progress": "Progres",
+    "status": "Status",
+    "created": "Waktu Mulai",
+    "cancel": "Batalkan tugas",
+    "activeCount": "{{count}} aktif",
+    "trayTitle": "Tugas Latar Belakang",
+    "noJobs": "Tidak ada tugas yang sedang aktif",
+    "viewAll": "Buka antrean tugas"
+  },
+  "wizard": {
+    "title": "Setup Awal Nusa Panel",
+    "step1Title": "Verifikasi Token Setup",
+    "step1Desc": "Masukkan token setup sekali pakai dari server",
+    "tokenLabel": "Token Setup",
+    "step2Title": "Buat Akun Administrator",
+    "step2Desc": "Tentukan nama pengguna, email, dan kata sandi yang kuat",
+    "step3Title": "Setup Selesai",
+    "step3Desc": "Konfigurasi sistem berhasil dibuat. Silakan masuk menggunakan akun baru.",
+    "next": "Lanjutkan",
+    "back": "Kembali",
+    "finish": "Masuk ke Dashboard"
   }
 }

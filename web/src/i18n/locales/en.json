@@ -12,7 +12,7 @@
     "theme": {
       "light": "Light",
       "dark": "Dark",
-      "system": "System"
+      "system": "Follow system"
     }
   },
   "nav": {
@@ -23,10 +23,11 @@
     "runtime": "Runtime",
     "jobs": "Jobs",
     "audit": "Audit",
-    "settings": "Settings"
+    "settings": "Settings",
+    "profile": "Profile & Security"
   },
   "dashboard": {
-    "overview": "All systems normal",
+    "overview": "All services operating normally",
     "attentionNeeded": "{{count}} sites require attention",
     "systemInfo": "System Information",
     "apiVersion": "API Version",
@@ -42,7 +43,7 @@
       "network": "Network"
     },
     "sitesTable": {
-      "title": "Sites",
+      "title": "Websites",
       "newSite": "New site",
       "domain": "Domain",
       "runtime": "Runtime",
@@ -51,5 +52,86 @@
       "latency": "p95 Latency",
       "viewDetails": "View details"
     }
+  },
+  "auth": {
+    "loginTitle": "Sign In to Panel",
+    "loginSubtitle": "Enter your username and password",
+    "username": "Username",
+    "password": "Password",
+    "loginButton": "Sign in",
+    "logout": "Sign out",
+    "twoFactorTitle": "Two-Factor Verification",
+    "twoFactorSubtitle": "Enter the 6-digit code from your authenticator app or use a recovery code",
+    "twoFactorCode": "2FA Code (6 digits)",
+    "verifyButton": "Verify & Sign in",
+    "useRecoveryCode": "Use a recovery code",
+    "useTotpCode": "Use authenticator code",
+    "recoveryCode": "Recovery Code (8 characters)",
+    "firstRunSetup": "First time installing panel? Run Setup Wizard"
+  },
+  "profile": {
+    "title": "Profile & Security",
+    "subtitle": "Manage credentials, two-factor authentication, and account security",
+    "myProfile": "Account Information",
+    "role": "Role",
+    "email": "Email",
+    "changePassword": "Change Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm New Password",
+    "passwordUpdated": "Password updated successfully",
+    "twoFactor": "Two-Factor Authentication (2FA)",
+    "twoFactorEnabled": "2FA is active and protecting your account.",
+    "twoFactorDisabled": "2FA is currently not enabled.",
+    "setupTwoFactor": "Enable 2FA",
+    "disableTwoFactor": "Disable 2FA",
+    "scanQr": "Scan the following QR code with your authenticator app (Google Authenticator, Bitwarden, or 1Password):",
+    "manualKey": "Or enter the manual secret key:",
+    "verifyAndEnable": "Verify & Enable 2FA",
+    "recoveryCodesTitle": "Save Your Recovery Codes!",
+    "recoveryCodesDesc": "Each code can only be used once if you lose access to your authenticator app. Store them securely.",
+    "copyCodes": "Copy All Codes",
+    "downloadCodes": "Download Text",
+    "done": "I have saved these codes"
+  },
+  "audit": {
+    "title": "System Audit Logs",
+    "subtitle": "Comprehensive record of security, authentication, and server changes",
+    "timestamp": "Timestamp",
+    "actor": "Actor",
+    "action": "Action",
+    "target": "Target Resource",
+    "ip": "IP Address",
+    "status": "Status",
+    "filterAction": "All Actions",
+    "filterStatus": "All Statuses",
+    "details": "Payload Details",
+    "noLogs": "No audit records found"
+  },
+  "jobs": {
+    "title": "Background Job Queue",
+    "subtitle": "List of asynchronous operations and real-time progress tracking",
+    "name": "Job Name",
+    "progress": "Progress",
+    "status": "Status",
+    "created": "Started At",
+    "cancel": "Cancel job",
+    "activeCount": "{{count}} active",
+    "trayTitle": "Background Tasks",
+    "noJobs": "No active background tasks",
+    "viewAll": "Open job queue"
+  },
+  "wizard": {
+    "title": "Initial Setup Wizard",
+    "step1Title": "Verify Setup Token",
+    "step1Desc": "Enter the one-time setup token generated during installation",
+    "tokenLabel": "Setup Token",
+    "step2Title": "Create Administrator Account",
+    "step2Desc": "Configure your master administrator username, email, and strong password",
+    "step3Title": "Setup Complete",
+    "step3Desc": "Baseline configuration applied successfully. You can now log into your dashboard.",
+    "next": "Continue",
+    "back": "Back",
+    "finish": "Go to Dashboard"
   }
 }

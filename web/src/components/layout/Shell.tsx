@@ -8,6 +8,7 @@ import {
   Cpu,
   ListTodo,
   ShieldCheck,
+  UserCheck,
   Settings,
   ChevronDown,
   Search,
@@ -17,8 +18,12 @@ import {
   Monitor,
   Menu,
   Server,
+  LogOut,
 } from 'lucide-react';
 import { ThemeMode } from '../../types/api';
+import { useAuth } from '../../context/AuthContext';
+import { JobTray } from './JobTray';
+import { CommandPalette } from '../ui/CommandPalette';
 
 export interface ShellProps {
   children: React.ReactNode;
@@ -36,7 +41,9 @@ export const Shell: React.FC<ShellProps> = ({
   onThemeChange,
 }) => {
   const { t, i18n } = useTranslation();
+  const { user, logout } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   const navItems = [
     { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
@@ -46,6 +53,7 @@ export const Shell: React.FC<ShellProps> = ({
     { id: 'runtime', label: t('nav.runtime'), icon: Cpu },
     { id: 'jobs', label: t('nav.jobs'), icon: ListTodo },
     { id: 'audit', label: t('nav.audit'), icon: ShieldCheck },
+    { id: 'profile', label: t('nav.profile'), icon: UserCheck },
     { id: 'settings', label: t('nav.settings'), icon: Settings },
   ];
 
@@ -59,6 +67,8 @@ export const Shell: React.FC<ShellProps> = ({
     const nextLang = i18n.language === 'id' ? 'en' : 'id';
     i18n.changeLanguage(nextLang);
   };
+
+  const userInitial = user?.username ? user.username.slice(0, 2).toUpperCase() : 'NP';
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--ink)]">
@@ -87,7 +97,7 @@ export const Shell: React.FC<ShellProps> = ({
           )}
           <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="p-1 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--raised)]"
+            className="p-1 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
             title="Toggle Sidebar"
           >
             <Menu className="w-4 h-4" />
@@ -103,7 +113,7 @@ export const Shell: React.FC<ShellProps> = ({
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs font-medium transition-colors cursor-pointer ${
                   isActive
                     ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-semibold'
                     : 'text-[var(--ink-muted)] hover:bg-[var(--raised)] hover:text-[var(--ink)]'
@@ -125,7 +135,7 @@ export const Shell: React.FC<ShellProps> = ({
           <div className="flex items-center gap-1 mx-auto">
             <button
               onClick={cycleTheme}
-              className="p-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--raised)] hover:text-[var(--ink)]"
+              className="p-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--raised)] hover:text-[var(--ink)] cursor-pointer"
               title={`Tema: ${theme}`}
             >
               {theme === 'light' && <Sun className="w-3.5 h-3.5" />}
@@ -134,7 +144,7 @@ export const Shell: React.FC<ShellProps> = ({
             </button>
             <button
               onClick={toggleLanguage}
-              className="px-1.5 py-0.5 rounded-[var(--radius-sm)] hover:bg-[var(--raised)] hover:text-[var(--ink)] font-mono text-[11px]"
+              className="px-1.5 py-0.5 rounded-[var(--radius-sm)] hover:bg-[var(--raised)] hover:text-[var(--ink)] font-mono text-[11px] cursor-pointer"
               title="Ganti Bahasa (ID / EN)"
             >
               {i18n.language.toUpperCase()}
@@ -149,7 +159,7 @@ export const Shell: React.FC<ShellProps> = ({
         <header className="h-14 border-b border-[var(--line)] bg-[var(--surface)] px-6 flex items-center justify-between gap-4 z-10">
           {/* Server Selector Badge */}
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-2.5 py-1 text-xs font-medium border border-[var(--line)] rounded-[var(--radius-sm)] bg-[var(--raised)] text-[var(--ink)] hover:border-[var(--primary)]/40 transition-colors">
+            <button className="flex items-center gap-2 px-2.5 py-1 text-xs font-medium border border-[var(--line)] rounded-[var(--radius-sm)] bg-[var(--raised)] text-[var(--ink)] hover:border-[var(--primary)]/40 transition-colors cursor-pointer">
               <Server className="w-3.5 h-3.5 text-[var(--primary)]" />
               <span>vps-01</span>
               <ChevronDown className="w-3 h-3 text-[var(--ink-muted)]" />
@@ -158,7 +168,10 @@ export const Shell: React.FC<ShellProps> = ({
 
           {/* Quick Search & Commands Trigger */}
           <div className="flex-1 max-w-md">
-            <div className="relative">
+            <div
+              className="relative cursor-pointer"
+              onClick={() => setIsCommandPaletteOpen(true)}
+            >
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" />
               <input
                 type="text"
@@ -172,24 +185,37 @@ export const Shell: React.FC<ShellProps> = ({
             </div>
           </div>
 
-          {/* User & Notifications */}
+          {/* User & Actions */}
           <div className="flex items-center gap-3">
             <button
-              className="p-1.5 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:bg-[var(--raised)] hover:text-[var(--ink)] relative"
+              className="p-1.5 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:bg-[var(--raised)] hover:text-[var(--ink)] relative cursor-pointer"
               title="Notifikasi"
             >
               <Bell className="w-4 h-4" />
               <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[var(--primary)] rounded-full" />
             </button>
 
-            <div className="flex items-center gap-2 pl-2 border-l border-[var(--line)]">
-              <div className="w-7 h-7 rounded-[var(--radius-full)] bg-[var(--primary)] text-[var(--primary-foreground)] font-semibold text-xs flex items-center justify-center">
-                RA
+            {/* Profile trigger */}
+            <div
+              onClick={() => onNavigate('profile')}
+              className="flex items-center gap-2 pl-2 border-l border-[var(--line)] cursor-pointer hover:opacity-80 transition-opacity"
+              title="Profil & Keamanan"
+            >
+              <div className="w-7 h-7 rounded-[var(--radius-full)] bg-[var(--primary)] text-white font-semibold text-xs flex items-center justify-center">
+                {userInitial}
               </div>
               <span className="text-xs font-medium hidden sm:inline text-[var(--ink)]">
-                admin
+                {user?.username || 'admin'}
               </span>
             </div>
+
+            <button
+              onClick={logout}
+              className="p-1.5 rounded-[var(--radius-sm)] text-[var(--danger)] hover:bg-[var(--danger)]/10 cursor-pointer"
+              title={t('auth.logout')}
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
@@ -200,13 +226,17 @@ export const Shell: React.FC<ShellProps> = ({
           </div>
         </main>
 
-        {/* Job Tray Floating Dock (Section 8.3 & 8.5) */}
-        <div className="fixed bottom-4 right-6 z-30">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-full)] shadow-[var(--shadow-floating)] text-xs text-[var(--ink-muted)]">
-            <span className="w-2 h-2 rounded-full bg-[var(--success)] animate-pulse" />
-            <span className="font-medium text-[var(--ink)]">Tugas (0 aktif)</span>
-          </div>
-        </div>
+        {/* Floating Job Tray */}
+        <JobTray onNavigateToJobs={() => onNavigate('jobs')} />
+
+        {/* Command Palette Modal */}
+        <CommandPalette
+          isOpen={isCommandPaletteOpen}
+          onClose={() => setIsCommandPaletteOpen(false)}
+          onNavigate={onNavigate}
+          theme={theme}
+          onThemeChange={onThemeChange}
+        />
       </div>
     </div>
   );
