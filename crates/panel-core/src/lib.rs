@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod auth;
-pub use auth::{hash_password, verify_password};
+pub use auth::{hash_password, hash_token, verify_password};
 
 /// Common error types for domain operations.
 #[derive(Debug, Error, Serialize, Deserialize)]

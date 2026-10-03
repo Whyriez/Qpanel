@@ -65,10 +65,26 @@ async fn test_api_healthz_and_system_info_endpoints() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    let db_file = tmp.path().join("panel.db");
+    let pool = panel_db::pool::init_pool(&format!(
+        "sqlite://{}",
+        db_file.to_str().expect("db_file").replace('\\', "/")
+    ))
+    .await
+    .expect("init pool");
+    panel_db::pool::run_migrations(&pool)
+        .await
+        .expect("run migrations");
+
+    let lockout_manager = Arc::new(panel_api::auth::LockoutManager::new(5, 900));
+
     let agent_client = Arc::new(AgentClient::new(sock_path));
     let state = AppState {
         agent_client,
+        pool,
         environment: "testing".to_string(),
+        auth_config: panel_api::config::AuthConfig::default(),
+        lockout_manager,
     };
 
     let app = create_router(state);

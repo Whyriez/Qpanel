@@ -1276,6 +1276,7 @@ dependencies = [
  "mime_guess",
  "panel-agent",
  "panel-core",
+ "panel-db",
  "panel-proto",
  "rust-embed",
  "serde",
@@ -1291,6 +1292,7 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "utoipa-swagger-ui",
+ "uuid",
 ]
 
 [[package]]
@@ -1317,6 +1319,7 @@ dependencies = [
  "argon2",
  "rand_core 0.6.4",
  "serde",
+ "sha2 0.10.9",
  "thiserror",
  "utoipa",
 ]

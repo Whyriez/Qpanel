@@ -12,7 +12,7 @@
 ## Phase 1 — Core panel (auth, DB, job, audit)
 - [x] P1-T1 Database: SQLite WAL, migrasi sqlx, repository (`users`, `sessions`, `audit_logs`, `jobs`, `settings`, `api_tokens`) — test: repository_test
 - [x] P1-T2 Bootstrap admin: `panelctl admin create`, `reset-password`, `list`, Argon2id password hashing, dan token setup sekali pakai (`setup-token [generate|status|verify]`) untuk first-run — test: admin_test, setup_token_test
-- [ ] P1-T3 Auth: login/logout, Argon2id, session cookie, CSRF, rate limit
+- [x] P1-T3 Auth: login/logout, Argon2id, cookie sesi (`HttpOnly+Secure+SameSite=Strict`), rotasi sesi, proteksi CSRF (`X-CSRF-Token`), lockout brute-force, ganti password — test: auth_test
 - [ ] P1-T4 2FA: TOTP + recovery codes
 - [ ] P1-T5 RBAC: middleware admin/user
 - [ ] P1-T6 Audit log: audit writer + API

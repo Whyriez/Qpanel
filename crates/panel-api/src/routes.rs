@@ -7,18 +7,39 @@ use std::sync::Arc;
 use utoipa::{OpenApi, ToSchema};
 
 use crate::agent_client::AgentClient;
+use crate::auth::{
+    ChangePasswordRequest, CsrfResponse, LockoutManager, LoginRequest, LoginResponse,
+    MessageResponse, UserInfo,
+};
+use crate::config::AuthConfig;
+use panel_db::pool::DbPool;
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
         healthz_handler,
         system_info_handler,
+        crate::auth::handlers::login_handler,
+        crate::auth::handlers::logout_handler,
+        crate::auth::handlers::me_handler,
+        crate::auth::handlers::csrf_handler,
+        crate::auth::handlers::change_password_handler,
     ),
     components(
-        schemas(HealthResponse, SystemInfoResponse)
+        schemas(
+            HealthResponse,
+            SystemInfoResponse,
+            LoginRequest,
+            LoginResponse,
+            UserInfo,
+            ChangePasswordRequest,
+            MessageResponse,
+            CsrfResponse
+        )
     ),
     tags(
-        (name = "system", description = "System and health check endpoints")
+        (name = "system", description = "System and health check endpoints"),
+        (name = "auth", description = "Authentication and session management")
     ),
     info(
         title = "Nusa Panel API",
@@ -50,7 +71,10 @@ pub struct SystemInfoResponse {
 #[derive(Clone)]
 pub struct AppState {
     pub agent_client: Arc<AgentClient>,
+    pub pool: DbPool,
     pub environment: String,
+    pub auth_config: AuthConfig,
+    pub lockout_manager: Arc<LockoutManager>,
 }
 
 #[utoipa::path(

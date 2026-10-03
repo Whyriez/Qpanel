@@ -16,6 +16,10 @@ pub enum ConfigError {
 pub struct PanelConfig {
     pub server: ServerConfig,
     pub agent: AgentConfig,
+    #[serde(default)]
+    pub database: DatabaseConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +33,38 @@ pub struct AgentConfig {
     pub socket_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    pub url: String,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        let url =
+            std::env::var("PANEL_DB_PATH").unwrap_or_else(|_| "sqlite://panel.db".to_string());
+        Self { url }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthConfig {
+    pub session_duration_secs: u64,
+    pub max_failed_attempts: u32,
+    pub lockout_duration_secs: u64,
+    pub cookie_secure: Option<bool>,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            session_duration_secs: 86400, // 24 hours
+            max_failed_attempts: 5,       // Lockout after 5 failed attempts
+            lockout_duration_secs: 900,   // 15 minutes lockout
+            cookie_secure: None,
+        }
+    }
+}
+
 impl Default for PanelConfig {
     fn default() -> Self {
         Self {
@@ -39,6 +75,8 @@ impl Default for PanelConfig {
             agent: AgentConfig {
                 socket_path: PathBuf::from("/run/panel/agent.sock"),
             },
+            database: DatabaseConfig::default(),
+            auth: AuthConfig::default(),
         }
     }
 }

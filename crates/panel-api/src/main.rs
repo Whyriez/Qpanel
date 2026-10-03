@@ -29,10 +29,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.agent.socket_path.display()
     );
 
+    let db_url = if config.database.url.starts_with("sqlite:") {
+        config.database.url.clone()
+    } else {
+        format!("sqlite://{}", config.database.url.replace('\\', "/"))
+    };
+    let pool = panel_db::pool::init_pool(&db_url).await?;
+    panel_db::pool::run_migrations(&pool).await?;
+
+    let lockout_manager = Arc::new(panel_api::auth::LockoutManager::new(
+        config.auth.max_failed_attempts,
+        config.auth.lockout_duration_secs,
+    ));
+
     let agent_client = Arc::new(AgentClient::new(config.agent.socket_path.clone()));
     let state = AppState {
         agent_client,
+        pool,
         environment: config.server.environment.clone(),
+        auth_config: config.auth.clone(),
+        lockout_manager,
     };
 
     let app = create_router(state);

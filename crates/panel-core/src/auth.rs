@@ -30,6 +30,14 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool, Core
         .is_ok())
 }
 
+/// Computes SHA-256 hash of a token (e.g. for session tokens or API tokens).
+pub fn hash_token(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
