@@ -273,3 +273,111 @@ export interface HardeningApplyResponse {
   message: string;
 }
 
+// Site & Domain Types
+export type RedirectMode = 'none' | 'www_to_non_www' | 'non_www_to_www' | 'custom_url';
+
+export interface SiteDomain {
+  id: number;
+  site_id: number;
+  name: string;
+  unicode_name: string;
+  is_primary: boolean;
+  redirect_mode: RedirectMode | string;
+  redirect_target: string | null;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface Site {
+  id: number;
+  user_id: number;
+  kind: 'static' | 'php' | 'proxy' | string;
+  primary_domain: string;
+  docroot: string;
+  status: 'active' | 'disabled' | 'suspended' | string;
+  spa_fallback: boolean;
+  force_https: boolean;
+  domains: SiteDomain[];
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CreateSiteRequest {
+  domain: string;
+  user_id?: number;
+  spa_fallback?: boolean;
+  force_https?: boolean;
+  docroot?: string;
+}
+
+export interface AddDomainRequest {
+  domain: string;
+  redirect_mode?: RedirectMode | string;
+  redirect_target?: string;
+  is_primary?: boolean;
+}
+
+export interface UpdateDomainRequest {
+  redirect_mode?: RedirectMode | string;
+  redirect_target?: string;
+  is_primary?: boolean;
+}
+
+export interface SiteMessageResponse {
+  message: string;
+  site_id: number;
+  status: string;
+}
+
+// SSL & Certificate Types
+export interface CertificateDetail {
+  id: number;
+  primary_domain: string;
+  san_domains: string[];
+  issuer: string;
+  not_before: number;
+  not_after: number;
+  days_remaining: number;
+  auto_renew: boolean;
+  ocsp_stapling: boolean;
+  last_renew_attempt: number | null;
+  renew_error: string | null;
+  status: string;
+}
+
+export interface SslStatus {
+  has_ssl: boolean;
+  certificate: CertificateDetail | null;
+  force_https: boolean;
+}
+
+export interface IssueSslRequest {
+  email?: string;
+  staging?: boolean;
+  fallback_self_signed?: boolean;
+  ocsp_stapling?: boolean;
+}
+
+export interface CustomCertRequest {
+  fullchain_pem: string;
+  privkey_pem: string;
+  auto_renew?: boolean;
+}
+
+export interface SslActionResponse {
+  message: string;
+  certificate?: CertificateDetail | null;
+}
+
+// Site Logs Types
+export interface SiteLogsResponse {
+  site_id: number;
+  log_type: 'access' | 'error' | string;
+  lines: string[];
+  total_returned: number;
+  file_path: string;
+  file_size_bytes: number;
+}
+
+

@@ -9,6 +9,8 @@ import { JobsPage } from './pages/JobsPage';
 import { TenantsPage } from './pages/TenantsPage';
 import { TenantDetailPage } from './pages/TenantDetailPage';
 import { PlansPage } from './pages/PlansPage';
+import { SitesPage } from './pages/SitesPage';
+import { SiteDetailPage } from './pages/SiteDetailPage';
 import { ToastProvider } from './components/ui/Toast';
 import { ThemeMode } from './types/api';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -21,6 +23,7 @@ const MainApp: React.FC = () => {
   });
   const [activeNav, setActiveNav] = useState('dashboard');
   const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null);
+  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
 
   useEffect(() => {
@@ -81,10 +84,19 @@ const MainApp: React.FC = () => {
   return (
     <>
       <Shell
-        activeNav={activeNav === 'tenant-detail' ? 'tenants' : activeNav}
+        activeNav={
+          activeNav === 'tenant-detail'
+            ? 'tenants'
+            : activeNav === 'site-detail'
+            ? 'sites'
+            : activeNav
+        }
         onNavigate={(nav) => {
           if (nav === 'tenants' || nav === 'users') {
             setSelectedTenantId(null);
+          }
+          if (nav === 'sites') {
+            setSelectedSiteId(null);
           }
           setActiveNav(nav);
         }}
@@ -95,6 +107,23 @@ const MainApp: React.FC = () => {
         {activeNav === 'audit' && <AuditLogPage />}
         {activeNav === 'jobs' && <JobsPage />}
         {activeNav === 'profile' && <SecurityProfilePage />}
+        {activeNav === 'sites' && (
+          <SitesPage
+            onSelectSite={(id) => {
+              setSelectedSiteId(id);
+              setActiveNav('site-detail');
+            }}
+          />
+        )}
+        {activeNav === 'site-detail' && selectedSiteId && (
+          <SiteDetailPage
+            siteId={selectedSiteId}
+            onBack={() => {
+              setSelectedSiteId(null);
+              setActiveNav('sites');
+            }}
+          />
+        )}
         {(activeNav === 'tenants' || activeNav === 'users') && (
           <TenantsPage
             onSelectTenant={(id) => {
@@ -114,7 +143,7 @@ const MainApp: React.FC = () => {
           />
         )}
         {activeNav === 'plans' && <PlansPage />}
-        {['sites', 'analytics', 'runtime', 'settings'].includes(activeNav) && (
+        {['analytics', 'runtime', 'settings'].includes(activeNav) && (
           <div className="p-8 text-center text-xs text-[var(--ink-muted)] border border-[var(--line)] rounded-[var(--radius-md)] bg-[var(--surface)]">
             Halaman <span className="font-semibold text-[var(--ink)]">{activeNav}</span> akan diimplementasikan pada fase berikutnya sesuai roadmap PRD.
           </div>

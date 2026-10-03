@@ -26,6 +26,17 @@ import {
   TwoFactorStatusResponse,
   UpdatePlanRequest,
   User,
+  Site,
+  SiteDomain,
+  CreateSiteRequest,
+  AddDomainRequest,
+  UpdateDomainRequest,
+  SiteMessageResponse,
+  SslStatus,
+  IssueSslRequest,
+  CustomCertRequest,
+  SslActionResponse,
+  SiteLogsResponse,
 } from '../types/api';
 
 const API_BASE = '';
@@ -367,4 +378,152 @@ export async function applyHardening(data: HardeningApplyRequest): Promise<Harde
     body: JSON.stringify(data),
   });
 }
+
+// ==========================================
+// Sites API
+// ==========================================
+
+export async function fetchSites(query?: { user_id?: number }): Promise<Site[]> {
+  const params = new URLSearchParams();
+  if (query?.user_id) {
+    params.set('user_id', query.user_id.toString());
+  }
+  const queryString = params.toString() ? `?${params.toString()}` : '';
+  return request<Site[]>(`/api/v1/sites${queryString}`);
+}
+
+export async function fetchSite(id: number): Promise<Site> {
+  return request<Site>(`/api/v1/sites/${id}`);
+}
+
+export async function createSite(data: CreateSiteRequest): Promise<Site> {
+  return request<Site>('/api/v1/sites', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSite(id: number): Promise<SiteMessageResponse> {
+  return request<SiteMessageResponse>(`/api/v1/sites/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function enableSite(id: number): Promise<SiteMessageResponse> {
+  return request<SiteMessageResponse>(`/api/v1/sites/${id}/enable`, {
+    method: 'POST',
+  });
+}
+
+export async function disableSite(id: number): Promise<SiteMessageResponse> {
+  return request<SiteMessageResponse>(`/api/v1/sites/${id}/disable`, {
+    method: 'POST',
+  });
+}
+
+export async function setForceHttps(id: number, forceHttps: boolean): Promise<Site> {
+  return request<Site>(`/api/v1/sites/${id}/force-https`, {
+    method: 'POST',
+    body: JSON.stringify({ force_https: forceHttps }),
+  });
+}
+
+// ==========================================
+// Site Domains API
+// ==========================================
+
+export async function fetchSiteDomains(siteId: number): Promise<SiteDomain[]> {
+  return request<SiteDomain[]>(`/api/v1/sites/${siteId}/domains`);
+}
+
+export async function addSiteDomain(siteId: number, data: AddDomainRequest): Promise<SiteDomain> {
+  return request<SiteDomain>(`/api/v1/sites/${siteId}/domains`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateSiteDomain(
+  siteId: number,
+  domainId: number,
+  data: UpdateDomainRequest
+): Promise<SiteDomain> {
+  return request<SiteDomain>(`/api/v1/sites/${siteId}/domains/${domainId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSiteDomain(
+  siteId: number,
+  domainId: number
+): Promise<SiteMessageResponse> {
+  return request<SiteMessageResponse>(`/api/v1/sites/${siteId}/domains/${domainId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ==========================================
+// SSL & Certificate API
+// ==========================================
+
+export async function fetchSiteSsl(siteId: number): Promise<SslStatus> {
+  return request<SslStatus>(`/api/v1/sites/${siteId}/ssl`);
+}
+
+export async function issueSiteSsl(
+  siteId: number,
+  data: IssueSslRequest
+): Promise<SslActionResponse> {
+  return request<SslActionResponse>(`/api/v1/sites/${siteId}/ssl/issue`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function generateSelfSignedSsl(siteId: number): Promise<SslActionResponse> {
+  return request<SslActionResponse>(`/api/v1/sites/${siteId}/ssl/self-signed`, {
+    method: 'POST',
+  });
+}
+
+export async function uploadCustomSsl(
+  siteId: number,
+  data: CustomCertRequest
+): Promise<SslActionResponse> {
+  return request<SslActionResponse>(`/api/v1/sites/${siteId}/ssl/custom`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function renewSiteSsl(siteId: number): Promise<SslActionResponse> {
+  return request<SslActionResponse>(`/api/v1/sites/${siteId}/ssl/renew`, {
+    method: 'POST',
+  });
+}
+
+export async function deleteSiteSsl(siteId: number): Promise<SslActionResponse> {
+  return request<SslActionResponse>(`/api/v1/sites/${siteId}/ssl`, {
+    method: 'DELETE',
+  });
+}
+
+// ==========================================
+// Site Logs API
+// ==========================================
+
+export async function fetchSiteLogs(
+  siteId: number,
+  logType: 'access' | 'error',
+  lines?: number,
+  query?: string
+): Promise<SiteLogsResponse> {
+  const params = new URLSearchParams();
+  params.set('log_type', logType);
+  if (lines) params.set('lines', lines.toString());
+  if (query) params.set('query', query);
+  return request<SiteLogsResponse>(`/api/v1/sites/${siteId}/logs?${params.toString()}`);
+}
+
 

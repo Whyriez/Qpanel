@@ -13,8 +13,8 @@ Agent **wajib** mencentang checklist ini dan menyalinnya ke `docs/PROGRESS.md` s
 
 - [x] Phase 0 — Fondasi & tooling
 - [x] Phase 1 — Core panel (auth, DB, job, audit)
-- [ ] Phase 2 — Tenant user & isolasi
-- [ ] Phase 3 — Site engine: static + Nginx + domain + SSL
+- [x] Phase 2 — Tenant user & isolasi
+- [x] Phase 3 — Site engine: static + Nginx + domain + SSL
 - [ ] Phase 4 — PHP multi-versi terisolasi
 - [ ] Phase 5 — File manager custom
 - [ ] Phase 6 — Web terminal & SSH
@@ -735,9 +735,9 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 - [x] **P3-T3 Renderer + apply atomic**: render `minijinja` → staging → `nginx -t` → swap → reload debounce → **rollback otomatis**. Test golden, test injeksi (domain jahat), test rollback dengan config sengaja rusak.
 - [x] **P3-T4 Site static**: buat/aktif/nonaktif/hapus, halaman placeholder, docroot, SPA fallback, header cache.
 - [x] **P3-T5 Alias dan redirect domain**: alias, subdomain, www ↔ non-www, force HTTPS.
-- [ ] **P3-T6 ACME**: akun, HTTP-01, terbit, simpan sertifikat (`0600`), scheduler renew (30 hari sebelum expiry), OCSP stapling, upload sertifikat custom, fallback self-signed, backoff + dukungan staging LE.
-- [ ] **P3-T7 Log**: log per site di `/var/log/panel/<user>/<site>/`, logrotate, API tail + pencarian (dibatasi), live tail via WebSocket.
-- [ ] **P3-T8 UI**: daftar situs (dengan `PulseStrip` placeholder), wizard buat site (pilih tipe → domain → tenant → tinjau), detail situs: Ringkasan, Domain, SSL, Log, Pengaturan.
+- [x] **P3-T6 ACME**: akun, HTTP-01, terbit, simpan sertifikat (`0600`), scheduler renew (30 hari sebelum expiry), OCSP stapling, upload sertifikat custom, fallback self-signed, backoff + dukungan staging LE.
+- [x] **P3-T7 Log**: log per site di `/var/log/panel/<user>/<site>/`, logrotate, API tail + pencarian (dibatasi), live tail via WebSocket.
+- [x] **P3-T8 UI**: daftar situs (dengan `PulseStrip` placeholder), wizard buat site (pilih tipe → domain → tenant → tinjau), detail situs: Ringkasan, Domain, SSL, Log, Pengaturan.
 
 **Acceptance**: situs static online dengan HTTPS (staging LE atau domain uji); config rusak tidak pernah membuat nginx mati (rollback terbukti di test); domain berisi karakter terlarang ditolak di API dan agent.
 **Jangan dulu**: PHP, runtime lain, analytics.
