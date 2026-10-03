@@ -10,7 +10,7 @@
 - [x] P0-T7 Dokumen proyek: `AGENTS.md` (ringkasan aturan bagian 0), `docs/PROGRESS.md`, `docs/adr/0001-stack.md`.
 
 ## Phase 1 — Core panel (auth, DB, job, audit)
-- [ ] P1-T1 Database: SQLite WAL, migrasi sqlx, repository
+- [x] P1-T1 Database: SQLite WAL, migrasi sqlx, repository (`users`, `sessions`, `audit_logs`, `jobs`, `settings`, `api_tokens`) — test: repository_test
 - [ ] P1-T2 Bootstrap admin: panelctl admin create
 - [ ] P1-T3 Auth: login/logout, Argon2id, session cookie, CSRF, rate limit
 - [ ] P1-T4 2FA: TOTP + recovery codes

@@ -693,7 +693,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 **Tujuan**: fondasi aplikasi yang aman untuk semua fitur berikutnya.
 **Prasyarat**: Phase 0.
 
-- [ ] **P1-T1 Database**: SQLite WAL (`busy_timeout`, `foreign_keys`), migrasi `sqlx`, repository untuk `users`, `sessions`, `audit_logs`, `jobs`, `settings`, `api_tokens`.
+- [x] **P1-T1 Database**: SQLite WAL (`busy_timeout`, `foreign_keys`), migrasi `sqlx`, repository untuk `users`, `sessions`, `audit_logs`, `jobs`, `settings`, `api_tokens`.
 - [ ] **P1-T2 Bootstrap admin**: `panelctl admin create` dan token setup sekali pakai untuk first-run.
 - [ ] **P1-T3 Auth**: login/logout, Argon2id, sesi cookie, rotasi sesi, CSRF, rate limit + lockout, ganti password.
 - [ ] **P1-T4 2FA**: TOTP + recovery codes, enrol dan verifikasi.
