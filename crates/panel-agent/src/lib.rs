@@ -352,6 +352,15 @@ impl AgentServer {
                 RequestPayload::SiteProvision(d) => {
                     ("nginx.site_provision".to_string(), d.username.clone())
                 }
+                RequestPayload::AcmeChallengeDeploy(d) => {
+                    ("acme.challenge_deploy".to_string(), d.token.clone())
+                }
+                RequestPayload::AcmeChallengeCleanup(d) => {
+                    ("acme.challenge_cleanup".to_string(), d.token.clone())
+                }
+                RequestPayload::SslCertDeploy(d) => {
+                    ("ssl.cert_deploy".to_string(), d.domain.clone())
+                }
             };
 
             let response = match req.payload {
@@ -453,6 +462,32 @@ impl AgentServer {
                     match self.webserver_manager.provision_site(data) {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::SiteProvisioned(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::AcmeChallengeDeploy(data) => {
+                    match self.webserver_manager.deploy_acme_challenge(data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::AcmeChallengeDeployed(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::AcmeChallengeCleanup(data) => {
+                    match self.webserver_manager.cleanup_acme_challenge(data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::AcmeChallengeCleaned(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SslCertDeploy(data) => {
+                    match self.webserver_manager.deploy_ssl_cert(data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SslCertDeployed(res))
                         }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

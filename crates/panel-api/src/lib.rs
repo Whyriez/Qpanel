@@ -7,6 +7,7 @@ pub mod jobs;
 pub mod plans;
 pub mod routes;
 pub mod sites;
+pub mod ssl;
 pub mod static_files;
 pub mod tenants;
 
@@ -154,6 +155,27 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/domains/{domain_id}",
             put(sites::update_site_domain_handler).delete(sites::delete_site_domain_handler),
+        )
+        // SSL & ACME endpoints
+        .route(
+            "/api/v1/sites/{id}/ssl",
+            get(ssl::get_site_ssl_handler).delete(ssl::delete_site_ssl_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/ssl/issue",
+            post(ssl::issue_site_ssl_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/ssl/self-signed",
+            post(ssl::self_signed_site_ssl_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/ssl/custom",
+            post(ssl::custom_site_ssl_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/ssl/renew",
+            post(ssl::renew_site_ssl_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

@@ -61,6 +61,9 @@ pub enum RequestPayload {
     SiteApply(SiteApplyRequest),
     SiteRemove(SiteRemoveRequest),
     SiteProvision(SiteProvisionRequest),
+    AcmeChallengeDeploy(AcmeChallengeDeployRequest),
+    AcmeChallengeCleanup(AcmeChallengeCleanupRequest),
+    SslCertDeploy(SslCertDeployRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -189,6 +192,9 @@ pub enum ResponsePayload {
     SiteApplied(SiteAppliedResponse),
     SiteRemoved(SiteRemovedResponse),
     SiteProvisioned(SiteProvisionResponse),
+    AcmeChallengeDeployed(AcmeChallengeDeployedResponse),
+    AcmeChallengeCleaned(AcmeChallengeCleanedResponse),
+    SslCertDeployed(SslCertDeployedResponse),
     Error(String),
 }
 
@@ -390,6 +396,45 @@ pub struct SiteProvisionResponse {
     pub docroot: String,
     pub placeholder_written: bool,
     pub acls_applied: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcmeChallengeDeployRequest {
+    pub token: String,
+    pub key_authorization: String,
+    pub acme_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcmeChallengeDeployedResponse {
+    pub challenge_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcmeChallengeCleanupRequest {
+    pub token: String,
+    pub acme_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcmeChallengeCleanedResponse {
+    pub token: String,
+    pub removed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SslCertDeployRequest {
+    pub domain: String,
+    pub fullchain_pem: String,
+    pub privkey_pem: String,
+    pub ssl_base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SslCertDeployedResponse {
+    pub domain: String,
+    pub cert_path: String,
+    pub key_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

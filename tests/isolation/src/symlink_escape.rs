@@ -117,6 +117,7 @@ pub fn validate_symlink_target(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

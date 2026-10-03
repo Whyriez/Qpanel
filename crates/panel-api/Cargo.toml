@@ -18,6 +18,7 @@ panel-core = { workspace = true }
 panel-proto = { workspace = true }
 panel-db = { workspace = true }
 panel-webserver = { workspace = true }
+sqlx = { workspace = true }
 uuid = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
@@ -35,6 +36,10 @@ thiserror = { workspace = true }
 rust-embed = { workspace = true }
 mime_guess = { workspace = true }
 futures-util = { workspace = true }
+rcgen = { workspace = true }
+x509-parser = { workspace = true }
+time = { workspace = true }
+instant-acme = { workspace = true }
 
 [dev-dependencies]
 panel-agent = { workspace = true }

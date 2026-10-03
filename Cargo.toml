@@ -75,6 +75,10 @@ mime_guess = "2.0"
 tempfile = "3.17"
 idna = "1.0"
 minijinja = "2.7"
+rcgen = "0.14"
+x509-parser = "0.18"
+instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "ring", "rcgen"] }
+time = "0.3"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

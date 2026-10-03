@@ -383,6 +383,7 @@ fn write_file_atomic(dest: &Path, content: &str) -> Result<(), WebserverError> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use tempfile::TempDir;

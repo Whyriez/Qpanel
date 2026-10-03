@@ -106,6 +106,7 @@ async fn test_site_atomic_apply_and_rollback_over_ipc() {
         ssl_cert: None,
         ssl_key: None,
         force_https: false,
+        ocsp_stapling: false,
         custom_headers: vec![],
         redirects: vec![],
     };

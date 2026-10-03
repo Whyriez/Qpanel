@@ -34,6 +34,12 @@ server {
     http2 on;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
+    {% if ocsp_stapling %}
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 1.1.1.1 8.8.8.8 valid=300s;
+    resolver_timeout 5s;
+    {% endif %}
     {% endif %}
 
     server_name {{ primary_domain }}{% for alias in alias_domains %} {{ alias }}{% endfor %};
@@ -128,6 +134,7 @@ pub struct StaticVhostContext {
     pub ssl_cert: Option<String>,
     pub ssl_key: Option<String>,
     pub force_https: bool,
+    pub ocsp_stapling: bool,
     pub custom_headers: Vec<HeaderConfig>,
 }
 
@@ -486,6 +493,7 @@ mod tests {
             ssl_cert: None,
             ssl_key: None,
             force_https: false,
+            ocsp_stapling: false,
             custom_headers: vec![],
             redirects: vec![],
         };
@@ -516,6 +524,7 @@ mod tests {
             ssl_cert: Some("/var/lib/panel/certs/my-app.id/fullchain.pem".to_string()),
             ssl_key: Some("/var/lib/panel/certs/my-app.id/privkey.pem".to_string()),
             force_https: true,
+            ocsp_stapling: true,
             custom_headers: vec![HeaderConfig {
                 name: "X-App-Framework".to_string(),
                 value: "Vite-React".to_string(),
@@ -527,6 +536,7 @@ mod tests {
         assert!(conf.contains("listen 443 ssl;"));
         assert!(conf.contains("ssl_certificate /var/lib/panel/certs/my-app.id/fullchain.pem;"));
         assert!(conf.contains("ssl_certificate_key /var/lib/panel/certs/my-app.id/privkey.pem;"));
+        assert!(conf.contains("ssl_stapling on;"));
         assert!(conf.contains("try_files $uri $uri/ /index.html;"));
         assert!(conf.contains("add_header X-App-Framework \"Vite-React\" always;"));
     }
@@ -564,6 +574,7 @@ mod tests {
             ssl_cert: Some("/var/lib/panel/certs/example.com/fullchain.pem".to_string()),
             ssl_key: Some("/var/lib/panel/certs/example.com/privkey.pem".to_string()),
             force_https: true,
+            ocsp_stapling: false,
             custom_headers: vec![],
         };
 
@@ -605,6 +616,7 @@ mod tests {
                 ssl_cert: None,
                 ssl_key: None,
                 force_https: false,
+                ocsp_stapling: false,
                 custom_headers: vec![],
             };
 
@@ -642,6 +654,7 @@ mod tests {
                 ssl_cert: None,
                 ssl_key: None,
                 force_https: false,
+                ocsp_stapling: false,
                 custom_headers: vec![],
             };
 
@@ -687,6 +700,7 @@ mod tests {
                 ssl_cert: None,
                 ssl_key: None,
                 force_https: false,
+                ocsp_stapling: false,
                 custom_headers: vec![],
             };
 

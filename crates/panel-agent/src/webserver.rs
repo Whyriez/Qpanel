@@ -3,8 +3,10 @@
 use crate::AgentError;
 use crate::system::SystemRunner;
 use panel_proto::{
-    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, SiteAppliedResponse, SiteApplyRequest,
-    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
+    AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
+    AcmeChallengeDeployedResponse, NginxBaselineAppliedResponse, NginxBaselineApplyRequest,
+    SiteAppliedResponse, SiteApplyRequest, SiteProvisionRequest, SiteProvisionResponse,
+    SiteRemoveRequest, SiteRemovedResponse, SslCertDeployRequest, SslCertDeployedResponse,
 };
 use panel_webserver::baseline::NginxBaselineConfig;
 use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
@@ -279,10 +281,135 @@ impl NginxManager {
             acls_applied: true,
         })
     }
+
+    /// Deploys an ACME HTTP-01 challenge response file.
+    pub fn deploy_acme_challenge(
+        &self,
+        req: AcmeChallengeDeployRequest,
+    ) -> Result<AcmeChallengeDeployedResponse, AgentError> {
+        if req.token.is_empty()
+            || !req
+                .token
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(AgentError::SecurityViolation(format!(
+                "Invalid ACME challenge token: '{}'",
+                req.token
+            )));
+        }
+
+        let acme_dir = req
+            .acme_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/var/www/acme-challenge"));
+
+        let challenge_dir = acme_dir.join(".well-known").join("acme-challenge");
+        self.runner.create_dir_all(&challenge_dir, 0o755, 0, 0)?;
+
+        let challenge_path = challenge_dir.join(&req.token);
+        self.runner
+            .write_file(&challenge_path, req.key_authorization.as_bytes(), 0o644)?;
+
+        info!(
+            "ACME HTTP-01 challenge deployed at {}",
+            challenge_path.display()
+        );
+
+        Ok(AcmeChallengeDeployedResponse {
+            challenge_path: challenge_path.to_string_lossy().to_string(),
+        })
+    }
+
+    /// Cleans up an ACME HTTP-01 challenge file.
+    pub fn cleanup_acme_challenge(
+        &self,
+        req: AcmeChallengeCleanupRequest,
+    ) -> Result<AcmeChallengeCleanedResponse, AgentError> {
+        if req.token.is_empty()
+            || !req
+                .token
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(AgentError::SecurityViolation(format!(
+                "Invalid ACME challenge token: '{}'",
+                req.token
+            )));
+        }
+
+        let acme_dir = req
+            .acme_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/var/www/acme-challenge"));
+
+        let challenge_path = acme_dir
+            .join(".well-known")
+            .join("acme-challenge")
+            .join(&req.token);
+
+        let removed = if self.runner.path_exists(&challenge_path) {
+            self.runner.remove_file(&challenge_path)?;
+            true
+        } else {
+            false
+        };
+
+        info!("ACME HTTP-01 challenge cleaned for token {}", req.token);
+
+        Ok(AcmeChallengeCleanedResponse {
+            token: req.token,
+            removed,
+        })
+    }
+
+    /// Deploys SSL certificate and private key with strict 0600 mode for the private key.
+    pub fn deploy_ssl_cert(
+        &self,
+        req: SslCertDeployRequest,
+    ) -> Result<SslCertDeployedResponse, AgentError> {
+        let domain = panel_core::domain::DomainName::parse(&req.domain)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+        let ssl_base_dir = req
+            .ssl_base_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/panel/ssl"));
+
+        let cert_dir = ssl_base_dir.join(domain.as_ascii());
+        // Directory 0700 for root
+        self.runner.create_dir_all(&cert_dir, 0o700, 0, 0)?;
+
+        let cert_path = cert_dir.join("fullchain.pem");
+        let key_path = cert_dir.join("privkey.pem");
+
+        // Write fullchain (mode 0644)
+        self.runner
+            .write_file(&cert_path, req.fullchain_pem.as_bytes(), 0o644)?;
+
+        // Write private key with strict 0600 mode as required by PRD!
+        self.runner
+            .write_file(&key_path, req.privkey_pem.as_bytes(), 0o600)?;
+
+        info!(
+            "SSL certificate deployed for domain {} at {}",
+            domain.as_unicode(),
+            cert_dir.display()
+        );
+
+        Ok(SslCertDeployedResponse {
+            domain: domain.as_unicode().to_string(),
+            cert_path: cert_path.to_string_lossy().to_string(),
+            key_path: key_path.to_string_lossy().to_string(),
+        })
+    }
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::clone_on_ref_ptr)]
 mod tests {
     use super::*;
     use crate::system::MockSystemRunner;
@@ -300,7 +427,7 @@ mod tests {
         runner.set_response("nginx", 0, b"syntax is ok", b"");
         runner.set_response("systemctl", 0, b"", b"");
 
-        let manager = NginxManager::new(runner.clone());
+        let manager = NginxManager::new(Arc::clone(&runner) as Arc<dyn SystemRunner>);
 
         let req = NginxBaselineApplyRequest {
             base_dir: Some(nginx_dir.to_string_lossy().to_string()),
@@ -322,5 +449,102 @@ mod tests {
         // Verify commands recorded in runner
         let actions = runner.recorded_actions();
         assert_eq!(actions.len(), 2);
+    }
+
+    #[test]
+    fn test_deploy_and_cleanup_acme_challenge() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(Arc::clone(&runner) as Arc<dyn SystemRunner>);
+
+        // 1. Deploy challenge
+        let deploy_req = AcmeChallengeDeployRequest {
+            token: "valid-token-123_abc".to_string(),
+            key_authorization: "valid-token-123_abc.account-thumbprint-xyz".to_string(),
+            acme_dir: Some("/var/www/acme-challenge".to_string()),
+        };
+        let deploy_res = manager
+            .deploy_acme_challenge(deploy_req)
+            .expect("deploy challenge");
+        assert!(deploy_res.challenge_path.contains("valid-token-123_abc"));
+
+        // Verify write action
+        let actions = runner.recorded_actions();
+        let write_action = actions.iter().find(|a| match a {
+            crate::system::MockAction::WriteFile {
+                path,
+                content,
+                mode,
+            } => {
+                path.to_string_lossy().contains("valid-token-123_abc")
+                    && content == b"valid-token-123_abc.account-thumbprint-xyz"
+                    && *mode == 0o644
+            }
+            _ => false,
+        });
+        assert!(
+            write_action.is_some(),
+            "Challenge file must be written with mode 0644"
+        );
+
+        // 2. Reject malicious traversal token
+        let bad_req = AcmeChallengeDeployRequest {
+            token: "../../../etc/passwd".to_string(),
+            key_authorization: "evil".to_string(),
+            acme_dir: Some("/var/www/acme-challenge".to_string()),
+        };
+        assert!(manager.deploy_acme_challenge(bad_req).is_err());
+    }
+
+    #[test]
+    fn test_deploy_ssl_cert_enforces_0600_key() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(Arc::clone(&runner) as Arc<dyn SystemRunner>);
+
+        let req = SslCertDeployRequest {
+            domain: "contoh.id".to_string(),
+            fullchain_pem: "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n"
+                .to_string(),
+            privkey_pem: "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+                .to_string(),
+            ssl_base_dir: Some("/etc/panel/ssl".to_string()),
+        };
+
+        let res = manager.deploy_ssl_cert(req).expect("deploy ssl cert");
+        assert_eq!(res.domain, "contoh.id");
+        assert!(res.cert_path.ends_with("fullchain.pem"));
+        assert!(res.key_path.ends_with("privkey.pem"));
+
+        // Verify actions: fullchain written with 0644, privkey written with 0600
+        let actions = runner.recorded_actions();
+        let cert_action = actions.iter().find(|a| match a {
+            crate::system::MockAction::WriteFile {
+                path,
+                content,
+                mode,
+            } => {
+                path.to_string_lossy().contains("fullchain.pem")
+                    && content.starts_with(b"-----BEGIN CERTIFICATE-----")
+                    && *mode == 0o644
+            }
+            _ => false,
+        });
+        assert!(cert_action.is_some(), "Cert must be written with mode 0644");
+
+        let key_action = actions.iter().find(|a| match a {
+            crate::system::MockAction::WriteFile {
+                path,
+                content,
+                mode,
+            } => {
+                path.to_string_lossy().contains("privkey.pem")
+                    && content.starts_with(b"-----BEGIN PRIVATE KEY-----")
+                    && *mode == 0o600
+            }
+            _ => false,
+        });
+        assert!(
+            key_action.is_some(),
+            "Private key MUST be written with strict mode 0600"
+        );
     }
 }

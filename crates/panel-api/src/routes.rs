@@ -42,6 +42,12 @@ use panel_db::pool::DbPool;
         crate::jobs::handlers::get_job_handler,
         crate::jobs::handlers::cancel_job_handler,
         crate::jobs::handlers::job_events_handler,
+        crate::ssl::get_site_ssl_handler,
+        crate::ssl::issue_site_ssl_handler,
+        crate::ssl::self_signed_site_ssl_handler,
+        crate::ssl::custom_site_ssl_handler,
+        crate::ssl::renew_site_ssl_handler,
+        crate::ssl::delete_site_ssl_handler,
     ),
     components(
         schemas(
@@ -74,6 +80,11 @@ use panel_db::pool::DbPool;
             crate::sites::SiteResponse,
             crate::sites::SiteDomainResponse,
             crate::sites::SiteMessageResponse,
+            crate::ssl::IssueSslRequest,
+            crate::ssl::CustomCertRequest,
+            crate::ssl::SslStatusResponse,
+            crate::ssl::CertificateDetailResponse,
+            crate::ssl::SslActionResponse,
         )
     ),
     tags(
@@ -82,7 +93,8 @@ use panel_db::pool::DbPool;
         (name = "admin", description = "Administrator-only management endpoints"),
         (name = "user", description = "Tenant user resource endpoints"),
         (name = "audit", description = "Audit log query and tracking endpoints"),
-        (name = "jobs", description = "Background jobs and real-time progress tracking endpoints")
+        (name = "jobs", description = "Background jobs and real-time progress tracking endpoints"),
+        (name = "ssl", description = "SSL/TLS and ACME certificate management")
     ),
     info(
         title = "Nusa Panel API",

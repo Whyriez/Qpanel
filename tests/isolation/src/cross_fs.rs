@@ -99,6 +99,7 @@ pub fn verify_tenant_home_permissions(home_path: &Path) -> Result<(), Box<dyn st
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 

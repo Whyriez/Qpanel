@@ -144,7 +144,7 @@ fn build_site_response(s: &Site, domains: &[Domain]) -> SiteResponse {
     }
 }
 
-async fn fetch_and_authorize_site(
+pub async fn fetch_and_authorize_site(
     site_repo: &SqliteSiteRepository,
     auth_user: &AuthenticatedUser,
     site_id: i64,
@@ -315,6 +315,10 @@ pub async fn recompile_and_apply_site_vhost(
         ssl_cert,
         ssl_key,
         force_https,
+        ocsp_stapling: settings
+            .get("ocsp_stapling")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         custom_headers: vec![],
     };
 

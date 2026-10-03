@@ -1,13 +1,15 @@
 //! IPC client to communicate with `panel-agent` over a Unix domain socket.
 
 use panel_proto::{
-    HardeningApplyRequest, HardeningApplyResponse, HardeningStatus, NginxBaselineAppliedResponse,
-    NginxBaselineApplyRequest, ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
-    QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
-    ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
-    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
-    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
-    SliceResourceMetrics, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
+    AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
+    AcmeChallengeDeployedResponse, HardeningApplyRequest, HardeningApplyResponse, HardeningStatus,
+    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, ProtoError, QuotaGetRequest,
+    QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse,
+    RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
+    SiteAppliedResponse, SiteApplyRequest, SiteProvisionRequest, SiteProvisionResponse,
+    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
+    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SslCertDeployRequest,
+    SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
     UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
     UserUnsuspendedResponse, VersionInfo,
 };
@@ -665,6 +667,96 @@ impl AgentClient {
             ResponsePayload::SiteProvisioned(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SiteProvisioned",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn deploy_acme_challenge(
+        &self,
+        req: AcmeChallengeDeployRequest,
+    ) -> Result<AcmeChallengeDeployedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "acme-deploy-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::AcmeChallengeDeploy(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::AcmeChallengeDeployed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "AcmeChallengeDeployed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn cleanup_acme_challenge(
+        &self,
+        req: AcmeChallengeCleanupRequest,
+    ) -> Result<AcmeChallengeCleanedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "acme-cleanup-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::AcmeChallengeCleanup(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::AcmeChallengeCleaned(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "AcmeChallengeCleaned",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn deploy_ssl_cert(
+        &self,
+        req: SslCertDeployRequest,
+    ) -> Result<SslCertDeployedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "ssl-deploy-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SslCertDeploy(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SslCertDeployed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SslCertDeployed",
                 got: format!("{other:?}"),
             }),
         }
