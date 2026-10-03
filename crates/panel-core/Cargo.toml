@@ -12,6 +12,8 @@ utoipa = { workspace = true, optional = true }
 argon2 = { workspace = true }
 rand_core = { workspace = true }
 sha2 = { workspace = true }
+totp-rs = { workspace = true }
+uuid = { workspace = true }
 
 [features]
 default = []

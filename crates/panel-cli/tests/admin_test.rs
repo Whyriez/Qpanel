@@ -164,3 +164,53 @@ async fn test_creating_admin_clears_setup_token() {
     let status_after = get_setup_status(&pool).await.expect("status after");
     assert_eq!(status_after, SetupStatus::Completed);
 }
+
+#[tokio::test]
+async fn test_admin_reset_2fa() {
+    use panel_cli::reset_2fa;
+    use panel_db::repositories::SqliteRecoveryCodeRepository;
+
+    let tmp = NamedTempFile::new().expect("create temp file");
+    let db_path = tmp.path().to_str().expect("to_str");
+    let pool = init_pool(&format!("sqlite://{}", db_path.replace('\\', "/")))
+        .await
+        .expect("init pool");
+    run_migrations(&pool).await.expect("run migrations");
+
+    let user_id = create_admin(&pool, "admin_2fa", "Password123!", None)
+        .await
+        .expect("create admin");
+
+    let user_repo = SqliteUserRepository::new(pool.clone());
+    let recovery_repo = SqliteRecoveryCodeRepository::new(pool.clone());
+
+    // Enable 2FA manually
+    user_repo
+        .update_totp(user_id, Some("JBSWY3DPEHPK3PXP"), true)
+        .await
+        .expect("update totp");
+
+    let codes = vec!["hash1".to_string(), "hash2".to_string()];
+    recovery_repo
+        .replace_codes(user_id, &codes)
+        .await
+        .expect("replace codes");
+
+    let unused_before = recovery_repo.count_unused(user_id).await.expect("count");
+    assert_eq!(unused_before, 2);
+
+    // Call CLI reset_2fa
+    reset_2fa(&pool, "admin_2fa").await.expect("reset 2fa");
+
+    // Verify 2FA is now disabled
+    let user_after = user_repo
+        .find_by_username("admin_2fa")
+        .await
+        .expect("find")
+        .expect("exists");
+    assert!(!user_after.totp_enabled);
+    assert_eq!(user_after.totp_secret, None);
+
+    let unused_after = recovery_repo.count_unused(user_id).await.expect("count");
+    assert_eq!(unused_after, 0);
+}

@@ -316,3 +316,63 @@ async fn test_api_token_repository() {
         .expect("find");
     assert!(after_del.is_none());
 }
+
+#[tokio::test]
+async fn test_recovery_code_repository() {
+    use panel_db::SqliteRecoveryCodeRepository;
+
+    let pool = setup_test_db().await;
+    let user_repo = SqliteUserRepository::new(pool.clone());
+    let code_repo = SqliteRecoveryCodeRepository::new(pool.clone());
+
+    let user = user_repo
+        .create(&CreateUser {
+            username: "totp_user".to_string(),
+            password_hash: "hash".to_string(),
+            role: "user".to_string(),
+            email: None,
+            linux_username: None,
+            linux_uid: None,
+            plan_id: None,
+        })
+        .await
+        .expect("create user");
+
+    let codes = vec![
+        "hash_code_1".to_string(),
+        "hash_code_2".to_string(),
+        "hash_code_3".to_string(),
+    ];
+
+    code_repo
+        .replace_codes(user.id, &codes)
+        .await
+        .expect("replace codes");
+    assert_eq!(code_repo.count_unused(user.id).await.expect("count"), 3);
+
+    // Consume first code
+    let consumed = code_repo
+        .verify_and_consume(user.id, "hash_code_1")
+        .await
+        .expect("consume");
+    assert!(consumed);
+    assert_eq!(code_repo.count_unused(user.id).await.expect("count"), 2);
+
+    // Cannot consume already used code
+    let consumed_again = code_repo
+        .verify_and_consume(user.id, "hash_code_1")
+        .await
+        .expect("consume again");
+    assert!(!consumed_again);
+
+    // Cannot consume nonexistent code
+    let consumed_invalid = code_repo
+        .verify_and_consume(user.id, "hash_code_invalid")
+        .await
+        .expect("consume invalid");
+    assert!(!consumed_invalid);
+
+    // Delete all codes
+    code_repo.delete_by_user_id(user.id).await.expect("delete");
+    assert_eq!(code_repo.count_unused(user.id).await.expect("count"), 0);
+}

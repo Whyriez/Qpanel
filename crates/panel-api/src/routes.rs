@@ -9,7 +9,8 @@ use utoipa::{OpenApi, ToSchema};
 use crate::agent_client::AgentClient;
 use crate::auth::{
     ChangePasswordRequest, CsrfResponse, LockoutManager, LoginRequest, LoginResponse,
-    MessageResponse, UserInfo,
+    MessageResponse, TwoFactorDisableRequest, TwoFactorEnableRequest, TwoFactorSetupResponse,
+    TwoFactorStatusResponse, UserInfo,
 };
 use crate::config::AuthConfig;
 use panel_db::pool::DbPool;
@@ -24,6 +25,10 @@ use panel_db::pool::DbPool;
         crate::auth::handlers::me_handler,
         crate::auth::handlers::csrf_handler,
         crate::auth::handlers::change_password_handler,
+        crate::auth::handlers::two_factor_setup_handler,
+        crate::auth::handlers::two_factor_enable_handler,
+        crate::auth::handlers::two_factor_disable_handler,
+        crate::auth::handlers::two_factor_status_handler,
     ),
     components(
         schemas(
@@ -34,7 +39,11 @@ use panel_db::pool::DbPool;
             UserInfo,
             ChangePasswordRequest,
             MessageResponse,
-            CsrfResponse
+            CsrfResponse,
+            TwoFactorSetupResponse,
+            TwoFactorEnableRequest,
+            TwoFactorDisableRequest,
+            TwoFactorStatusResponse,
         )
     ),
     tags(

@@ -2,8 +2,8 @@
 
 use clap::{Parser, Subcommand};
 use panel_cli::{
-    SetupStatus, create_admin, generate_setup_token, get_setup_status, list_admins, reset_password,
-    verify_setup_token,
+    SetupStatus, create_admin, generate_setup_token, get_setup_status, list_admins, reset_2fa,
+    reset_password, verify_setup_token,
 };
 use panel_db::pool::{init_pool, run_migrations};
 use std::error::Error;
@@ -63,6 +63,12 @@ enum AdminCommands {
         /// New password (minimum 8 characters). Prompts interactively if omitted.
         #[arg(short, long)]
         password: Option<String>,
+    },
+    /// Reset two-factor authentication for an account (emergency rescue)
+    Reset2fa {
+        /// Account username
+        #[arg(short, long)]
+        username: String,
     },
     /// List all administrator accounts
     List,
@@ -137,6 +143,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 };
                 reset_password(&pool, &username, &pass).await?;
                 println!("Password for user '{}' updated successfully.", username);
+            }
+            AdminCommands::Reset2fa { username } => {
+                reset_2fa(&pool, &username).await?;
+                println!(
+                    "Two-factor authentication for user '{}' has been reset successfully.",
+                    username
+                );
             }
             AdminCommands::List => {
                 let admins = list_admins(&pool).await?;

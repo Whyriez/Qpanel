@@ -93,3 +93,20 @@ pub async fn list_admins(pool: &DbPool) -> Result<Vec<panel_db::models::User>, C
     let admins = users.into_iter().filter(|u| u.role == "admin").collect();
     Ok(admins)
 }
+
+/// Resets two-factor authentication for an account (emergency CLI rescue).
+pub async fn reset_2fa(pool: &DbPool, username: &str) -> Result<(), CliError> {
+    let user_repo = SqliteUserRepository::new(pool.clone());
+
+    let user = user_repo
+        .find_by_username(username)
+        .await?
+        .ok_or_else(|| CliError::NotFound(format!("User '{}' not found", username)))?;
+
+    user_repo.update_totp(user.id, None, false).await?;
+
+    let recovery_repo = panel_db::repositories::SqliteRecoveryCodeRepository::new(pool.clone());
+    recovery_repo.delete_by_user_id(user.id).await?;
+
+    Ok(())
+}

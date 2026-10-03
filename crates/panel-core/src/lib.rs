@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod auth;
+pub mod totp;
 pub use auth::{hash_password, hash_token, verify_password};
+pub use totp::{
+    generate_recovery_codes, generate_totp_qr_base64, generate_totp_secret, generate_totp_uri,
+    hash_recovery_code, normalize_recovery_code, verify_totp_code,
+};
 
 /// Common error types for domain operations.
 #[derive(Debug, Error, Serialize, Deserialize)]

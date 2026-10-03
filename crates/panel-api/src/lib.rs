@@ -27,6 +27,22 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/auth/me", get(auth::me_handler))
         .route("/api/v1/auth/csrf", get(auth::csrf_handler))
         .route("/api/v1/auth/password", post(auth::change_password_handler))
+        .route(
+            "/api/v1/auth/2fa/setup",
+            post(auth::two_factor_setup_handler),
+        )
+        .route(
+            "/api/v1/auth/2fa/enable",
+            post(auth::two_factor_enable_handler),
+        )
+        .route(
+            "/api/v1/auth/2fa/disable",
+            post(auth::two_factor_disable_handler),
+        )
+        .route(
+            "/api/v1/auth/2fa/status",
+            get(auth::two_factor_status_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
