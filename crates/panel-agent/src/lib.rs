@@ -349,6 +349,9 @@ impl AgentServer {
                 RequestPayload::SiteRemove(d) => {
                     ("nginx.site_remove".to_string(), d.site_id.clone())
                 }
+                RequestPayload::SiteProvision(d) => {
+                    ("nginx.site_provision".to_string(), d.username.clone())
+                }
             };
 
             let response = match req.payload {
@@ -442,6 +445,14 @@ impl AgentServer {
                     match self.webserver_manager.remove_site(data) {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::SiteRemoved(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteProvision(data) => {
+                    match self.webserver_manager.provision_site(data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SiteProvisioned(res))
                         }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

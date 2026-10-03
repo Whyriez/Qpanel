@@ -5,10 +5,11 @@ use panel_proto::{
     NginxBaselineApplyRequest, ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
     QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
     ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
-    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
-    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, UserCreateRequest,
-    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
-    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
+    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
+    SliceResourceMetrics, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
+    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
+    UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -633,6 +634,37 @@ impl AgentClient {
             ResponsePayload::SiteRemoved(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SiteRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn provision_site(
+        &self,
+        req: SiteProvisionRequest,
+    ) -> Result<SiteProvisionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-provision-{}-{}",
+            req.site_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteProvision(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteProvisioned(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteProvisioned",
                 got: format!("{other:?}"),
             }),
         }

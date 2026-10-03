@@ -17,6 +17,7 @@ path = "src/main.rs"
 panel-core = { workspace = true }
 panel-proto = { workspace = true }
 panel-db = { workspace = true }
+panel-webserver = { workspace = true }
 uuid = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

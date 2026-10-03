@@ -67,6 +67,10 @@ use panel_db::pool::DbPool;
             crate::jobs::CreateJobRequest,
             crate::jobs::JobListResponse,
             crate::jobs::JobProgressEvent,
+            crate::sites::CreateStaticSiteRequest,
+            crate::sites::SiteResponse,
+            crate::sites::SiteDomainResponse,
+            crate::sites::SiteMessageResponse,
         )
     ),
     tags(

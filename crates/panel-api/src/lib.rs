@@ -6,6 +6,7 @@ pub mod config;
 pub mod jobs;
 pub mod plans;
 pub mod routes;
+pub mod sites;
 pub mod static_files;
 pub mod tenants;
 
@@ -124,6 +125,23 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/system/hardening/apply",
             post(tenants::apply_hardening_handler),
+        )
+        // Sites endpoints
+        .route(
+            "/api/v1/sites",
+            post(sites::create_static_site_handler).get(sites::list_sites_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}",
+            get(sites::get_site_handler).delete(sites::delete_site_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/enable",
+            post(sites::enable_site_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/disable",
+            post(sites::disable_site_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

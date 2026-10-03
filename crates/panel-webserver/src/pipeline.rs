@@ -270,6 +270,49 @@ impl NginxApplyPipeline {
         })
     }
 
+    /// Enables an existing site in `sites-available/` by creating its symlink in `sites-enabled/` with automatic rollback.
+    pub fn enable_site<F>(
+        &self,
+        site_id: &str,
+        syntax_checker: F,
+    ) -> Result<ApplyResult, WebserverError>
+    where
+        F: Fn() -> Result<(), String>,
+    {
+        let conf_name = format!("{site_id}.conf");
+        let available_conf = self.sites_available_dir().join(&conf_name);
+        let enabled_conf = self.sites_enabled_dir().join(&conf_name);
+
+        if !available_conf.exists() {
+            return Err(WebserverError::Config(format!(
+                "Site '{}' not found in sites-available",
+                site_id
+            )));
+        }
+
+        let was_enabled = enabled_conf.exists() || is_symlink(&enabled_conf);
+        if !was_enabled {
+            create_vhost_link(&available_conf, &enabled_conf)?;
+        }
+
+        if let Err(stderr) = syntax_checker() {
+            if !was_enabled {
+                let _ = remove_link_or_file(&enabled_conf);
+            }
+            return Err(WebserverError::ValidationFailed {
+                stderr,
+                rolled_back: true,
+            });
+        }
+
+        Ok(ApplyResult {
+            site_id: site_id.to_string(),
+            available_path: available_conf,
+            enabled_path: Some(enabled_conf),
+            enabled: true,
+        })
+    }
+
     /// Removes a site's configurations completely with rollback on failure.
     pub fn remove_site<F>(&self, site_id: &str, syntax_checker: F) -> Result<(), WebserverError>
     where

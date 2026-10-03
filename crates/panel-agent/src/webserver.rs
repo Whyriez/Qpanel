@@ -4,7 +4,7 @@ use crate::AgentError;
 use crate::system::SystemRunner;
 use panel_proto::{
     NginxBaselineAppliedResponse, NginxBaselineApplyRequest, SiteAppliedResponse, SiteApplyRequest,
-    SiteRemoveRequest, SiteRemovedResponse,
+    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
 };
 use panel_webserver::baseline::NginxBaselineConfig;
 use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
@@ -152,7 +152,19 @@ impl NginxManager {
             }
         };
 
-        let result = if req.test_config {
+        let result = if req.config_content.is_empty() {
+            if req.enable {
+                if req.test_config {
+                    pipeline.enable_site(&req.site_id, syntax_check)
+                } else {
+                    pipeline.enable_site(&req.site_id, || Ok(()))
+                }
+            } else if req.test_config {
+                pipeline.disable_site(&req.site_id, syntax_check)
+            } else {
+                pipeline.disable_site(&req.site_id, || Ok(()))
+            }
+        } else if req.test_config {
             pipeline.apply_site_config(&req.site_id, &req.config_content, req.enable, syntax_check)
         } else {
             pipeline.apply_site_config(&req.site_id, &req.config_content, req.enable, || Ok(()))
@@ -215,6 +227,56 @@ impl NginxManager {
         Ok(SiteRemovedResponse {
             site_id: req.site_id,
             reloaded,
+        })
+    }
+
+    /// Provisions docroot directory, sets permissions, and writes modern placeholder index.html.
+    pub fn provision_site(
+        &self,
+        req: SiteProvisionRequest,
+    ) -> Result<SiteProvisionResponse, AgentError> {
+        let username = panel_core::Username::parse(&req.username)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+        let uid = panel_core::tenant::TenantUid::parse(req.uid)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+        let uid_val = uid.as_u32();
+
+        let docroot_path = PathBuf::from(&req.docroot);
+        let home_path = PathBuf::from(&req.home_dir);
+        let web_user = req.web_user.as_deref().unwrap_or("www-data");
+
+        // 1. Create docroot directory with mode 0750 owned by tenant user
+        self.runner
+            .create_dir_all(&docroot_path, 0o750, uid_val, uid_val)?;
+
+        // 2. Set ACL on home directory (u:<web_user>:--x) and docroot (u:<web_user>:r-x)
+        let _ = self.runner.set_facl(&home_path, web_user, "--x");
+        let _ = self.runner.set_facl(&docroot_path, web_user, "r-x");
+
+        // 3. Write index.html placeholder if not exists
+        let index_path = docroot_path.join("index.html");
+        let mut placeholder_written = false;
+        if !self.runner.path_exists(&index_path) {
+            let placeholder_content = req.index_content.unwrap_or_else(|| {
+                panel_webserver::template::render_placeholder_html(&req.username)
+            });
+            self.runner
+                .write_file(&index_path, placeholder_content.as_bytes(), 0o644)?;
+            let _ = self.runner.set_ownership(&index_path, uid_val, uid_val);
+            placeholder_written = true;
+        }
+
+        info!(
+            "Site docroot provisioned at {} for tenant {} (UID {})",
+            docroot_path.display(),
+            username.as_str(),
+            uid_val
+        );
+
+        Ok(SiteProvisionResponse {
+            docroot: req.docroot,
+            placeholder_written,
+            acls_applied: true,
         })
     }
 }

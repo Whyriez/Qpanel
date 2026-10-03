@@ -32,7 +32,7 @@
 - [x] P3-T1 Model site dan domain: validasi IDN/punycode via idna, anti-injeksi, keunikan domain global, model Site & Domain, SqliteSiteRepository & SqliteDomainRepository, migrasi schema — test: domain::tests, site_domain_repository_test, ADR-0014
 - [x] P3-T2 Baseline nginx: installer menulis `nginx.conf` ter-tuning & include dirs, catch-all reject unknown host (HTTP 444 & ssl_reject_handshake), vhost panel (`:8443`), snippet acme/security-headers/deny-sensitive/fastcgi-params, format log `panel_json`, IPC NginxBaselineApply — test: baseline::tests, nginx_baseline_ipc_test, ADR-0015
 - [x] P3-T3 Renderer + apply atomic: render minijinja dengan filter anti-injeksi, staging directory, validasi sintaks nginx -t, swap sites-available/sites-enabled, debounce reload 500ms, automatic rollback terbukti mengembalikan config lama bila sintaks rusak — test: template::tests (golden + malicious injection), pipeline::tests (rollback), site_atomic_apply_ipc_test, ADR-0016
-- [ ] P3-T4 Site static
+- [x] P3-T4 Site static: docroot provisioning (/home/p_<slug>/sites/<domain>/public), izin POSIX ACL www-data, placeholder index.html ramah pengguna, CRUD API, lifecycle (enable/disable/delete), audit log — test: static_site_api_test, ADR-0017
 - [ ] P3-T5 Alias dan redirect domain
 - [ ] P3-T6 ACME: Let's Encrypt auto-SSL
 - [ ] P3-T7 Log per site & WebSocket live tail

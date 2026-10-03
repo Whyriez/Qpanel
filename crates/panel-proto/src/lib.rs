@@ -60,6 +60,7 @@ pub enum RequestPayload {
     NginxBaselineApply(NginxBaselineApplyRequest),
     SiteApply(SiteApplyRequest),
     SiteRemove(SiteRemoveRequest),
+    SiteProvision(SiteProvisionRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -187,6 +188,7 @@ pub enum ResponsePayload {
     NginxBaselineApplied(NginxBaselineAppliedResponse),
     SiteApplied(SiteAppliedResponse),
     SiteRemoved(SiteRemovedResponse),
+    SiteProvisioned(SiteProvisionResponse),
     Error(String),
 }
 
@@ -370,6 +372,24 @@ pub struct SiteRemoveRequest {
 pub struct SiteRemovedResponse {
     pub site_id: String,
     pub reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteProvisionRequest {
+    pub site_id: i64,
+    pub username: String,
+    pub uid: u32,
+    pub home_dir: String,
+    pub docroot: String,
+    pub web_user: Option<String>,
+    pub index_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteProvisionResponse {
+    pub docroot: String,
+    pub placeholder_written: bool,
+    pub acls_applied: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
