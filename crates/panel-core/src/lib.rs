@@ -5,9 +5,11 @@ use thiserror::Error;
 
 pub mod auth;
 pub mod rbac;
+pub mod tenant;
 pub mod totp;
 pub use auth::{hash_password, hash_token, verify_password};
 pub use rbac::{Action, Role, authorize, check_permission};
+pub use tenant::{MAX_TENANT_UID, MIN_TENANT_UID, ShellPolicy, TenantUid, is_reserved_username};
 pub use totp::{
     generate_recovery_codes, generate_totp_qr_base64, generate_totp_secret, generate_totp_uri,
     hash_recovery_code, normalize_recovery_code, verify_totp_code,
@@ -58,7 +60,34 @@ impl Username {
                 "Username may only contain lowercase letters, numbers, and underscores".to_string(),
             ));
         }
+        if is_reserved_username(&s) {
+            return Err(CoreError::InvalidUsername(format!(
+                "Username '{}' collides with reserved system user",
+                s
+            )));
+        }
         Ok(Self(s))
+    }
+
+    /// Generates a valid Linux tenant username from a user slug/name.
+    pub fn from_slug(slug: &str) -> Result<Self, CoreError> {
+        let cleaned: String = slug
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let stripped = cleaned.trim_matches('_');
+        let raw = if stripped.starts_with("p_") {
+            stripped.to_string()
+        } else {
+            format!("p_{stripped}")
+        };
+        Self::parse(raw)
     }
 
     pub fn as_str(&self) -> &str {
@@ -91,5 +120,23 @@ mod tests {
     #[test]
     fn test_invalid_username_characters() {
         assert!(Username::parse("p_Alice!").is_err());
+    }
+
+    #[test]
+    fn test_reserved_username_rejected() {
+        assert!(Username::parse("p_root").is_err());
+        assert!(Username::parse("p_nginx").is_err());
+        assert!(Username::parse("p_admin").is_err());
+    }
+
+    #[test]
+    fn test_username_from_slug() {
+        let u1 = Username::from_slug("My Client").expect("from slug");
+        assert_eq!(u1.as_str(), "p_my_client");
+
+        let u2 = Username::from_slug("p_bob").expect("from slug with prefix");
+        assert_eq!(u2.as_str(), "p_bob");
+
+        assert!(Username::from_slug("root").is_err());
     }
 }

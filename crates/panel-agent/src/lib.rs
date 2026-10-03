@@ -1,6 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod user;
 
 use panel_proto::{
     PROTOCOL_VERSION, ProtoError, RequestPayload, ResponsePayload, RpcResponse, RpcStream,
@@ -24,6 +25,16 @@ pub enum AgentError {
     Proto(#[from] ProtoError),
     #[error("Authentication/Authorization failed: unauthorized peer {0}")]
     UnauthorizedPeer(String),
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    #[error("Security violation: {0}")]
+    SecurityViolation(String),
+    #[error("Command {binary} failed with exit code {code:?}: {stderr}")]
+    CommandFailed {
+        binary: String,
+        code: Option<i32>,
+        stderr: String,
+    },
 }
 
 /// Agent daemon configuration.
@@ -44,11 +55,27 @@ impl Default for AgentConfig {
 
 pub struct AgentServer {
     config: AgentConfig,
+    user_manager: Arc<user::UserLifecycleManager>,
 }
 
 impl AgentServer {
     pub fn new(config: AgentConfig) -> Self {
-        Self { config }
+        let runner = Arc::new(user::RealSystemRunner);
+        let user_manager = Arc::new(user::UserLifecycleManager::new(runner));
+        Self {
+            config,
+            user_manager,
+        }
+    }
+
+    pub fn with_user_manager(
+        config: AgentConfig,
+        user_manager: Arc<user::UserLifecycleManager>,
+    ) -> Self {
+        Self {
+            config,
+            user_manager,
+        }
     }
 
     pub fn config(&self) -> &AgentConfig {
@@ -191,8 +218,14 @@ impl AgentServer {
             };
 
             let (action, target) = match &req.payload {
-                RequestPayload::Ping => ("ping", "system"),
-                RequestPayload::Version => ("version", "system"),
+                RequestPayload::Ping => ("ping".to_string(), "system".to_string()),
+                RequestPayload::Version => ("version".to_string(), "system".to_string()),
+                RequestPayload::UserCreate(d) => ("user.create".to_string(), d.username.clone()),
+                RequestPayload::UserSuspend(d) => ("user.suspend".to_string(), d.username.clone()),
+                RequestPayload::UserUnsuspend(d) => {
+                    ("user.unsuspend".to_string(), d.username.clone())
+                }
+                RequestPayload::UserDelete(d) => ("user.delete".to_string(), d.username.clone()),
             };
 
             let response = match req.payload {
@@ -206,6 +239,28 @@ impl AgentServer {
                     };
                     RpcResponse::ok(&req.request_id, ResponsePayload::Version(info))
                 }
+                RequestPayload::UserCreate(data) => match self.user_manager.create_user(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::UserCreated(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::UserSuspend(data) => match self.user_manager.suspend_user(data) {
+                    Ok(res) => {
+                        RpcResponse::ok(&req.request_id, ResponsePayload::UserSuspended(res))
+                    }
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::UserUnsuspend(data) => {
+                    match self.user_manager.unsuspend_user(data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::UserUnsuspended(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::UserDelete(data) => match self.user_manager.delete_user(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::UserDeleted(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
             };
 
             let audit_record = audit::AgentAuditRecord::new(

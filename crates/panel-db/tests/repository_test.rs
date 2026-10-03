@@ -94,7 +94,29 @@ async fn test_user_repository_crud() {
     let list = repo.list_all().await.expect("list all");
     assert_eq!(list.len(), 1);
 
-    // 8. Delete
+    // 8. Allocate next UID
+    let uid_initial = repo.allocate_next_uid().await.expect("allocate uid");
+    assert_eq!(uid_initial, 10000); // No user with linux_uid yet
+
+    let tenant_user = repo
+        .create(&CreateUser {
+            username: "tenant1".to_string(),
+            password_hash: "hash".to_string(),
+            role: "user".to_string(),
+            email: None,
+            linux_username: Some("p_tenant1".to_string()),
+            linux_uid: Some(10000),
+            plan_id: None,
+        })
+        .await
+        .expect("create tenant");
+
+    let uid_next = repo.allocate_next_uid().await.expect("allocate next uid");
+    assert_eq!(uid_next, 10001); // Incremented from 10000
+
+    repo.delete(tenant_user.id).await.expect("delete tenant");
+
+    // 9. Delete admin
     repo.delete(user.id).await.expect("delete");
     let after_delete = repo.find_by_id(user.id).await.expect("find");
     assert!(after_delete.is_none());

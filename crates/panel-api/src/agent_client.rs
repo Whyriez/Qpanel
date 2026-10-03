@@ -1,7 +1,9 @@
 //! IPC client to communicate with `panel-agent` over a Unix domain socket.
 
 use panel_proto::{
-    ProtoError, RequestPayload, ResponsePayload, RpcRequest, RpcStream, VersionInfo,
+    ProtoError, RequestPayload, ResponsePayload, RpcRequest, RpcStream, UserCreateRequest,
+    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
+    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -121,6 +123,174 @@ impl AgentClient {
             ResponsePayload::Version(info) => Ok(info),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "Version",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn create_user(
+        &self,
+        username: impl Into<String>,
+        uid: u32,
+        shell: Option<String>,
+        home_dir: Option<String>,
+        web_user: Option<String>,
+    ) -> Result<UserCreatedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let username_str = username.into();
+        let req_id = format!(
+            "ucreate-{}-{}",
+            username_str,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let req = RpcRequest::new(
+            req_id,
+            RequestPayload::UserCreate(UserCreateRequest {
+                username: username_str,
+                uid,
+                shell,
+                home_dir,
+                web_user,
+            }),
+        );
+        rpc.send_request(&req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::UserCreated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "UserCreated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn suspend_user(
+        &self,
+        username: impl Into<String>,
+        uid: u32,
+    ) -> Result<UserSuspendedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let username_str = username.into();
+        let req_id = format!(
+            "ususpend-{}-{}",
+            username_str,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let req = RpcRequest::new(
+            req_id,
+            RequestPayload::UserSuspend(UserSuspendRequest {
+                username: username_str,
+                uid,
+            }),
+        );
+        rpc.send_request(&req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::UserSuspended(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "UserSuspended",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn unsuspend_user(
+        &self,
+        username: impl Into<String>,
+        uid: u32,
+        shell: Option<String>,
+    ) -> Result<UserUnsuspendedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let username_str = username.into();
+        let req_id = format!(
+            "uunsuspend-{}-{}",
+            username_str,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let req = RpcRequest::new(
+            req_id,
+            RequestPayload::UserUnsuspend(UserUnsuspendRequest {
+                username: username_str,
+                uid,
+                shell,
+            }),
+        );
+        rpc.send_request(&req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::UserUnsuspended(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "UserUnsuspended",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn delete_user(
+        &self,
+        username: impl Into<String>,
+        uid: u32,
+        purge: bool,
+        trash_dir: Option<String>,
+    ) -> Result<UserDeletedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let username_str = username.into();
+        let req_id = format!(
+            "udelete-{}-{}",
+            username_str,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let req = RpcRequest::new(
+            req_id,
+            RequestPayload::UserDelete(UserDeleteRequest {
+                username: username_str,
+                uid,
+                purge,
+                trash_dir,
+            }),
+        );
+        rpc.send_request(&req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::UserDeleted(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "UserDeleted",
                 got: format!("{other:?}"),
             }),
         }

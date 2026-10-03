@@ -712,7 +712,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 **Tujuan**: tenant terisolasi sebagai fondasi seluruh hosting.
 **Prasyarat**: Phase 1.
 
-- [ ] **P2-T1 Agent: lifecycle user**: `user.create` (validasi, alokasi UID, home, mode + ACL, umask, tanpa password), `user.suspend/unsuspend`, `user.delete` (retensi + purge).
+- [x] **P2-T1 Agent: lifecycle user**: `user.create` (validasi, alokasi UID, home, mode + ACL, umask, tanpa password), `user.suspend/unsuspend`, `user.delete` (retensi + purge).
 - [ ] **P2-T2 Plan**: CRUD plan; penerapan batas ke slice `panel-u<uid>.slice` (drop-in `MemoryMax`, `CPUQuota`, `TasksMax`, `IOWeight`).
 - [ ] **P2-T3 Quota disk**: deteksi dukungan FS, set/get quota, job laporan pemakaian, fallback scan terjadwal.
 - [ ] **P2-T4 Pembaca resource**: baca cgroup v2 per slice (`cpu.stat`, `memory.current`, `io.stat`, `pids.current`) lewat agent.

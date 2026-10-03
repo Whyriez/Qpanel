@@ -185,4 +185,27 @@ impl SqliteUserRepository {
         }
         Ok(())
     }
+
+    /// Allocates the next available Linux tenant UID in the range 10000..=59999.
+    pub async fn allocate_next_uid(&self) -> Result<u32, DbError> {
+        let max_uid: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(linux_uid) FROM users WHERE linux_uid IS NOT NULL")
+                .fetch_one(&self.pool)
+                .await?;
+
+        let next = match max_uid {
+            Some(curr) => (curr + 1) as u32,
+            None => 10000,
+        };
+
+        if next < 10000 {
+            Ok(10000)
+        } else if next > 59999 {
+            Err(DbError::Validation(
+                "Maximum tenant UID 59999 reached".to_string(),
+            ))
+        } else {
+            Ok(next)
+        }
+    }
 }

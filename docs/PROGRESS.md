@@ -20,7 +20,7 @@
 - [x] P1-T8 UI inti: login, 2FA challenge & recovery code, wizard first-run, profil/keamanan (ganti kata sandi, 2FA setup QR & recovery codes), catatan audit terpaginasi & modal payload, antrean tugas (JobsPage) & live SSE progress monitor, JobTray floating dock, CommandPalette (Ctrl+K) — test: LoginPage.test, SecurityProfilePage.test, AuditLogPage.test, CommandPalette.test, StatusPill.test
 
 ## Phase 2 — Tenant user dan isolasi
-- [ ] P2-T1 Agent: lifecycle user Linux
+- [x] P2-T1 Agent: lifecycle user Linux: user.create (validasi format `p_<slug>`, alokasi UID 10000–59999, mode home `0700` + ACL web server `u:www-data:--x`, subdirs `sites` `0750`/`tmp`/`.ssh`/`.panel-trash`, group `panel-tenants`, tanpa password login), user.suspend (kunci shadow + pkill proses), user.unsuspend (buka kunci + pulihkan shell), user.delete (retensi ke trash-index vs purge permanen) — test: user_lifecycle_ipc_test, user::tests, repository_test::test_user_repository_crud
 - [ ] P2-T2 Plan: cgroup slice limits
 - [ ] P2-T3 Quota disk: FS quota & scanner
 - [ ] P2-T4 Pembaca resource: cgroup v2

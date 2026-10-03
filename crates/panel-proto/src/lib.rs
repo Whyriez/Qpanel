@@ -45,6 +45,40 @@ impl RpcRequest {
 pub enum RequestPayload {
     Ping,
     Version,
+    UserCreate(UserCreateRequest),
+    UserSuspend(UserSuspendRequest),
+    UserUnsuspend(UserUnsuspendRequest),
+    UserDelete(UserDeleteRequest),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserCreateRequest {
+    pub username: String,
+    pub uid: u32,
+    pub shell: Option<String>,
+    pub home_dir: Option<String>,
+    pub web_user: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserSuspendRequest {
+    pub username: String,
+    pub uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserUnsuspendRequest {
+    pub username: String,
+    pub uid: u32,
+    pub shell: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserDeleteRequest {
+    pub username: String,
+    pub uid: u32,
+    pub purge: bool,
+    pub trash_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -84,7 +118,38 @@ impl RpcResponse {
 pub enum ResponsePayload {
     Pong,
     Version(VersionInfo),
+    UserCreated(UserCreatedResponse),
+    UserSuspended(UserSuspendedResponse),
+    UserUnsuspended(UserUnsuspendedResponse),
+    UserDeleted(UserDeletedResponse),
     Error(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserCreatedResponse {
+    pub username: String,
+    pub uid: u32,
+    pub home_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserSuspendedResponse {
+    pub username: String,
+    pub uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserUnsuspendedResponse {
+    pub username: String,
+    pub uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserDeletedResponse {
+    pub username: String,
+    pub uid: u32,
+    pub purged: bool,
+    pub archived_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -189,5 +254,34 @@ mod tests {
         });
 
         let _ = tokio::try_join!(client_task, server_task).expect("roundtrip successful");
+    }
+
+    #[test]
+    fn test_rpc_user_lifecycle_payloads() {
+        let req = RpcRequest::new(
+            "user-1",
+            RequestPayload::UserCreate(UserCreateRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                shell: Some("/usr/sbin/nologin".to_string()),
+                home_dir: Some("/home/p_alice".to_string()),
+                web_user: Some("www-data".to_string()),
+            }),
+        );
+        let s = serde_json::to_string(&req).expect("serialize UserCreate");
+        let de: RpcRequest = serde_json::from_str(&s).expect("deserialize UserCreate");
+        assert_eq!(req, de);
+
+        let res = RpcResponse::ok(
+            "user-1",
+            ResponsePayload::UserCreated(UserCreatedResponse {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                home_dir: "/home/p_alice".to_string(),
+            }),
+        );
+        let s_res = serde_json::to_string(&res).expect("serialize UserCreated response");
+        let de_res: RpcResponse = serde_json::from_str(&s_res).expect("deserialize UserCreated");
+        assert_eq!(res, de_res);
     }
 }
