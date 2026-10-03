@@ -43,13 +43,13 @@ async fn setup_test_app(
     let lockout_manager = Arc::new(LockoutManager::new(max_failed_attempts, lockout_secs));
 
     let agent_client = Arc::new(AgentClient::new(sock_path));
-    let state = AppState {
+    let state = AppState::new(
         agent_client,
-        pool: pool.clone(),
-        environment: "development".to_string(),
+        pool.clone(),
+        "development".to_string(),
         auth_config,
         lockout_manager,
-    };
+    );
 
     (create_router(state), pool)
 }

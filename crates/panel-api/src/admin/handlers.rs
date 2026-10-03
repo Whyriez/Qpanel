@@ -165,7 +165,7 @@ pub async fn admin_get_user_handler(
 )]
 pub async fn admin_update_user_status_handler(
     State(state): State<AppState>,
-    RequireAdminCsrf(_admin): RequireAdminCsrf,
+    RequireAdminCsrf(admin): RequireAdminCsrf,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateUserStatusRequest>,
 ) -> Response {
@@ -181,10 +181,21 @@ pub async fn admin_update_user_status_handler(
 
     let user_repo = SqliteUserRepository::new(state.pool.clone());
     match user_repo.update_status(id, &payload.status).await {
-        Ok(_) => Json(MessageResponse {
-            message: format!("User ID {} status updated to '{}'", id, payload.status),
-        })
-        .into_response(),
+        Ok(_) => {
+            state.audit_writer.log_async(
+                Some(id),
+                &admin.username,
+                "user.status_update",
+                format!("user:{}", id),
+                "success",
+                None,
+                Some(format!(r#"{{"status":"{}"}}"#, payload.status)),
+            );
+            Json(MessageResponse {
+                message: format!("User ID {} status updated to '{}'", id, payload.status),
+            })
+            .into_response()
+        }
         Err(panel_db::error::DbError::NotFound(_)) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": format!("User ID {} not found", id) })),
@@ -242,15 +253,29 @@ pub async fn admin_get_setting_handler(
 )]
 pub async fn admin_update_setting_handler(
     State(state): State<AppState>,
-    RequireAdminCsrf(_admin): RequireAdminCsrf,
+    RequireAdminCsrf(admin): RequireAdminCsrf,
     Json(payload): Json<UpdateSettingRequest>,
 ) -> Response {
     let setting_repo = SqliteSettingRepository::new(state.pool.clone());
     match setting_repo.set(&payload.key, &payload.value).await {
-        Ok(_) => Json(MessageResponse {
-            message: format!("Setting '{}' updated successfully", payload.key),
-        })
-        .into_response(),
+        Ok(_) => {
+            state.audit_writer.log_async(
+                Some(admin.id),
+                &admin.username,
+                "setting.update",
+                format!("setting:{}", payload.key),
+                "success",
+                None,
+                Some(format!(
+                    r#"{{"key":"{}","value":"{}"}}"#,
+                    payload.key, payload.value
+                )),
+            );
+            Json(MessageResponse {
+                message: format!("Setting '{}' updated successfully", payload.key),
+            })
+            .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("Database error: {}", e) })),

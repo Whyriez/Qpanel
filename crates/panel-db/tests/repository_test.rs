@@ -1,9 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use panel_db::{
-    CreateApiToken, CreateAuditLog, CreateJob, CreateSession, CreateUser, SqliteApiTokenRepository,
-    SqliteAuditLogRepository, SqliteJobRepository, SqliteSessionRepository,
-    SqliteSettingRepository, SqliteUserRepository, init_pool, run_migrations,
+    AuditLogFilter, CreateApiToken, CreateAuditLog, CreateJob, CreateSession, CreateUser,
+    SqliteApiTokenRepository, SqliteAuditLogRepository, SqliteJobRepository,
+    SqliteSessionRepository, SqliteSettingRepository, SqliteUserRepository, init_pool,
+    run_migrations,
 };
 
 async fn setup_test_db() -> panel_db::DbPool {
@@ -164,10 +165,37 @@ async fn test_session_repository_crud() {
 #[tokio::test]
 async fn test_audit_log_repository() {
     let pool = setup_test_db().await;
-    let repo = SqliteAuditLogRepository::new(pool);
+    let repo = SqliteAuditLogRepository::new(pool.clone());
 
-    let log_input = CreateAuditLog {
-        user_id: None,
+    let user_repo = SqliteUserRepository::new(pool.clone());
+    let u1 = user_repo
+        .create(&CreateUser {
+            username: "admin".to_string(),
+            password_hash: "hash1".to_string(),
+            role: "admin".to_string(),
+            email: None,
+            linux_username: None,
+            linux_uid: None,
+            plan_id: None,
+        })
+        .await
+        .expect("create user 1");
+
+    let u2 = user_repo
+        .create(&CreateUser {
+            username: "alice".to_string(),
+            password_hash: "hash2".to_string(),
+            role: "user".to_string(),
+            email: None,
+            linux_username: None,
+            linux_uid: None,
+            plan_id: None,
+        })
+        .await
+        .expect("create user 2");
+
+    let log_input1 = CreateAuditLog {
+        user_id: Some(u1.id),
         actor_username: "admin".to_string(),
         action: "site.create".to_string(),
         target_resource: "example.com".to_string(),
@@ -176,13 +204,113 @@ async fn test_audit_log_repository() {
         status: "success".to_string(),
     };
 
-    let log = repo.create(&log_input).await.expect("create audit log");
-    assert_eq!(log.action, "site.create");
-    assert_eq!(log.target_resource, "example.com");
+    let log_input2 = CreateAuditLog {
+        user_id: Some(u2.id),
+        actor_username: "alice".to_string(),
+        action: "auth.login".to_string(),
+        target_resource: "auth".to_string(),
+        details_json: None,
+        ip_address: Some("10.0.0.5".to_string()),
+        status: "failure".to_string(),
+    };
 
-    let list = repo.list(10, 0).await.expect("list");
-    assert_eq!(list.len(), 1);
-    assert_eq!(list[0].id, log.id);
+    let log_input3 = CreateAuditLog {
+        user_id: Some(u1.id),
+        actor_username: "admin".to_string(),
+        action: "user.suspend".to_string(),
+        target_resource: format!("user:{}", u2.id),
+        details_json: Some(r#"{"reason":"abuse"}"#.to_string()),
+        ip_address: Some("192.168.1.1".to_string()),
+        status: "success".to_string(),
+    };
+
+    let log1 = repo.create(&log_input1).await.expect("create log 1");
+    let log2 = repo.create(&log_input2).await.expect("create log 2");
+    let log3 = repo.create(&log_input3).await.expect("create log 3");
+
+    // Test find_by_id
+    let found = repo
+        .find_by_id(log1.id)
+        .await
+        .expect("find")
+        .expect("exists");
+    assert_eq!(found.action, "site.create");
+    assert_eq!(found.actor_username, "admin");
+
+    let not_found = repo.find_by_id(99999).await.expect("find not found");
+    assert!(not_found.is_none());
+
+    // Test list without filter
+    let list_all = repo.list(10, 0).await.expect("list all");
+    assert_eq!(list_all.len(), 3);
+
+    // Test count all
+    let count_all = repo
+        .count_filtered(&AuditLogFilter::default())
+        .await
+        .expect("count all");
+    assert_eq!(count_all, 3);
+
+    // Test filter by user_id
+    let filter_user = AuditLogFilter {
+        user_id: Some(u1.id),
+        ..Default::default()
+    };
+    let list_user = repo
+        .list_filtered(&filter_user, 10, 0)
+        .await
+        .expect("list user");
+    assert_eq!(list_user.len(), 2);
+    let count_user = repo.count_filtered(&filter_user).await.expect("count user");
+    assert_eq!(count_user, 2);
+
+    // Test filter by actor_username
+    let filter_actor = AuditLogFilter {
+        actor_username: Some("alice".to_string()),
+        ..Default::default()
+    };
+    let list_actor = repo
+        .list_filtered(&filter_actor, 10, 0)
+        .await
+        .expect("list actor");
+    assert_eq!(list_actor.len(), 1);
+    assert_eq!(list_actor[0].id, log2.id);
+
+    // Test filter by action
+    let filter_action = AuditLogFilter {
+        action: Some("user.suspend".to_string()),
+        ..Default::default()
+    };
+    let list_action = repo
+        .list_filtered(&filter_action, 10, 0)
+        .await
+        .expect("list action");
+    assert_eq!(list_action.len(), 1);
+    assert_eq!(list_action[0].id, log3.id);
+
+    // Test filter by status
+    let filter_failed = AuditLogFilter {
+        status: Some("failure".to_string()),
+        ..Default::default()
+    };
+    let list_failed = repo
+        .list_filtered(&filter_failed, 10, 0)
+        .await
+        .expect("list failed");
+    assert_eq!(list_failed.len(), 1);
+    assert_eq!(list_failed[0].status, "failure");
+
+    // Test pagination
+    let page1 = repo
+        .list_filtered(&AuditLogFilter::default(), 2, 0)
+        .await
+        .expect("page 1");
+    assert_eq!(page1.len(), 2);
+    let page2 = repo
+        .list_filtered(&AuditLogFilter::default(), 2, 2)
+        .await
+        .expect("page 2");
+    assert_eq!(page2.len(), 1);
 }
 
 #[tokio::test]

@@ -43,13 +43,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let agent_client = Arc::new(AgentClient::new(config.agent.socket_path.clone()));
-    let state = AppState {
+    let state = AppState::new(
         agent_client,
         pool,
-        environment: config.server.environment.clone(),
-        auth_config: config.auth.clone(),
+        config.server.environment.clone(),
+        config.auth.clone(),
         lockout_manager,
-    };
+    );
 
     let app = create_router(state);
 

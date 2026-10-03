@@ -3,7 +3,20 @@
 use crate::error::DbError;
 use crate::models::{AuditLog, CreateAuditLog};
 use crate::pool::DbPool;
+use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Filter criteria for querying audit logs.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditLogFilter {
+    pub user_id: Option<i64>,
+    pub actor_username: Option<String>,
+    pub action: Option<String>,
+    pub target_resource: Option<String>,
+    pub status: Option<String>,
+    pub from_time: Option<i64>,
+    pub to_time: Option<i64>,
+}
 
 #[derive(Clone)]
 pub struct SqliteAuditLogRepository {
@@ -55,21 +68,24 @@ impl SqliteAuditLogRepository {
         })
     }
 
-    pub async fn list(&self, limit: i64, offset: i64) -> Result<Vec<AuditLog>, DbError> {
-        let logs = sqlx::query_as::<_, AuditLog>(
+    pub async fn find_by_id(&self, id: i64) -> Result<Option<AuditLog>, DbError> {
+        let log = sqlx::query_as::<_, AuditLog>(
             r#"
             SELECT id, user_id, actor_username, action, target_resource, details_json, ip_address, status, created_at
             FROM audit_logs
-            ORDER BY created_at DESC, id DESC
-            LIMIT ? OFFSET ?
+            WHERE id = ?
             "#,
         )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
+        .bind(id)
+        .fetch_optional(&self.pool)
         .await?;
 
-        Ok(logs)
+        Ok(log)
+    }
+
+    pub async fn list(&self, limit: i64, offset: i64) -> Result<Vec<AuditLog>, DbError> {
+        self.list_filtered(&AuditLogFilter::default(), limit, offset)
+            .await
     }
 
     pub async fn list_by_user(
@@ -78,21 +94,99 @@ impl SqliteAuditLogRepository {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<AuditLog>, DbError> {
-        let logs = sqlx::query_as::<_, AuditLog>(
-            r#"
-            SELECT id, user_id, actor_username, action, target_resource, details_json, ip_address, status, created_at
-            FROM audit_logs
-            WHERE user_id = ?
-            ORDER BY created_at DESC, id DESC
-            LIMIT ? OFFSET ?
-            "#,
-        )
-        .bind(user_id)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        let filter = AuditLogFilter {
+            user_id: Some(user_id),
+            ..Default::default()
+        };
+        self.list_filtered(&filter, limit, offset).await
+    }
+
+    pub async fn list_filtered(
+        &self,
+        filter: &AuditLogFilter,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<AuditLog>, DbError> {
+        let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT id, user_id, actor_username, action, target_resource, details_json, ip_address, status, created_at FROM audit_logs WHERE 1=1",
+        );
+
+        if let Some(user_id) = filter.user_id {
+            builder.push(" AND user_id = ");
+            builder.push_bind(user_id);
+        }
+        if let Some(actor) = &filter.actor_username {
+            builder.push(" AND actor_username = ");
+            builder.push_bind(actor);
+        }
+        if let Some(action) = &filter.action {
+            builder.push(" AND action = ");
+            builder.push_bind(action);
+        }
+        if let Some(target) = &filter.target_resource {
+            builder.push(" AND target_resource = ");
+            builder.push_bind(target);
+        }
+        if let Some(status) = &filter.status {
+            builder.push(" AND status = ");
+            builder.push_bind(status);
+        }
+        if let Some(from) = filter.from_time {
+            builder.push(" AND created_at >= ");
+            builder.push_bind(from);
+        }
+        if let Some(to) = filter.to_time {
+            builder.push(" AND created_at <= ");
+            builder.push_bind(to);
+        }
+
+        builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
+        builder.push_bind(limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(offset);
+
+        let query = builder.build_query_as::<AuditLog>();
+        let logs = query.fetch_all(&self.pool).await?;
 
         Ok(logs)
+    }
+
+    pub async fn count_filtered(&self, filter: &AuditLogFilter) -> Result<i64, DbError> {
+        let mut builder =
+            sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT COUNT(*) FROM audit_logs WHERE 1=1");
+
+        if let Some(user_id) = filter.user_id {
+            builder.push(" AND user_id = ");
+            builder.push_bind(user_id);
+        }
+        if let Some(actor) = &filter.actor_username {
+            builder.push(" AND actor_username = ");
+            builder.push_bind(actor);
+        }
+        if let Some(action) = &filter.action {
+            builder.push(" AND action = ");
+            builder.push_bind(action);
+        }
+        if let Some(target) = &filter.target_resource {
+            builder.push(" AND target_resource = ");
+            builder.push_bind(target);
+        }
+        if let Some(status) = &filter.status {
+            builder.push(" AND status = ");
+            builder.push_bind(status);
+        }
+        if let Some(from) = filter.from_time {
+            builder.push(" AND created_at >= ");
+            builder.push_bind(from);
+        }
+        if let Some(to) = filter.to_time {
+            builder.push(" AND created_at <= ");
+            builder.push_bind(to);
+        }
+
+        let query = builder.build_query_scalar::<i64>();
+        let count = query.fetch_one(&self.pool).await?;
+
+        Ok(count)
     }
 }

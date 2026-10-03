@@ -79,13 +79,13 @@ async fn test_api_healthz_and_system_info_endpoints() {
     let lockout_manager = Arc::new(panel_api::auth::LockoutManager::new(5, 900));
 
     let agent_client = Arc::new(AgentClient::new(sock_path));
-    let state = AppState {
+    let state = AppState::new(
         agent_client,
         pool,
-        environment: "testing".to_string(),
-        auth_config: panel_api::config::AuthConfig::default(),
+        "testing".to_string(),
+        panel_api::config::AuthConfig::default(),
         lockout_manager,
-    };
+    );
 
     let app = create_router(state);
 

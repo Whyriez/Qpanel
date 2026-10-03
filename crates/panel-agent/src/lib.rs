@@ -1,5 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
+pub mod audit;
+
 use panel_proto::{
     PROTOCOL_VERSION, ProtoError, RequestPayload, ResponsePayload, RpcResponse, RpcStream,
     VersionInfo,
@@ -188,8 +190,13 @@ impl AgentServer {
                 Err(e) => return Err(AgentError::Proto(e)),
             };
 
+            let (action, target) = match &req.payload {
+                RequestPayload::Ping => ("ping", "system"),
+                RequestPayload::Version => ("version", "system"),
+            };
+
             let response = match req.payload {
-                RequestPayload::Ping => RpcResponse::ok(req.request_id, ResponsePayload::Pong),
+                RequestPayload::Ping => RpcResponse::ok(&req.request_id, ResponsePayload::Pong),
                 RequestPayload::Version => {
                     let info = VersionInfo {
                         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -197,9 +204,18 @@ impl AgentServer {
                         os: std::env::consts::OS.to_string(),
                         arch: std::env::consts::ARCH.to_string(),
                     };
-                    RpcResponse::ok(req.request_id, ResponsePayload::Version(info))
+                    RpcResponse::ok(&req.request_id, ResponsePayload::Version(info))
                 }
             };
+
+            let audit_record = audit::AgentAuditRecord::new(
+                "panel-api",
+                action,
+                target,
+                if response.success { "success" } else { "error" },
+                Some(format!("req_id:{}", req.request_id)),
+            );
+            audit::record_audit(&audit_record);
 
             rpc.send_response(&response).await?;
         }

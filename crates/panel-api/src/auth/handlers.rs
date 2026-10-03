@@ -111,10 +111,22 @@ pub struct TwoFactorStatusResponse {
 )]
 pub async fn login_handler(
     State(state): State<AppState>,
+    req_headers: HeaderMap,
     Json(payload): Json<LoginRequest>,
 ) -> Response {
+    let client_ip = crate::audit::extract_client_ip(&req_headers);
+
     // 1. Check account lockout status
     if let Err(remaining_secs) = state.lockout_manager.check_lockout(&payload.username) {
+        state.audit_writer.log_async(
+            None,
+            &payload.username,
+            "auth.login",
+            "auth",
+            "failure",
+            client_ip.clone(),
+            Some(r#"{"reason":"account_locked"}"#.to_string()),
+        );
         return (
             StatusCode::LOCKED,
             Json(serde_json::json!({
@@ -131,6 +143,15 @@ pub async fn login_handler(
         Ok(Some(u)) => u,
         _ => {
             let lockout = state.lockout_manager.record_failure(&payload.username);
+            state.audit_writer.log_async(
+                None,
+                &payload.username,
+                "auth.login",
+                "auth",
+                "failure",
+                client_ip.clone(),
+                Some(r#"{"reason":"user_not_found"}"#.to_string()),
+            );
             let status = if lockout.is_some() {
                 StatusCode::LOCKED
             } else {
@@ -150,6 +171,15 @@ pub async fn login_handler(
     let is_valid = verify_password(&payload.password, &user.password_hash).unwrap_or(false);
     if !is_valid {
         let lockout = state.lockout_manager.record_failure(&payload.username);
+        state.audit_writer.log_async(
+            Some(user.id),
+            &user.username,
+            "auth.login",
+            "auth",
+            "failure",
+            client_ip.clone(),
+            Some(r#"{"reason":"invalid_password"}"#.to_string()),
+        );
         let status = if lockout.is_some() {
             StatusCode::LOCKED
         } else {
@@ -166,6 +196,15 @@ pub async fn login_handler(
 
     // 4. Check account status
     if user.status != "active" {
+        state.audit_writer.log_async(
+            Some(user.id),
+            &user.username,
+            "auth.login",
+            "auth",
+            "failure",
+            client_ip.clone(),
+            Some(r#"{"reason":"inactive_account"}"#.to_string()),
+        );
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
@@ -207,6 +246,15 @@ pub async fn login_handler(
 
                 if !is_valid_2fa {
                     let lockout = state.lockout_manager.record_failure(&payload.username);
+                    state.audit_writer.log_async(
+                        Some(user.id),
+                        &user.username,
+                        "auth.login",
+                        "auth",
+                        "failure",
+                        client_ip.clone(),
+                        Some(r#"{"reason":"invalid_2fa"}"#.to_string()),
+                    );
                     let status = if lockout.is_some() {
                         StatusCode::LOCKED
                     } else {
@@ -248,7 +296,7 @@ pub async fn login_handler(
             id: session_id.clone(),
             user_id: user.id,
             token_hash,
-            ip_address: None,
+            ip_address: client_ip.clone(),
             user_agent: None,
             expires_at,
         })
@@ -260,6 +308,17 @@ pub async fn login_handler(
         )
             .into_response();
     }
+
+    // Record successful login audit log
+    state.audit_writer.log_async(
+        Some(user.id),
+        &user.username,
+        "auth.login",
+        "auth",
+        "success",
+        client_ip,
+        None,
+    );
 
     // 8. Generate CSRF token and Set-Cookie header
     let csrf_token = generate_csrf_token(&session_id);
@@ -306,6 +365,16 @@ pub async fn logout_handler(
 ) -> Response {
     let session_repo = SqliteSessionRepository::new(state.pool.clone());
     let _ = session_repo.delete(&user.session_id).await;
+
+    state.audit_writer.log_async(
+        Some(user.id),
+        &user.username,
+        "auth.logout",
+        "auth",
+        "success",
+        None,
+        None,
+    );
 
     let is_secure = state
         .auth_config
@@ -397,6 +466,15 @@ pub async fn change_password_handler(
     // 2. Verify current password
     let is_valid = verify_password(&payload.current_password, &user.password_hash).unwrap_or(false);
     if !is_valid {
+        state.audit_writer.log_async(
+            Some(auth_user.id),
+            &auth_user.username,
+            "auth.password_change",
+            "auth",
+            "failure",
+            None,
+            Some(r#"{"reason":"incorrect_current_password"}"#.to_string()),
+        );
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": "Current password is incorrect" })),
@@ -486,6 +564,16 @@ pub async fn change_password_handler(
     if let Ok(cookie_header) = cookie_val.parse() {
         headers.insert(SET_COOKIE, cookie_header);
     }
+
+    state.audit_writer.log_async(
+        Some(user.id),
+        &user.username,
+        "auth.password_change",
+        "auth",
+        "success",
+        None,
+        None,
+    );
 
     let response_body = LoginResponse {
         user: Some(UserInfo {
@@ -610,6 +698,16 @@ pub async fn two_factor_enable_handler(
             .into_response();
     }
 
+    state.audit_writer.log_async(
+        Some(user.id),
+        &user.username,
+        "auth.2fa_enable",
+        "auth",
+        "success",
+        None,
+        None,
+    );
+
     Json(MessageResponse {
         message: "Two-factor authentication enabled successfully".to_string(),
     })
@@ -688,6 +786,16 @@ pub async fn two_factor_disable_handler(
     // Delete recovery codes
     let recovery_repo = SqliteRecoveryCodeRepository::new(state.pool.clone());
     let _ = recovery_repo.delete_by_user_id(user.id).await;
+
+    state.audit_writer.log_async(
+        Some(user.id),
+        &user.username,
+        "auth.2fa_disable",
+        "auth",
+        "success",
+        None,
+        None,
+    );
 
     Json(MessageResponse {
         message: "Two-factor authentication disabled successfully".to_string(),

@@ -35,6 +35,8 @@ use panel_db::pool::DbPool;
         crate::admin::handlers::admin_get_setting_handler,
         crate::admin::handlers::admin_update_setting_handler,
         crate::admin::handlers::user_get_profile_handler,
+        crate::audit::handlers::list_audit_logs_handler,
+        crate::audit::handlers::get_audit_log_handler,
     ),
     components(
         schemas(
@@ -54,13 +56,16 @@ use panel_db::pool::DbPool;
             crate::admin::UpdateUserStatusRequest,
             crate::admin::UpdateSettingRequest,
             crate::admin::SettingResponse,
+            crate::audit::AuditLogItem,
+            crate::audit::AuditLogListResponse,
         )
     ),
     tags(
         (name = "system", description = "System and health check endpoints"),
         (name = "auth", description = "Authentication and session management"),
         (name = "admin", description = "Administrator-only management endpoints"),
-        (name = "user", description = "Tenant user resource endpoints")
+        (name = "user", description = "Tenant user resource endpoints"),
+        (name = "audit", description = "Audit log query and tracking endpoints")
     ),
     info(
         title = "Nusa Panel API",
@@ -96,6 +101,27 @@ pub struct AppState {
     pub environment: String,
     pub auth_config: AuthConfig,
     pub lockout_manager: Arc<LockoutManager>,
+    pub audit_writer: Arc<crate::audit::AuditWriter>,
+}
+
+impl AppState {
+    pub fn new(
+        agent_client: Arc<AgentClient>,
+        pool: DbPool,
+        environment: String,
+        auth_config: AuthConfig,
+        lockout_manager: Arc<LockoutManager>,
+    ) -> Self {
+        let audit_writer = Arc::new(crate::audit::AuditWriter::new(pool.clone()));
+        Self {
+            agent_client,
+            pool,
+            environment,
+            auth_config,
+            lockout_manager,
+            audit_writer,
+        }
+    }
 }
 
 #[utoipa::path(

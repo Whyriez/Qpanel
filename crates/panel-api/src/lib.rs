@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod agent_client;
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod routes;
@@ -63,6 +64,8 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/user/{id}/profile",
             get(admin::user_get_profile_handler),
         )
+        .route("/api/v1/audit/logs", get(audit::list_audit_logs_handler))
+        .route("/api/v1/audit/logs/{id}", get(audit::get_audit_log_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
