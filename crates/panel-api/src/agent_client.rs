@@ -10,6 +10,7 @@ use panel_proto::{
     PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest,
     PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest,
     PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse,
+    PhpFpmPoolStatusRequest, PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse,
     PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
     QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
@@ -1330,6 +1331,75 @@ impl AgentClient {
             ResponsePayload::PhpFpmHealthChecked(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PhpFpmHealthChecked",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn get_php_fpm_pool_status(
+        &self,
+        username: impl Into<String>,
+        version: impl Into<String>,
+        pool_name: impl Into<String>,
+    ) -> Result<PhpFpmPoolStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-pool-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmPoolStatus(PhpFpmPoolStatusRequest {
+                username: username.into(),
+                version: version.into(),
+                pool_name: pool_name.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmPoolStatus(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmPoolStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn read_php_logs(
+        &self,
+        req: PhpLogsReadRequest,
+    ) -> Result<PhpLogsReadResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-logs-read-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PhpLogsRead(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpLogsRead(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpLogsRead",
                 got: format!("{other:?}"),
             }),
         }

@@ -25,7 +25,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::auth::middleware::AuthenticatedUser;
 use crate::routes::AppState;
 
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Default)]
 pub struct CreateStaticSiteRequest {
     pub domain: String,
     pub user_id: Option<i64>,
@@ -631,6 +631,8 @@ pub async fn create_static_site_handler(
             max_requests: None,
             open_basedir: None,
             disable_functions: None,
+            settings: None,
+            admin_ini: None,
             reload: true,
         };
         if let Err(e) = state.agent_client.apply_php_fpm_pool(pool_req).await {

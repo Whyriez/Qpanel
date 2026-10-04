@@ -80,6 +80,8 @@ pub enum RequestPayload {
     PhpFpmMasterReload(PhpFpmMasterReloadRequest),
     PhpFpmMasterRestart(PhpFpmMasterRestartRequest),
     PhpFpmHealthCheck(PhpFpmHealthCheckRequest),
+    PhpFpmPoolStatus(PhpFpmPoolStatusRequest),
+    PhpLogsRead(PhpLogsReadRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -224,6 +226,8 @@ pub enum ResponsePayload {
     PhpFpmMasterStatus(PhpFpmMasterStatusResponse),
     PhpFpmMasterAction(PhpFpmMasterActionResponse),
     PhpFpmHealthChecked(PhpFpmHealthCheckResponse),
+    PhpFpmPoolStatus(PhpFpmPoolStatusResponse),
+    PhpLogsRead(PhpLogsReadResponse),
     Error(String),
 }
 
@@ -610,6 +614,10 @@ pub struct PhpFpmPoolApplyRequest {
     pub max_requests: Option<u32>,
     pub open_basedir: Option<Vec<String>>,
     pub disable_functions: Option<Vec<String>>,
+    #[serde(default)]
+    pub settings: Option<panel_core::php::PhpSettings>,
+    #[serde(default)]
+    pub admin_ini: Option<String>,
     pub reload: bool,
 }
 
@@ -644,6 +652,37 @@ pub struct PhpFpmMasterStatusRequest {
     pub version: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct PhpFpmStatusMetrics {
+    pub pool: String,
+    #[serde(rename = "process manager", default)]
+    pub process_manager: String,
+    #[serde(rename = "start time", default)]
+    pub start_time: u64,
+    #[serde(rename = "start since", default)]
+    pub start_since: u64,
+    #[serde(rename = "accepted conn", default)]
+    pub accepted_conn: u64,
+    #[serde(rename = "listen queue", default)]
+    pub listen_queue: u32,
+    #[serde(rename = "max listen queue", default)]
+    pub max_listen_queue: u32,
+    #[serde(rename = "listen queue len", default)]
+    pub listen_queue_len: u32,
+    #[serde(rename = "idle processes", default)]
+    pub idle_processes: u32,
+    #[serde(rename = "active processes", default)]
+    pub active_processes: u32,
+    #[serde(rename = "total processes", default)]
+    pub total_processes: u32,
+    #[serde(rename = "max active processes", default)]
+    pub max_active_processes: u32,
+    #[serde(rename = "max children reached", default)]
+    pub max_children_reached: u32,
+    #[serde(rename = "slow requests", default)]
+    pub slow_requests: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PhpFpmMasterStatusResponse {
     pub service_name: String,
@@ -651,6 +690,40 @@ pub struct PhpFpmMasterStatusResponse {
     pub substate: String,
     pub socket_exists: bool,
     pub pools_count: usize,
+    pub metrics: Option<PhpFpmStatusMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmPoolStatusRequest {
+    pub username: String,
+    pub version: String,
+    pub pool_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmPoolStatusResponse {
+    pub pool_name: String,
+    pub service_name: String,
+    pub is_active: bool,
+    pub socket_exists: bool,
+    pub metrics: Option<PhpFpmStatusMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpLogsReadRequest {
+    pub username: String,
+    pub version: String,
+    pub pool_name: Option<String>,
+    pub log_type: String, // "error" or "slow"
+    pub lines: usize,
+    pub query: Option<String>,
+    pub log_base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpLogsReadResponse {
+    pub lines: Vec<String>,
+    pub total_matched: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1184,6 +1257,8 @@ mod tests {
                 max_requests: Some(500),
                 open_basedir: None,
                 disable_functions: None,
+                settings: None,
+                admin_ini: None,
                 reload: true,
             }),
         );
@@ -1233,5 +1308,61 @@ mod tests {
         let de_res_hc: RpcResponse =
             serde_json::from_str(&s_res_hc).expect("deserialize PhpFpmHealthCheckResponse");
         assert_eq!(res_hc, de_res_hc);
+
+        // FPM status metrics parsing test with PHP-FPM json format
+        let raw_fpm_json = r#"{
+            "pool": "site-1",
+            "process manager": "ondemand",
+            "start time": 1728000000,
+            "start since": 3600,
+            "accepted conn": 150,
+            "listen queue": 2,
+            "max listen queue": 5,
+            "listen queue len": 128,
+            "idle processes": 3,
+            "active processes": 1,
+            "total processes": 4,
+            "max active processes": 8,
+            "max children reached": 0,
+            "slow requests": 1
+        }"#;
+        let metrics: PhpFpmStatusMetrics =
+            serde_json::from_str(raw_fpm_json).expect("parse metrics");
+        assert_eq!(metrics.pool, "site-1");
+        assert_eq!(metrics.process_manager, "ondemand");
+        assert_eq!(metrics.listen_queue, 2);
+        assert_eq!(metrics.active_processes, 1);
+        assert_eq!(metrics.idle_processes, 3);
+        assert_eq!(metrics.slow_requests, 1);
+
+        // Pool status RPC
+        let req_status = RpcRequest::new(
+            "status-req-1",
+            RequestPayload::PhpFpmPoolStatus(PhpFpmPoolStatusRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: "site-1".to_string(),
+            }),
+        );
+        let s_status = serde_json::to_string(&req_status).unwrap();
+        let de_status: RpcRequest = serde_json::from_str(&s_status).unwrap();
+        assert_eq!(req_status, de_status);
+
+        // Log read RPC
+        let req_logs = RpcRequest::new(
+            "log-req-1",
+            RequestPayload::PhpLogsRead(PhpLogsReadRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: Some("site-1".to_string()),
+                log_type: "error".to_string(),
+                lines: 50,
+                query: Some("warning".to_string()),
+                log_base_dir: None,
+            }),
+        );
+        let s_logs = serde_json::to_string(&req_logs).unwrap();
+        let de_logs: RpcRequest = serde_json::from_str(&s_logs).unwrap();
+        assert_eq!(req_logs, de_logs);
     }
 }

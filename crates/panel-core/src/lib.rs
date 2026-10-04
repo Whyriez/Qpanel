@@ -5,6 +5,7 @@ use thiserror::Error;
 
 pub mod auth;
 pub mod domain;
+pub mod php;
 pub mod rbac;
 pub mod tenant;
 pub mod totp;

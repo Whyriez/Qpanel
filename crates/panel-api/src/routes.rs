@@ -63,6 +63,8 @@ use panel_db::pool::DbPool;
         crate::php::get_php_fpm_master_status_handler,
         crate::php::reload_php_fpm_master_handler,
         crate::php::restart_php_fpm_master_handler,
+        crate::php::get_site_php_status_handler,
+        crate::php::get_site_php_logs_handler,
     ),
     components(
         schemas(
@@ -114,6 +116,9 @@ use panel_db::pool::DbPool;
             crate::php::PhpFpmActionResponseDto,
             crate::php::SwitchPhpVersionRequest,
             crate::php::SwitchPhpVersionResponse,
+            crate::php::PhpFpmStatusMetricsDto,
+            crate::php::SitePhpStatusResponse,
+            crate::php::SitePhpLogsResponse,
         )
     ),
     tags(

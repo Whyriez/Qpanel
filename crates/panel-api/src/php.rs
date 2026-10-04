@@ -2,15 +2,17 @@
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use panel_db::models::UpdateSite;
-use panel_db::repositories::{SqliteDomainRepository, SqliteSiteRepository, SqliteUserRepository};
+use panel_db::repositories::{
+    SqliteDomainRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteUserRepository,
+};
 use panel_runtime::php::{CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension};
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{RequireAdminCsrf, RequireAuth, RequireCsrf};
 use crate::jobs::JobItem;
@@ -108,6 +110,25 @@ pub struct SwitchPhpVersionResponse {
     pub current_version: String,
     pub status: String,
     pub message: String,
+}
+
+/// Response returned for a site's PHP ini and runtime configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SitePhpSettingsResponse {
+    pub site_id: i64,
+    pub php_version: String,
+    pub settings: panel_core::php::PhpSettings,
+    pub limits: panel_core::php::PhpSettingsLimits,
+    pub admin_ini: Option<String>,
+    pub is_admin: bool,
+}
+
+/// Request payload to update curated and admin PHP settings.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateSitePhpSettingsInput {
+    pub settings: panel_core::php::PhpSettings,
+    #[serde(default)]
+    pub admin_ini: Option<String>,
 }
 
 #[utoipa::path(
@@ -884,6 +905,310 @@ pub async fn update_site_php_extensions_handler(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/sites/{id}/php/settings",
+    params(
+        ("id" = i64, Path, description = "ID Situs")
+    ),
+    responses(
+        (status = 200, description = "Pengaturan PHP situs dan batas paket", body = SitePhpSettingsResponse),
+        (status = 400, description = "Situs bukan berjenis PHP"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Situs tidak ditemukan")
+    ),
+    tag = "runtime"
+)]
+pub async fn get_site_php_settings_handler(
+    State(state): State<AppState>,
+    RequireAuth(auth_user): RequireAuth,
+    Path(id): Path<i64>,
+) -> Response {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+
+    let site = match fetch_and_authorize_site(&site_repo, &auth_user, id).await {
+        Ok(s) => s,
+        Err((code, msg)) => {
+            return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+    };
+
+    if site.kind != "php" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Situs ini bukan berjenis PHP" })),
+        )
+            .into_response();
+    }
+
+    let owner = match user_repo.find_by_id(site.user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Pemilik situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+    };
+
+    let limits = if let Some(plan_id) = owner.plan_id {
+        match plan_repo.find_by_id(plan_id).await {
+            Ok(Some(plan)) => panel_core::php::PhpSettingsLimits::from_plan(
+                plan.memory_limit_bytes,
+                plan.max_upload_bytes,
+            ),
+            _ => panel_core::php::PhpSettingsLimits::default(),
+        }
+    } else {
+        panel_core::php::PhpSettingsLimits::default()
+    };
+
+    let root: serde_json::Value =
+        serde_json::from_str(&site.settings_json).unwrap_or_else(|_| serde_json::json!({}));
+    let php_obj = root.get("php");
+
+    let settings = php_obj
+        .and_then(|p| p.get("settings"))
+        .and_then(|s| serde_json::from_value::<panel_core::php::PhpSettings>(s.clone()).ok())
+        .unwrap_or_else(|| panel_core::php::PhpSettings::for_limits(&limits));
+
+    let is_admin = auth_user.role == "admin";
+    let admin_ini = if is_admin {
+        php_obj
+            .and_then(|p| p.get("admin_ini"))
+            .and_then(|a| a.as_str().map(ToString::to_string))
+    } else {
+        None
+    };
+
+    (
+        StatusCode::OK,
+        Json(SitePhpSettingsResponse {
+            site_id: site.id,
+            php_version: site.version.unwrap_or_else(|| "8.3".to_string()),
+            settings,
+            limits,
+            admin_ini,
+            is_admin,
+        }),
+    )
+        .into_response()
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/sites/{id}/php/settings",
+    params(
+        ("id" = i64, Path, description = "ID Situs")
+    ),
+    request_body = UpdateSitePhpSettingsInput,
+    responses(
+        (status = 200, description = "Pengaturan PHP situs berhasil diperbarui", body = SitePhpSettingsResponse),
+        (status = 400, description = "Validasi direktif PHP atau batas paket gagal"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden (Bukan admin saat mengirim admin_ini)"),
+        (status = 404, description = "Situs tidak ditemukan")
+    ),
+    tag = "runtime"
+)]
+pub async fn update_site_php_settings_handler(
+    State(state): State<AppState>,
+    RequireCsrf(auth_user): RequireCsrf,
+    Path(id): Path<i64>,
+    Json(input): Json<UpdateSitePhpSettingsInput>,
+) -> Response {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+
+    let site = match fetch_and_authorize_site(&site_repo, &auth_user, id).await {
+        Ok(s) => s,
+        Err((code, msg)) => {
+            return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+    };
+
+    if site.kind != "php" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Situs ini bukan berjenis PHP" })),
+        )
+            .into_response();
+    }
+
+    let owner = match user_repo.find_by_id(site.user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Pemilik situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+    };
+
+    let limits = if let Some(plan_id) = owner.plan_id {
+        match plan_repo.find_by_id(plan_id).await {
+            Ok(Some(plan)) => panel_core::php::PhpSettingsLimits::from_plan(
+                plan.memory_limit_bytes,
+                plan.max_upload_bytes,
+            ),
+            _ => panel_core::php::PhpSettingsLimits::default(),
+        }
+    } else {
+        panel_core::php::PhpSettingsLimits::default()
+    };
+
+    // 1. Validate curated settings against tenant plan limits
+    if let Err(e) = input.settings.validate(&limits) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+
+    let is_admin = auth_user.role == "admin";
+
+    // 2. Validate raw admin_ini if supplied
+    let mut updated_admin_ini: Option<String> = None;
+    if let Some(ref ini_raw) = input.admin_ini {
+        if !ini_raw.trim().is_empty() {
+            if !is_admin {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({
+                        "error": "Hanya administrator yang memiliki izin untuk menyunting direktif php.ini mentah"
+                    })),
+                )
+                    .into_response();
+            }
+            if let Err(e) = panel_core::php::parse_admin_ini(ini_raw) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response();
+            }
+            updated_admin_ini = Some(ini_raw.clone());
+        } else if is_admin {
+            updated_admin_ini = None;
+        }
+    }
+
+    // 3. Update settings_json
+    let mut root: serde_json::Value =
+        serde_json::from_str(&site.settings_json).unwrap_or_else(|_| serde_json::json!({}));
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    if let Some(map) = root.as_object_mut() {
+        let php_obj = map.entry("php").or_insert_with(|| serde_json::json!({}));
+        if !php_obj.is_object() {
+            *php_obj = serde_json::json!({});
+        }
+        if let Some(php_map) = php_obj.as_object_mut() {
+            php_map.insert(
+                "settings".to_string(),
+                serde_json::to_value(&input.settings).unwrap_or_default(),
+            );
+            if is_admin {
+                match updated_admin_ini.as_deref() {
+                    Some(ini_str) => {
+                        php_map.insert("admin_ini".to_string(), serde_json::json!(ini_str));
+                    }
+                    None => {
+                        php_map.remove("admin_ini");
+                    }
+                }
+            } else if let Some(existing_ini) = php_map.get("admin_ini").and_then(|v| v.as_str()) {
+                updated_admin_ini = Some(existing_ini.to_string());
+            }
+        }
+    }
+
+    let updated_json = root.to_string();
+    if let Err(e) = site_repo
+        .update(
+            site.id,
+            &UpdateSite {
+                settings_json: Some(updated_json),
+                ..Default::default()
+            },
+        )
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Gagal menyimpan pengaturan situs: {e}") })),
+        )
+            .into_response();
+    }
+
+    // 4. Re-apply PHP-FPM pool via Agent IPC
+    let linux_uname = owner.linux_username.as_deref().unwrap_or(&owner.username);
+    let owner_uid = owner.linux_uid.unwrap_or(10001) as u32;
+    let php_version = site.version.as_deref().unwrap_or("8.3");
+
+    let pool_req = panel_proto::PhpFpmPoolApplyRequest {
+        username: linux_uname.to_string(),
+        uid: owner_uid,
+        version: php_version.to_string(),
+        pool_name: format!("site_{}", site.id),
+        docroot: site.docroot.clone(),
+        socket_path: None,
+        max_children: None,
+        process_idle_timeout_secs: None,
+        max_requests: None,
+        open_basedir: None,
+        disable_functions: None,
+        settings: Some(input.settings.clone()),
+        admin_ini: updated_admin_ini.clone(),
+        reload: true,
+    };
+
+    if let Err(e) = state.agent_client.apply_php_fpm_pool(pool_req).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Pengaturan tersimpan tetapi gagal menerapkan konfigurasi pool: {e}")
+            })),
+        )
+            .into_response();
+    }
+
+    // 5. Audit Log
+    state.audit_writer.log_async(
+        Some(auth_user.id),
+        &auth_user.username,
+        "site.php.settings_update",
+        format!("site:{}", site.id),
+        "success",
+        None,
+        Some(format!(
+            "Pengaturan PHP situs {} diperbarui (memory_limit: {}M, max_execution_time: {}s)",
+            site.id, input.settings.memory_limit_mb, input.settings.max_execution_time
+        )),
+    );
+
+    (
+        StatusCode::OK,
+        Json(SitePhpSettingsResponse {
+            site_id: site.id,
+            php_version: php_version.to_string(),
+            settings: input.settings,
+            limits,
+            admin_ini: if is_admin { updated_admin_ini } else { None },
+            is_admin,
+        }),
+    )
+        .into_response()
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/php/masters",
     responses(
         (status = 200, description = "Daftar master PHP-FPM tenant", body = Vec<PhpFpmMasterOverviewDto>),
@@ -1331,6 +1656,19 @@ pub async fn switch_site_php_version_handler(
     }
 
     // Step B: Apply pool in target master
+    let (site_settings, site_admin_ini) = {
+        let root: serde_json::Value =
+            serde_json::from_str(&site.settings_json).unwrap_or_else(|_| serde_json::json!({}));
+        let php_obj = root.get("php");
+        let s = php_obj.and_then(|p| p.get("settings")).and_then(|val| {
+            serde_json::from_value::<panel_core::php::PhpSettings>(val.clone()).ok()
+        });
+        let a = php_obj
+            .and_then(|p| p.get("admin_ini"))
+            .and_then(|val| val.as_str().map(ToString::to_string));
+        (s, a)
+    };
+
     let target_pool_req = panel_proto::PhpFpmPoolApplyRequest {
         username: linux_uname.to_string(),
         uid: owner_uid,
@@ -1343,6 +1681,8 @@ pub async fn switch_site_php_version_handler(
         max_requests: Some(500),
         open_basedir: None,
         disable_functions: None,
+        settings: site_settings,
+        admin_ini: site_admin_ini,
         reload: true,
     };
 
@@ -1483,4 +1823,312 @@ pub async fn switch_site_php_version_handler(
         }),
     )
         .into_response()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct PhpFpmStatusMetricsDto {
+    pub pool: String,
+    pub process_manager: String,
+    pub start_time: u64,
+    pub start_since: u64,
+    pub accepted_conn: u64,
+    pub listen_queue: u32,
+    pub max_listen_queue: u32,
+    pub listen_queue_len: u32,
+    pub idle_processes: u32,
+    pub active_processes: u32,
+    pub total_processes: u32,
+    pub max_active_processes: u32,
+    pub max_children_reached: u32,
+    pub slow_requests: u64,
+}
+
+impl From<panel_proto::PhpFpmStatusMetrics> for PhpFpmStatusMetricsDto {
+    fn from(m: panel_proto::PhpFpmStatusMetrics) -> Self {
+        Self {
+            pool: m.pool,
+            process_manager: m.process_manager,
+            start_time: m.start_time,
+            start_since: m.start_since,
+            accepted_conn: m.accepted_conn,
+            listen_queue: m.listen_queue,
+            max_listen_queue: m.max_listen_queue,
+            listen_queue_len: m.listen_queue_len,
+            idle_processes: m.idle_processes,
+            active_processes: m.active_processes,
+            total_processes: m.total_processes,
+            max_active_processes: m.max_active_processes,
+            max_children_reached: m.max_children_reached,
+            slow_requests: m.slow_requests,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SitePhpStatusResponse {
+    pub site_id: i64,
+    pub primary_domain: String,
+    pub php_version: String,
+    pub service_name: String,
+    pub is_active: bool,
+    pub socket_exists: bool,
+    pub metrics: Option<PhpFpmStatusMetricsDto>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sites/{id}/php/status",
+    params(
+        ("id" = i64, Path, description = "Site ID")
+    ),
+    responses(
+        (status = 200, description = "Status runtime PHP-FPM situs", body = SitePhpStatusResponse),
+        (status = 400, description = "Bukan situs PHP"),
+        (status = 401, description = "Tidak terautentikasi"),
+        (status = 403, description = "Akses ditolak"),
+        (status = 404, description = "Situs tidak ditemukan")
+    ),
+    tag = "php"
+)]
+pub async fn get_site_php_status_handler(
+    State(state): State<AppState>,
+    RequireAuth(auth_user): RequireAuth,
+    Path(id): Path<i64>,
+) -> Response {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let domain_repo = SqliteDomainRepository::new(state.pool.clone());
+
+    let site = match site_repo.find_by_id(id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Database error: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    if auth_user.role != "admin" && site.user_id != auth_user.id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Anda tidak memiliki akses ke situs ini" })),
+        )
+            .into_response();
+    }
+
+    if site.kind != "php" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Situs ini bukan situs bertipe PHP" })),
+        )
+            .into_response();
+    }
+
+    let owner = match user_repo.find_by_id(site.user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Pemilik situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+    };
+
+    let linux_uname = owner
+        .linux_username
+        .as_deref()
+        .unwrap_or(owner.username.as_str());
+    let version = site.version.as_deref().unwrap_or("8.3");
+    let pool_name = format!("site_{id}");
+
+    let domains = domain_repo.find_by_site_id(id).await.unwrap_or_default();
+    let primary_domain = domains
+        .into_iter()
+        .find(|d| d.is_primary)
+        .map(|d| d.name)
+        .unwrap_or_else(|| site.docroot.clone());
+
+    match state
+        .agent_client
+        .get_php_fpm_pool_status(linux_uname, version, &pool_name)
+        .await
+    {
+        Ok(res) => (
+            StatusCode::OK,
+            Json(SitePhpStatusResponse {
+                site_id: site.id,
+                primary_domain,
+                php_version: version.to_string(),
+                service_name: res.service_name,
+                is_active: res.is_active,
+                socket_exists: res.socket_exists,
+                metrics: res.metrics.map(Into::into),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Gagal membaca status FPM: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams)]
+pub struct SitePhpLogsQuery {
+    pub r#type: Option<String>,
+    pub lines: Option<usize>,
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SitePhpLogsResponse {
+    pub site_id: i64,
+    pub primary_domain: String,
+    pub php_version: String,
+    pub log_type: String,
+    pub lines: Vec<String>,
+    pub total_matched: usize,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sites/{id}/php/logs",
+    params(
+        ("id" = i64, Path, description = "Site ID"),
+        SitePhpLogsQuery
+    ),
+    responses(
+        (status = 200, description = "Baris log PHP situs", body = SitePhpLogsResponse),
+        (status = 400, description = "Bukan situs PHP atau tipe log tidak valid"),
+        (status = 401, description = "Tidak terautentikasi"),
+        (status = 403, description = "Akses ditolak"),
+        (status = 404, description = "Situs tidak ditemukan")
+    ),
+    tag = "php"
+)]
+pub async fn get_site_php_logs_handler(
+    State(state): State<AppState>,
+    RequireAuth(auth_user): RequireAuth,
+    Path(id): Path<i64>,
+    Query(query): Query<SitePhpLogsQuery>,
+) -> Response {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let domain_repo = SqliteDomainRepository::new(state.pool.clone());
+
+    let site = match site_repo.find_by_id(id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Database error: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    if auth_user.role != "admin" && site.user_id != auth_user.id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Anda tidak memiliki akses ke situs ini" })),
+        )
+            .into_response();
+    }
+
+    if site.kind != "php" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Situs ini bukan situs bertipe PHP" })),
+        )
+            .into_response();
+    }
+
+    let owner = match user_repo.find_by_id(site.user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Pemilik situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+    };
+
+    let raw_type = query
+        .r#type
+        .unwrap_or_else(|| "error".to_string())
+        .to_lowercase();
+    let log_type = match raw_type.as_str() {
+        "error" | "php_error" | "php-error" => "error",
+        "slow" | "php_slow" | "php-slow" => "slow",
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Tipe log tidak valid. Gunakan 'error' atau 'slow'" })),
+            )
+                .into_response();
+        }
+    };
+
+    let linux_uname = owner
+        .linux_username
+        .as_deref()
+        .unwrap_or(owner.username.as_str());
+    let version = site.version.as_deref().unwrap_or("8.3");
+    let pool_name = format!("site_{id}");
+
+    let domains = domain_repo.find_by_site_id(id).await.unwrap_or_default();
+    let primary_domain = domains
+        .into_iter()
+        .find(|d| d.is_primary)
+        .map(|d| d.name)
+        .unwrap_or_else(|| site.docroot.clone());
+
+    let req = panel_proto::PhpLogsReadRequest {
+        username: linux_uname.to_string(),
+        version: version.to_string(),
+        pool_name: Some(pool_name),
+        log_type: log_type.to_string(),
+        lines: query.lines.unwrap_or(100).clamp(1, 1000),
+        query: query.q,
+        log_base_dir: None,
+    };
+
+    match state.agent_client.read_php_logs(req).await {
+        Ok(res) => (
+            StatusCode::OK,
+            Json(SitePhpLogsResponse {
+                site_id: site.id,
+                primary_domain,
+                php_version: version.to_string(),
+                log_type: log_type.to_string(),
+                lines: res.lines,
+                total_matched: res.total_matched,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Gagal membaca log PHP: {e}") })),
+        )
+            .into_response(),
+    }
 }

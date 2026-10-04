@@ -291,6 +291,7 @@ pub struct PhpFpmPoolConfig {
     pub status_path: String,
     pub ping_path: String,
     pub error_log_path: PathBuf,
+    pub ini_directives: std::collections::BTreeMap<String, String>,
 }
 
 impl PhpFpmPoolConfig {
@@ -345,7 +346,17 @@ impl PhpFpmPoolConfig {
             status_path: DEFAULT_STATUS_PATH.to_string(),
             ping_path: DEFAULT_PING_PATH.to_string(),
             error_log_path: master.error_log_path(),
+            ini_directives: panel_core::php::PhpSettings::default().directives(),
         })
+    }
+
+    /// Extends or overrides PHP INI directives for this pool.
+    pub fn with_ini_directives(
+        mut self,
+        directives: std::collections::BTreeMap<String, String>,
+    ) -> Self {
+        self.ini_directives.extend(directives);
+        self
     }
 
     /// Sets custom socket path for dedicated site pools.
@@ -394,7 +405,7 @@ request_slowlog_timeout = {slowlog_timeout}s"#,
             "; slowlog is disabled".to_string()
         };
 
-        format!(
+        let mut rendered = format!(
             r#"; Nusa Panel - PHP-FPM Pool Configuration
 ; Pool: {pool_name}
 ; Tenant: {username} (UID: {uid})
@@ -452,7 +463,31 @@ php_admin_value[error_log] = {error_log_path}
             upload_tmp_dir = to_posix_str(&self.upload_tmp_dir),
             session_save_path = to_posix_str(&self.session_save_path),
             error_log_path = to_posix_str(&self.error_log_path),
-        )
+        );
+
+        for (k, v) in &self.ini_directives {
+            let is_flag = matches!(
+                k.as_str(),
+                "display_errors"
+                    | "display_startup_errors"
+                    | "opcache.enable"
+                    | "opcache.validate_timestamps"
+                    | "allow_url_fopen"
+                    | "expose_php"
+                    | "short_open_tag"
+            );
+            if is_flag {
+                let flag_val = match v.as_str() {
+                    "1" | "on" | "On" | "true" | "True" => "on",
+                    _ => "off",
+                };
+                rendered.push_str(&format!("php_admin_flag[{k}] = {flag_val}\n"));
+            } else {
+                rendered.push_str(&format!("php_admin_value[{k}] = {v}\n"));
+            }
+        }
+
+        rendered
     }
 }
 
@@ -537,6 +572,18 @@ mod tests {
         assert!(rendered.contains("request_slowlog_timeout = 5s"));
         assert!(rendered.contains("php_admin_value[open_basedir] = /home/p_alice/sites/example.com/public:/home/p_alice/tmp:/tmp"));
         assert!(rendered.contains("php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,curl_multi_exec,parse_ini_file,show_source"));
+        assert!(rendered.contains("php_admin_value[memory_limit] = 128M"));
+        assert!(rendered.contains("php_admin_flag[display_errors] = off"));
+        assert!(rendered.contains("php_admin_flag[opcache.enable] = on"));
+
+        // Custom ini directives override
+        let mut custom_directives = std::collections::BTreeMap::new();
+        custom_directives.insert("memory_limit".to_string(), "512M".to_string());
+        custom_directives.insert("display_errors".to_string(), "1".to_string());
+        let custom_pool = pool.with_ini_directives(custom_directives);
+        let custom_rendered = custom_pool.render_pool_conf();
+        assert!(custom_rendered.contains("php_admin_value[memory_limit] = 512M"));
+        assert!(custom_rendered.contains("php_admin_flag[display_errors] = on"));
     }
 
     #[test]

@@ -9,12 +9,13 @@ use panel_proto::{
     PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest,
     PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse,
     PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest,
-    PhpFpmPoolRemoveResponse, PhpRepoSetupResponse, PhpRuntimeActionResponse,
-    PhpRuntimeListResponse, PhpVersionStatusDto,
+    PhpFpmPoolRemoveResponse, PhpFpmPoolStatusRequest, PhpFpmPoolStatusResponse,
+    PhpFpmStatusMetrics, PhpLogsReadRequest, PhpLogsReadResponse, PhpRepoSetupResponse,
+    PhpRuntimeActionResponse, PhpRuntimeListResponse, PhpVersionStatusDto,
 };
 use panel_runtime::fpm::{
-    DEFAULT_PM_MAX_REQUESTS, DEFAULT_PM_PROCESS_IDLE_TIMEOUT_SECS, PhpFpmMasterConfig,
-    PhpFpmPoolConfig,
+    DEFAULT_PHP_LOG_BASE, DEFAULT_PM_MAX_REQUESTS, DEFAULT_PM_PROCESS_IDLE_TIMEOUT_SECS,
+    DEFAULT_STATUS_PATH, PhpFpmMasterConfig, PhpFpmPoolConfig, validate_fpm_identifier,
 };
 use panel_runtime::php::{
     CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension, is_sury_repo_installed,
@@ -515,6 +516,14 @@ fn build_pool_config(
     if let Some(dis_fn) = &req.disable_functions {
         pool.disable_functions = dis_fn.clone();
     }
+    if let Some(settings) = &req.settings {
+        pool = pool.with_ini_directives(settings.directives());
+    }
+    if let Some(admin_ini) = &req.admin_ini {
+        let admin_map = panel_core::php::parse_admin_ini(admin_ini)
+            .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+        pool = pool.with_ini_directives(admin_map);
+    }
 
     Ok(pool)
 }
@@ -758,12 +767,285 @@ pub fn get_php_fpm_master_status(
         })
         .count();
 
+    let metrics = if is_active && socket_exists {
+        query_php_fpm_status(runner, &master.default_socket_path(), DEFAULT_STATUS_PATH).ok()
+    } else {
+        None
+    };
+
     Ok(PhpFpmMasterStatusResponse {
         service_name: master.service_name(),
         is_active,
         substate,
         socket_exists,
         pools_count,
+        metrics,
+    })
+}
+
+/// Retrieves the runtime and process metrics of an individual PHP-FPM pool.
+pub fn get_php_fpm_pool_status(
+    runner: &dyn SystemRunner,
+    req: PhpFpmPoolStatusRequest,
+) -> Result<PhpFpmPoolStatusResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    let is_active = runner
+        .run_command(
+            "systemctl",
+            &["is-active", "--quiet", &master.service_name()],
+        )
+        .is_ok();
+
+    let socket_path = master.default_socket_path();
+    let socket_exists = runner.path_exists(&socket_path);
+
+    let metrics = if is_active && socket_exists {
+        query_php_fpm_status(runner, &socket_path, DEFAULT_STATUS_PATH).ok()
+    } else {
+        None
+    };
+
+    Ok(PhpFpmPoolStatusResponse {
+        pool_name: req.pool_name,
+        service_name: master.service_name(),
+        is_active,
+        socket_exists,
+        metrics,
+    })
+}
+
+/// Builds a FastCGI GET request packet for querying the FPM status endpoint (e.g. `/fpm-status?json`).
+pub fn build_fcgi_status_request(status_path: &str) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    // 1. FCGI_BEGIN_REQUEST (version: 1, type: 1, req_id: 1, content_len: 8, pad: 0)
+    buf.extend_from_slice(&[
+        1, 1, // version 1, type 1 (BEGIN_REQUEST)
+        0, 1, // request_id = 1
+        0, 8, // content_length = 8
+        0, 0, // padding_length = 0, reserved = 0
+    ]);
+    buf.extend_from_slice(&[
+        0, 1, // role = 1 (FCGI_RESPONDER)
+        0, // flags = 0
+        0, 0, 0, 0, 0, // reserved
+    ]);
+
+    // 2. FCGI_PARAMS (type: 4, req_id: 1)
+    let params: &[(&[u8], &[u8])] = &[
+        (b"SCRIPT_NAME", status_path.as_bytes()),
+        (b"SCRIPT_FILENAME", status_path.as_bytes()),
+        (b"QUERY_STRING", b"json"),
+        (b"REQUEST_METHOD", b"GET"),
+    ];
+    let mut param_body = Vec::new();
+    for (k, v) in params {
+        param_body.push(k.len() as u8);
+        param_body.push(v.len() as u8);
+        param_body.extend_from_slice(k);
+        param_body.extend_from_slice(v);
+    }
+    let param_len = param_body.len() as u16;
+    buf.extend_from_slice(&[
+        1,
+        4, // version 1, type 4 (PARAMS)
+        0,
+        1, // request_id = 1
+        (param_len >> 8) as u8,
+        (param_len & 0xff) as u8,
+        0,
+        0,
+    ]);
+    buf.extend_from_slice(&param_body);
+
+    // 3. FCGI_PARAMS empty (type: 4, req_id: 1, len: 0) - signals end of params
+    buf.extend_from_slice(&[1, 4, 0, 1, 0, 0, 0, 0]);
+
+    // 4. FCGI_STDIN empty (type: 5, req_id: 1, len: 0) - signals end of stdin
+    buf.extend_from_slice(&[1, 5, 0, 1, 0, 0, 0, 0]);
+
+    buf
+}
+
+/// Parses the FastCGI response stream containing STDOUT records and extracts the JSON status payload.
+pub fn parse_fcgi_status_response(bytes: &[u8]) -> Result<PhpFpmStatusMetrics, AgentError> {
+    let mut stdout_body = Vec::new();
+    let mut offset = 0;
+
+    while offset + 8 <= bytes.len() {
+        let record_type = bytes[offset + 1];
+        let content_len = u16::from_be_bytes([bytes[offset + 4], bytes[offset + 5]]) as usize;
+        let padding_len = bytes[offset + 6] as usize;
+        let content_start = offset + 8;
+        let content_end = content_start + content_len;
+
+        if content_end > bytes.len() {
+            break;
+        }
+
+        if record_type == 6 {
+            // FCGI_STDOUT
+            stdout_body.extend_from_slice(&bytes[content_start..content_end]);
+        } else if record_type == 8 {
+            // FCGI_END_REQUEST
+            break;
+        }
+
+        offset = content_end + padding_len;
+    }
+
+    let payload = if stdout_body.is_empty() {
+        bytes
+    } else if let Some(idx) = stdout_body.windows(4).position(|w| w == b"\r\n\r\n") {
+        &stdout_body[idx + 4..]
+    } else if let Some(idx) = stdout_body.windows(2).position(|w| w == b"\n\n") {
+        &stdout_body[idx + 2..]
+    } else {
+        &stdout_body[..]
+    };
+
+    serde_json::from_slice::<PhpFpmStatusMetrics>(payload).map_err(|e| {
+        AgentError::InvalidInput(format!(
+            "Gagal mem-parsing status JSON PHP-FPM: {e}. Output mentah: {}",
+            String::from_utf8_lossy(payload)
+        ))
+    })
+}
+
+/// Queries the FPM status endpoint from a Unix domain socket.
+pub fn query_php_fpm_status(
+    runner: &dyn SystemRunner,
+    socket_path: &Path,
+    status_path: &str,
+) -> Result<PhpFpmStatusMetrics, AgentError> {
+    // 1. Check if mock status file is available (hermetic testing)
+    let mock_file = socket_path.with_extension("status.json");
+    if let Ok(bytes) = runner.read_file(&mock_file) {
+        let metrics = serde_json::from_slice::<PhpFpmStatusMetrics>(&bytes)
+            .map_err(|e| AgentError::InvalidInput(format!("Invalid mock metrics JSON: {e}")))?;
+        return Ok(metrics);
+    }
+
+    #[cfg(unix)]
+    {
+        use std::io::{Read, Write};
+        use std::os::unix::net::UnixStream;
+        use std::time::Duration;
+
+        if !runner.path_exists(socket_path) {
+            return Ok(PhpFpmStatusMetrics::default());
+        }
+
+        let mut stream = UnixStream::connect(socket_path).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                format!(
+                    "Gagal menghubungkan ke UDS socket PHP-FPM {}: {e}",
+                    socket_path.display()
+                ),
+            )
+        })?;
+        stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+        stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
+
+        let req = build_fcgi_status_request(status_path);
+        stream.write_all(&req)?;
+
+        let mut resp_buf = Vec::new();
+        stream.read_to_end(&mut resp_buf)?;
+
+        parse_fcgi_status_response(&resp_buf)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = (socket_path, status_path);
+        Ok(PhpFpmStatusMetrics::default())
+    }
+}
+
+/// Reads PHP error or slow logs with tail limits and query filter.
+pub fn read_php_logs(
+    runner: &dyn SystemRunner,
+    req: PhpLogsReadRequest,
+) -> Result<PhpLogsReadResponse, AgentError> {
+    let username = panel_core::Username::parse(&req.username)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    if req.log_type != "error" && req.log_type != "slow" {
+        return Err(AgentError::InvalidInput(format!(
+            "Tipe log PHP '{}' tidak valid. Gunakan 'error' atau 'slow'",
+            req.log_type
+        )));
+    }
+
+    if let Some(ref pool) = req.pool_name {
+        validate_fpm_identifier(pool).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    }
+
+    let base_dir = req
+        .log_base_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_PHP_LOG_BASE));
+
+    let pool_file = req.pool_name.as_ref().map(|p| {
+        base_dir
+            .join(username.as_str())
+            .join(format!("{}.php-{}.log", p, req.log_type))
+    });
+
+    let master_file = base_dir.join(username.as_str()).join(format!(
+        "php-fpm-{}-{}.log",
+        version.as_str(),
+        req.log_type
+    ));
+
+    let log_file = match pool_file {
+        Some(ref pf) if runner.path_exists(pf) => pf.clone(),
+        _ if runner.path_exists(&master_file) => master_file,
+        Some(ref pf) => pf.clone(),
+        _ => master_file,
+    };
+
+    if !runner.path_exists(&log_file) {
+        return Ok(PhpLogsReadResponse {
+            lines: Vec::new(),
+            total_matched: 0,
+        });
+    }
+
+    let content_bytes = runner.read_file(&log_file)?;
+    let content_str = String::from_utf8_lossy(&content_bytes);
+
+    let lines_limit = req.lines.clamp(1, 1000);
+    let query_lower = req.query.as_ref().map(|q| q.to_lowercase());
+
+    let all_matching: Vec<String> = content_str
+        .lines()
+        .filter(|line| {
+            if let Some(ref q) = query_lower {
+                line.to_lowercase().contains(q)
+            } else {
+                true
+            }
+        })
+        .map(|s| s.to_string())
+        .collect();
+
+    let total_matched = all_matching.len();
+    let start_idx = total_matched.saturating_sub(lines_limit);
+    let lines = all_matching[start_idx..].to_vec();
+
+    Ok(PhpLogsReadResponse {
+        lines,
+        total_matched,
     })
 }
 
@@ -1096,6 +1378,8 @@ mod tests {
                 max_requests: Some(1000),
                 open_basedir: None,
                 disable_functions: None,
+                settings: None,
+                admin_ini: None,
                 reload: true,
             },
         )
@@ -1150,6 +1434,8 @@ mod tests {
                 max_requests: None,
                 open_basedir: None,
                 disable_functions: None,
+                settings: None,
+                admin_ini: None,
                 reload: true,
             },
         );
@@ -1183,6 +1469,8 @@ mod tests {
                 max_requests: None,
                 open_basedir: None,
                 disable_functions: None,
+                settings: None,
+                admin_ini: None,
                 reload: false,
             },
         )
@@ -1263,6 +1551,170 @@ mod tests {
             commands
                 .iter()
                 .any(|c| c.contains("systemctl restart panel-fpm@p_alice-8.3.service"))
+        );
+    }
+
+    #[test]
+    fn test_fcgi_status_packet_and_parsing() {
+        let req_pkt = build_fcgi_status_request("/fpm-status");
+        assert!(!req_pkt.is_empty());
+        // Verify FastCGI version 1 and BEGIN_REQUEST record
+        assert_eq!(req_pkt[0], 1);
+        assert_eq!(req_pkt[1], 1);
+
+        let json_body = r#"{"pool":"site-1","process manager":"ondemand","start time":1728000000,"start since":100,"accepted conn":50,"listen queue":1,"max listen queue":3,"listen queue len":128,"idle processes":2,"active processes":1,"total processes":3,"max active processes":5,"max children reached":0,"slow requests":0}"#;
+        // Construct FastCGI STDOUT response packet with HTTP header
+        let http_resp = format!("Content-Type: application/json\r\n\r\n{json_body}");
+        let mut resp_pkt = Vec::new();
+        let body_bytes = http_resp.as_bytes();
+        let body_len = body_bytes.len() as u16;
+        resp_pkt.extend_from_slice(&[
+            1,
+            6, // FCGI_STDOUT
+            0,
+            1,
+            (body_len >> 8) as u8,
+            (body_len & 0xff) as u8,
+            0,
+            0,
+        ]);
+        resp_pkt.extend_from_slice(body_bytes);
+        // End request
+        resp_pkt.extend_from_slice(&[1, 8, 0, 1, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        let metrics = parse_fcgi_status_response(&resp_pkt).expect("parse fcgi response");
+        assert_eq!(metrics.pool, "site-1");
+        assert_eq!(metrics.process_manager, "ondemand");
+        assert_eq!(metrics.listen_queue, 1);
+        assert_eq!(metrics.active_processes, 1);
+        assert_eq!(metrics.idle_processes, 2);
+        assert_eq!(metrics.total_processes, 3);
+    }
+
+    #[test]
+    fn test_get_php_fpm_pool_status_and_metrics() {
+        let runner = MockSystemRunner::new();
+        let socket_path = PathBuf::from("/run/panel/php/p_alice-8.3.sock");
+        let mock_status_file = PathBuf::from("/run/panel/php/p_alice-8.3.status.json");
+
+        runner.set_file_content(&socket_path, b"");
+        let status_json = r#"{"pool":"site-alpha","process manager":"ondemand","start time":1728000000,"start since":100,"accepted conn":120,"listen queue":0,"max listen queue":2,"listen queue len":128,"idle processes":0,"active processes":0,"total processes":0,"max active processes":3,"max children reached":0,"slow requests":0}"#;
+        runner.set_file_content(&mock_status_file, status_json.as_bytes());
+
+        let res = get_php_fpm_pool_status(
+            &runner,
+            PhpFpmPoolStatusRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: "site-alpha".to_string(),
+            },
+        )
+        .expect("get pool status");
+
+        assert_eq!(res.pool_name, "site-alpha");
+        assert!(res.is_active);
+        assert!(res.socket_exists);
+        let m = res.metrics.expect("metrics present");
+        assert_eq!(m.pool, "site-alpha");
+        assert_eq!(m.accepted_conn, 120);
+        assert_eq!(m.process_manager, "ondemand");
+    }
+
+    #[test]
+    fn test_read_php_logs_filtering_and_fallback() {
+        let runner = MockSystemRunner::new();
+        let error_log_path = PathBuf::from("/var/log/panel/p_alice/php-fpm-8.3-error.log");
+        let slow_log_path = PathBuf::from("/var/log/panel/p_alice/php-fpm-8.3-slow.log");
+
+        let sample_errors = "[01-Oct-2026 10:00:00] NOTICE: fpm is running\n[01-Oct-2026 10:05:00] WARNING: [pool site-1] child 1234 exited on signal 15\n[01-Oct-2026 10:10:00] ERROR: failed to open stream\n";
+        runner.set_file_content(&error_log_path, sample_errors.as_bytes());
+
+        let sample_slow = "[01-Oct-2026 10:12:00]  [pool site-1] pid 1234\nscript_filename = /home/p_alice/sites/site-1/public/slow.php\n[0x00007f] sleep() /home/p_alice/sites/site-1/public/slow.php:5\n";
+        runner.set_file_content(&slow_log_path, sample_slow.as_bytes());
+
+        // 1. Read all error logs
+        let err_res = read_php_logs(
+            &runner,
+            PhpLogsReadRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: None,
+                log_type: "error".to_string(),
+                lines: 10,
+                query: None,
+                log_base_dir: None,
+            },
+        )
+        .expect("read php error logs");
+        assert_eq!(err_res.lines.len(), 3);
+        assert_eq!(err_res.total_matched, 3);
+
+        // 2. Filter query
+        let query_res = read_php_logs(
+            &runner,
+            PhpLogsReadRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: None,
+                log_type: "error".to_string(),
+                lines: 10,
+                query: Some("WARNING".to_string()),
+                log_base_dir: None,
+            },
+        )
+        .expect("read filtered error logs");
+        assert_eq!(query_res.lines.len(), 1);
+        assert!(query_res.lines[0].contains("WARNING"));
+
+        // 3. Read slow logs
+        let slow_res = read_php_logs(
+            &runner,
+            PhpLogsReadRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: None,
+                log_type: "slow".to_string(),
+                lines: 10,
+                query: None,
+                log_base_dir: None,
+            },
+        )
+        .expect("read slow logs");
+        assert_eq!(slow_res.lines.len(), 3);
+        assert!(slow_res.lines[1].contains("slow.php"));
+
+        // 4. Missing log returns empty list
+        let missing_res = read_php_logs(
+            &runner,
+            PhpLogsReadRequest {
+                username: "p_alice".to_string(),
+                version: "8.4".to_string(),
+                pool_name: None,
+                log_type: "error".to_string(),
+                lines: 10,
+                query: None,
+                log_base_dir: None,
+            },
+        )
+        .expect("read missing logs");
+        assert!(missing_res.lines.is_empty());
+        assert_eq!(missing_res.total_matched, 0);
+
+        // 5. Invalid log type rejected
+        assert!(
+            read_php_logs(
+                &runner,
+                PhpLogsReadRequest {
+                    username: "p_alice".to_string(),
+                    version: "8.3".to_string(),
+                    pool_name: None,
+                    log_type: "access".to_string(),
+                    lines: 10,
+                    query: None,
+                    log_base_dir: None,
+                },
+            )
+            .is_err()
         );
     }
 }
