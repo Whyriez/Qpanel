@@ -14,7 +14,7 @@ name = "panel-api"
 path = "src/main.rs"
 
 [dependencies]
-panel-core = { workspace = true }
+panel-core = { workspace = true, features = ["openapi"] }
 panel-proto = { workspace = true }
 panel-db = { workspace = true }
 panel-webserver = { workspace = true }

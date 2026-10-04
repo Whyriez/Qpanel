@@ -11,7 +11,7 @@ use panel_proto::{
 };
 use panel_webserver::baseline::NginxBaselineConfig;
 use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
 
@@ -442,9 +442,13 @@ impl NginxManager {
         let domain = panel_core::domain::DomainName::parse(&req.site_domain)
             .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
 
-        if req.log_type != "access" && req.log_type != "error" {
+        if req.log_type != "access"
+            && req.log_type != "error"
+            && req.log_type != "php_error"
+            && req.log_type != "php_slow"
+        {
             return Err(AgentError::InvalidInput(format!(
-                "Invalid log type '{}'. Expected 'access' or 'error'",
+                "Invalid log type '{}'. Expected 'access', 'error', 'php_error', or 'php_slow'",
                 req.log_type
             )));
         }
@@ -455,10 +459,44 @@ impl NginxManager {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/var/log/panel"));
 
-        let log_file = base_dir
-            .join(username.as_str())
-            .join(domain.as_ascii())
-            .join(format!("{}.log", req.log_type));
+        let log_file = match req.log_type.as_str() {
+            "php_error" => {
+                let site_php = base_dir
+                    .join(username.as_str())
+                    .join(domain.as_ascii())
+                    .join("php-error.log");
+                if self.runner.path_exists(&site_php) {
+                    site_php
+                } else {
+                    find_php_log_file(
+                        self.runner.as_ref(),
+                        &base_dir.join(username.as_str()),
+                        "error",
+                    )
+                    .unwrap_or(site_php)
+                }
+            }
+            "php_slow" => {
+                let site_php = base_dir
+                    .join(username.as_str())
+                    .join(domain.as_ascii())
+                    .join("php-slow.log");
+                if self.runner.path_exists(&site_php) {
+                    site_php
+                } else {
+                    find_php_log_file(
+                        self.runner.as_ref(),
+                        &base_dir.join(username.as_str()),
+                        "slow",
+                    )
+                    .unwrap_or(site_php)
+                }
+            }
+            _ => base_dir
+                .join(username.as_str())
+                .join(domain.as_ascii())
+                .join(format!("{}.log", req.log_type)),
+        };
 
         if !self.runner.path_exists(&log_file) {
             return Ok(SiteLogsReadResponse {
@@ -494,6 +532,22 @@ impl NginxManager {
             total_matched,
         })
     }
+}
+
+fn find_php_log_file(runner: &dyn SystemRunner, tenant_dir: &Path, kind: &str) -> Option<PathBuf> {
+    let suffix = format!("-{kind}.log");
+    if let Ok(entries) = runner.read_dir(tenant_dir) {
+        for entry in entries {
+            let matches = entry
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| name.starts_with("php-fpm-") && name.ends_with(&suffix));
+            if matches {
+                return Some(entry);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

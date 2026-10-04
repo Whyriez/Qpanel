@@ -214,8 +214,20 @@ pub fn create_router(state: AppState) -> Router {
             get(php::get_site_php_extensions_handler).put(php::update_site_php_extensions_handler),
         )
         .route(
+            "/api/v1/sites/{id}/php/settings",
+            get(php::get_site_php_settings_handler).put(php::update_site_php_settings_handler),
+        )
+        .route(
             "/api/v1/sites/{id}/php/version",
             post(php::switch_site_php_version_handler).put(php::switch_site_php_version_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/php/status",
+            get(php::get_site_php_status_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/php/logs",
+            get(php::get_site_php_logs_handler),
         )
         // PHP-FPM Master management endpoints
         .route(

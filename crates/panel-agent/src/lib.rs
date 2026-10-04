@@ -428,6 +428,14 @@ impl AgentServer {
                     "php.fpm_health_check".to_string(),
                     format!("{}-{}/{}", d.username, d.version, d.pool_name),
                 ),
+                RequestPayload::PhpFpmPoolStatus(d) => (
+                    "php.fpm_pool_status".to_string(),
+                    format!("{}-{}/{}", d.username, d.version, d.pool_name),
+                ),
+                RequestPayload::PhpLogsRead(d) => (
+                    "php.logs_read".to_string(),
+                    format!("{}-{}/{}", d.username, d.version, d.log_type),
+                ),
             };
 
             let response = match req.payload {
@@ -707,6 +715,22 @@ impl AgentServer {
                             &req.request_id,
                             ResponsePayload::PhpFpmHealthChecked(res),
                         ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmPoolStatus(data) => {
+                    match php::get_php_fpm_pool_status(self.runner.as_ref(), data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpFpmPoolStatus(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpLogsRead(data) => {
+                    match php::read_php_logs(self.runner.as_ref(), data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpLogsRead(res))
+                        }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }

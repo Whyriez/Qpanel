@@ -135,16 +135,24 @@ pub async fn get_site_logs_handler(
         .map(|d| d.name.clone())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let log_type = query
+    let raw_log_type = query
         .r#type
         .unwrap_or_else(|| "access".to_string())
         .to_lowercase();
-    if log_type != "access" && log_type != "error" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid log type. Expected 'access' or 'error'".to_string(),
-        ));
+    let log_type = match raw_log_type.as_str() {
+        "access" => "access",
+        "error" => "error",
+        "php_error" | "php-error" => "php_error",
+        "php_slow" | "php-slow" => "php_slow",
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Invalid log type. Expected 'access', 'error', 'php_error', or 'php_slow'"
+                    .to_string(),
+            ));
+        }
     }
+    .to_string();
 
     let lines_limit = query.lines.unwrap_or(100).clamp(1, 1000);
     let username = owner
@@ -216,16 +224,20 @@ pub async fn site_logs_ws_handler(
         .map(|d| d.name.clone())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let log_type = query
+    let raw_log_type = query
         .r#type
         .unwrap_or_else(|| "access".to_string())
         .to_lowercase();
-    if log_type != "access" && log_type != "error" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid log type. Expected 'access' or 'error'",
-        ));
+    let log_type = match raw_log_type.as_str() {
+        "access" => "access",
+        "error" => "error",
+        "php_error" | "php-error" => "php_error",
+        "php_slow" | "php-slow" => "php_slow",
+        _ => {
+            return Err((StatusCode::BAD_REQUEST, "Invalid log type"));
+        }
     }
+    .to_string();
 
     let backlog_lines = query.lines.unwrap_or(50).clamp(1, 200);
     let username = owner
