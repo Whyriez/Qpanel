@@ -42,6 +42,10 @@ import {
   PhpExtensionListApiResponse,
   SitePhpExtensionsResponse,
   SwitchPhpVersionResponse,
+  SitePhpSettingsResponse,
+  UpdateSitePhpSettingsInput,
+  SitePhpStatusResponse,
+  SitePhpLogsResponse,
 } from '../types/api';
 
 const API_BASE = '';
@@ -520,7 +524,7 @@ export async function deleteSiteSsl(siteId: number): Promise<SslActionResponse> 
 
 export async function fetchSiteLogs(
   siteId: number,
-  logType: 'access' | 'error',
+  logType: 'access' | 'error' | 'php_error' | 'php_slow' | string,
   lines?: number,
   query?: string
 ): Promise<SiteLogsResponse> {
@@ -615,6 +619,37 @@ export async function switchSitePhpVersion(
     method: 'POST',
     body: JSON.stringify({ version }),
   });
+}
+
+export async function fetchSitePhpSettings(siteId: number): Promise<SitePhpSettingsResponse> {
+  return request<SitePhpSettingsResponse>(`/api/v1/sites/${siteId}/php/settings`);
+}
+
+export async function updateSitePhpSettings(
+  siteId: number,
+  data: UpdateSitePhpSettingsInput
+): Promise<SitePhpSettingsResponse> {
+  return request<SitePhpSettingsResponse>(`/api/v1/sites/${siteId}/php/settings`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchSitePhpStatus(siteId: number): Promise<SitePhpStatusResponse> {
+  return request<SitePhpStatusResponse>(`/api/v1/sites/${siteId}/php/status`);
+}
+
+export async function fetchSitePhpLogs(
+  siteId: number,
+  logType: 'error' | 'slow' = 'error',
+  lines?: number,
+  query?: string
+): Promise<SitePhpLogsResponse> {
+  const params = new URLSearchParams();
+  params.set('type', logType);
+  if (lines) params.set('lines', lines.toString());
+  if (query) params.set('q', query);
+  return request<SitePhpLogsResponse>(`/api/v1/sites/${siteId}/php/logs?${params.toString()}`);
 }
 
 

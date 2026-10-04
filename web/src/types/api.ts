@@ -376,7 +376,7 @@ export interface SslActionResponse {
 // Site Logs Types
 export interface SiteLogsResponse {
   site_id: number;
-  log_type: 'access' | 'error' | string;
+  log_type: 'access' | 'error' | 'php_error' | 'php_slow' | string;
   lines: string[];
   total_returned: number;
   file_path: string;
@@ -448,6 +448,80 @@ export interface SwitchPhpVersionResponse {
   old_version: string;
   new_version: string;
   vhost_reloaded: boolean;
+}
+
+// PHP Settings Types
+export interface PhpSettings {
+  memory_limit_mb: number;
+  upload_max_filesize_mb: number;
+  post_max_size_mb: number;
+  max_execution_time: number;
+  max_input_vars: number;
+  display_errors: boolean;
+  date_timezone: string;
+  opcache_enable: boolean;
+  opcache_memory_consumption_mb: number;
+  opcache_validate_timestamps: boolean;
+  opcache_revalidate_freq: number;
+}
+
+export interface PhpSettingsLimits {
+  memory_limit_mb: number;
+  upload_limit_mb: number;
+  max_execution_time: number;
+  max_input_vars: number;
+  opcache_memory_consumption_mb: number;
+}
+
+export interface SitePhpSettingsResponse {
+  site_id: number;
+  php_version: string;
+  settings: PhpSettings;
+  limits: PhpSettingsLimits;
+  admin_ini?: string | null;
+  is_admin: boolean;
+}
+
+export interface UpdateSitePhpSettingsInput {
+  settings: PhpSettings;
+  admin_ini?: string | null;
+}
+
+// PHP-FPM Status & Metrics Types
+export interface PhpFpmStatusMetrics {
+  pool: string;
+  process_manager: string;
+  start_time: number;
+  start_since: number;
+  accepted_conn: number;
+  listen_queue: number;
+  max_listen_queue: number;
+  listen_queue_len: number;
+  idle_processes: number;
+  active_processes: number;
+  total_processes: number;
+  max_active_processes: number;
+  max_children_reached: number;
+  slow_requests: number;
+}
+
+export interface SitePhpStatusResponse {
+  site_id: number;
+  primary_domain: string;
+  php_version: string;
+  service_name: string;
+  is_active: boolean;
+  socket_exists: boolean;
+  metrics: PhpFpmStatusMetrics | null;
+}
+
+export interface SitePhpLogsResponse {
+  site_id: number;
+  primary_domain: string;
+  php_version: string;
+  log_type: string;
+  lines: string[];
+  total_matched: number;
 }
 
 

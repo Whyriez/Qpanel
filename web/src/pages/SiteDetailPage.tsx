@@ -21,7 +21,10 @@ import {
   Play,
   Pause,
   Code2,
+  Sliders,
 } from 'lucide-react';
+import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
+import { PhpStatusCard } from '../components/sites/PhpStatusCard';
 import { useTranslation } from 'react-i18next';
 import {
   Site,
@@ -59,7 +62,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'ssl' | 'logs' | 'settings';
+type TabType = 'overview' | 'domains' | 'ssl' | 'logs' | 'php' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -110,7 +113,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const [isSwitchingPhp, setIsSwitchingPhp] = useState(false);
 
   // Logs & WebSocket Live Tail States
-  const [logType, setLogType] = useState<'access' | 'error'>('access');
+  const [logType, setLogType] = useState<'access' | 'error' | 'php_error' | 'php_slow'>('access');
   const [logLinesCount, setLogLinesCount] = useState<number>(100);
   const [logQueryFilter, setLogQueryFilter] = useState('');
   const [logLines, setLogLines] = useState<string[]>([]);
@@ -698,6 +701,20 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.logs')}
         </button>
 
+        {site.kind === 'php' && (
+          <button
+            onClick={() => setActiveTab('php')}
+            className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+              activeTab === 'php'
+                ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+                : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            Pengaturan PHP
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
@@ -770,12 +787,21 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                       Preset: {site.preset || 'standard'}
                     </div>
                   </div>
-                  <button
-                    onClick={handleOpenSwitchPhpModal}
-                    className="px-2 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--primary)] hover:text-[var(--primary-hover)] transition-colors"
-                  >
-                    Ganti Versi
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setActiveTab('php')}
+                      className="px-2 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--raised)] text-[var(--ink)] transition-colors"
+                      title="Buka Pengaturan PHP"
+                    >
+                      Pengaturan
+                    </button>
+                    <button
+                      onClick={handleOpenSwitchPhpModal}
+                      className="px-2 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--primary)] hover:text-[var(--primary-hover)] transition-colors"
+                    >
+                      Ganti Versi
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1064,7 +1090,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                       : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
                   }`}
                 >
-                  Access Log
+                  Nginx Access
                 </button>
                 <button
                   onClick={() => setLogType('error')}
@@ -1074,8 +1100,32 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                       : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
                   }`}
                 >
-                  Error Log
+                  Nginx Error
                 </button>
+                {site.kind === 'php' && (
+                  <>
+                    <button
+                      onClick={() => setLogType('php_error')}
+                      className={`px-3 py-1 rounded-[var(--radius-sm)] transition-colors ${
+                        logType === 'php_error'
+                          ? 'bg-[var(--primary)] text-white font-semibold'
+                          : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
+                      }`}
+                    >
+                      PHP Error
+                    </button>
+                    <button
+                      onClick={() => setLogType('php_slow')}
+                      className={`px-3 py-1 rounded-[var(--radius-sm)] transition-colors ${
+                        logType === 'php_slow'
+                          ? 'bg-[var(--primary)] text-white font-semibold'
+                          : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
+                      }`}
+                    >
+                      PHP Slow
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Live Tail Toggle */}
@@ -1198,7 +1248,23 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       )}
 
       {/* ===================================================================== */}
-      {/* TAB 5: SETTINGS & DANGER ZONE                                         */}
+      {/* TAB 5: PHP CONFIGURATION                                              */}
+      {/* ===================================================================== */}
+      {activeTab === 'php' && site.kind === 'php' && (
+        <div className="space-y-6">
+          <PhpStatusCard siteId={site.id} />
+          <PhpSettingsCard
+            siteId={site.id}
+            phpVersion={site.version || '8.3'}
+            onSaved={() => {
+              loadSiteData();
+            }}
+          />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 6: SETTINGS & DANGER ZONE                                         */}
       {/* ===================================================================== */}
       {activeTab === 'settings' && (
         <div className="space-y-6">
