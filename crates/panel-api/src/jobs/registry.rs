@@ -439,6 +439,136 @@ impl JobHandler for PhpRemoveHandler {
     }
 }
 
+pub struct PhpExtensionInstallHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl PhpExtensionInstallHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for PhpExtensionInstallHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let version = payload
+                .get("version")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'version' wajib disertakan dalam payload".to_string())?;
+            let extension = payload
+                .get("extension")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'extension' wajib disertakan dalam payload".to_string())?;
+
+            panel_runtime::php::PhpVersion::parse(version)
+                .map_err(|e| format!("Versi PHP tidak valid: {e}"))?;
+            panel_runtime::php::find_curated_extension(extension)
+                .map_err(|e| format!("Ekstensi tidak valid: {e}"))?;
+
+            let _ = ctx
+                .report_progress(
+                    20,
+                    Some(&format!(
+                        "Memulai pemasangan ekstensi {} untuk PHP {}...",
+                        extension, version
+                    )),
+                )
+                .await;
+
+            let res = self
+                .agent_client
+                .install_php_extension(version, extension)
+                .await
+                .map_err(|e| format!("Pemasangan ekstensi {extension} gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(
+                    100,
+                    Some(&format!("Ekstensi {} berhasil dipasang", extension)),
+                )
+                .await;
+
+            let result = serde_json::json!({
+                "version": res.version,
+                "extension": res.extension,
+                "success": res.success,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+pub struct PhpExtensionRemoveHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl PhpExtensionRemoveHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for PhpExtensionRemoveHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let version = payload
+                .get("version")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'version' wajib disertakan dalam payload".to_string())?;
+            let extension = payload
+                .get("extension")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'extension' wajib disertakan dalam payload".to_string())?;
+
+            panel_runtime::php::PhpVersion::parse(version)
+                .map_err(|e| format!("Versi PHP tidak valid: {e}"))?;
+            let def = panel_runtime::php::find_curated_extension(extension)
+                .map_err(|e| format!("Ekstensi tidak valid: {e}"))?;
+
+            if def.is_base {
+                return Err(format!("Ekstensi dasar '{extension}' tidak dapat dihapus"));
+            }
+
+            let _ = ctx
+                .report_progress(
+                    20,
+                    Some(&format!(
+                        "Menghapus ekstensi {} dari PHP {}...",
+                        extension, version
+                    )),
+                )
+                .await;
+
+            let res = self
+                .agent_client
+                .remove_php_extension(version, extension)
+                .await
+                .map_err(|e| format!("Penghapusan ekstensi {extension} gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(
+                    100,
+                    Some(&format!("Ekstensi {} berhasil dihapus", extension)),
+                )
+                .await;
+
+            let result = serde_json::json!({
+                "version": res.version,
+                "extension": res.extension,
+                "success": res.success,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
 /// Central registry mapping job names to their respective handlers.
 pub struct JobRegistry {
     handlers: HashMap<String, Arc<dyn JobHandler>>,
@@ -479,7 +609,18 @@ impl JobRegistry {
             "php.install",
             PhpInstallHandler::new(Arc::clone(&agent_client)),
         );
-        reg.register("php.remove", PhpRemoveHandler::new(agent_client));
+        reg.register(
+            "php.remove",
+            PhpRemoveHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "php.extension.install",
+            PhpExtensionInstallHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "php.extension.remove",
+            PhpExtensionRemoveHandler::new(agent_client),
+        );
         reg
     }
 

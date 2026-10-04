@@ -397,4 +397,42 @@ export interface PhpRuntimeListApiResponse {
   versions: PhpVersionStatusItem[];
 }
 
+export interface PhpExtensionItem {
+  name: string;
+  version: string;
+  package_name: string;
+  installed: boolean;
+  enabled: boolean;
+  is_base: boolean;
+  category: string;
+  description: string;
+}
+
+export interface PhpExtensionListApiResponse {
+  version: string;
+  extensions: PhpExtensionItem[];
+}
+
+export interface ToggleExtensionRequest {
+  enabled: boolean;
+}
+
+export interface PhpExtensionActionApiResponse {
+  version: string;
+  extension: string;
+  success: boolean;
+  message: string;
+}
+
+export interface SitePhpExtensionsResponse {
+  site_id: number;
+  php_version: string;
+  extensions: string[];
+  available_extensions: string[];
+}
+
+export interface UpdateSitePhpExtensionsInput {
+  extensions: string[];
+}
+
 

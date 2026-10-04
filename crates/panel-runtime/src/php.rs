@@ -166,6 +166,178 @@ pub fn is_sury_repo_installed(path_checker: impl Fn(&Path) -> bool) -> bool {
     candidates.iter().any(|p| path_checker(p))
 }
 
+/// Represents a curated PHP extension available in Nusa Panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PhpExtensionDefinition {
+    pub name: &'static str,
+    pub package_suffix: &'static str,
+    pub ini_names: &'static [&'static str],
+    pub category: &'static str,
+    pub description_id: &'static str,
+    pub is_base: bool,
+}
+
+impl PhpExtensionDefinition {
+    /// Returns the Debian/Ubuntu package name for a specific PHP version.
+    pub fn package_name(&self, version: PhpVersion) -> String {
+        format!("php{}-{}", version.as_str(), self.package_suffix)
+    }
+}
+
+/// Detailed status information about a specific PHP extension on the host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhpExtensionInfo {
+    pub name: String,
+    pub version: String,
+    pub package_name: String,
+    pub installed: bool,
+    pub enabled: bool,
+    pub is_base: bool,
+    pub category: String,
+    pub description: String,
+}
+
+/// Curated list of standard PHP extensions supported by Nusa Panel.
+pub const CURATED_PHP_EXTENSIONS: &[PhpExtensionDefinition] = &[
+    PhpExtensionDefinition {
+        name: "bcmath",
+        package_suffix: "bcmath",
+        ini_names: &["bcmath"],
+        category: "Math",
+        description_id: "Dukungan matematika presisi sembarang (Binary Calculator)",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "bz2",
+        package_suffix: "bz2",
+        ini_names: &["bz2"],
+        category: "Compression",
+        description_id: "Kompresi dan dekompresi bzip2",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "curl",
+        package_suffix: "curl",
+        ini_names: &["curl"],
+        category: "Networking",
+        description_id: "Klien HTTP dan transfer data jaringan cURL",
+        is_base: true,
+    },
+    PhpExtensionDefinition {
+        name: "gd",
+        package_suffix: "gd",
+        ini_names: &["gd"],
+        category: "Graphics",
+        description_id: "Pemrosesan dan manipulasi gambar GD",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "imagick",
+        package_suffix: "imagick",
+        ini_names: &["imagick"],
+        category: "Graphics",
+        description_id: "Pemrosesan gambar canggih ImageMagick",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "intl",
+        package_suffix: "intl",
+        ini_names: &["intl"],
+        category: "Internationalization",
+        description_id: "Internasionalisasi dan lokalisasi ICU",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "mbstring",
+        package_suffix: "mbstring",
+        ini_names: &["mbstring"],
+        category: "Strings",
+        description_id: "Dukungan string multi-byte UTF-8",
+        is_base: true,
+    },
+    PhpExtensionDefinition {
+        name: "mysql",
+        package_suffix: "mysql",
+        ini_names: &["mysqli", "pdo_mysql"],
+        category: "Database",
+        description_id: "Driver konektivitas MySQLi dan PDO MySQL",
+        is_base: true,
+    },
+    PhpExtensionDefinition {
+        name: "opcache",
+        package_suffix: "opcache",
+        ini_names: &["opcache"],
+        category: "Performance",
+        description_id: "Zend OPcache bytecode caching",
+        is_base: true,
+    },
+    PhpExtensionDefinition {
+        name: "pgsql",
+        package_suffix: "pgsql",
+        ini_names: &["pgsql", "pdo_pgsql"],
+        category: "Database",
+        description_id: "Driver konektivitas PostgreSQL dan PDO PgSQL",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "readline",
+        package_suffix: "readline",
+        ini_names: &["readline"],
+        category: "CLI",
+        description_id: "Interaksi CLI dan history Readline",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "redis",
+        package_suffix: "redis",
+        ini_names: &["redis"],
+        category: "Cache",
+        description_id: "Driver performa tinggi Redis caching",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "soap",
+        package_suffix: "soap",
+        ini_names: &["soap"],
+        category: "WebServices",
+        description_id: "Klien dan server protokol SOAP/XML",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "sqlite3",
+        package_suffix: "sqlite3",
+        ini_names: &["sqlite3", "pdo_sqlite"],
+        category: "Database",
+        description_id: "Database SQLite3 tersemat dan PDO SQLite",
+        is_base: false,
+    },
+    PhpExtensionDefinition {
+        name: "xml",
+        package_suffix: "xml",
+        ini_names: &["xml"],
+        category: "XML",
+        description_id: "Parser DOM, SimpleXML, dan XMLReader/Writer",
+        is_base: true,
+    },
+    PhpExtensionDefinition {
+        name: "zip",
+        package_suffix: "zip",
+        ini_names: &["zip"],
+        category: "Compression",
+        description_id: "Membaca dan membuat arsip berkas Zip",
+        is_base: true,
+    },
+];
+
+/// Finds a curated PHP extension definition by name with strict validation.
+pub fn find_curated_extension(name: &str) -> Result<&'static PhpExtensionDefinition, RuntimeError> {
+    let clean = name.trim().to_ascii_lowercase();
+    CURATED_PHP_EXTENSIONS
+        .iter()
+        .find(|ext| ext.name == clean)
+        .ok_or_else(|| RuntimeError::UnsupportedPhpExtension(name.to_string()))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -212,5 +384,24 @@ mod tests {
         let uninstalled = PhpVersionInfo::new(PhpVersion::Php83, false, false, false);
         assert!(!uninstalled.installed);
         assert_eq!(uninstalled.status, "not_installed");
+    }
+
+    #[test]
+    fn test_curated_php_extensions_lookup_and_packages() {
+        assert_eq!(CURATED_PHP_EXTENSIONS.len(), 16);
+
+        let redis = find_curated_extension("redis").unwrap();
+        assert_eq!(redis.name, "redis");
+        assert_eq!(redis.package_name(PhpVersion::Php83), "php8.3-redis");
+        assert!(!redis.is_base);
+
+        let mbstring = find_curated_extension("  MbString ").unwrap();
+        assert_eq!(mbstring.name, "mbstring");
+        assert!(mbstring.is_base);
+
+        // Disallowed / non-curated extension rejected
+        assert!(find_curated_extension("xdebug").is_err());
+        assert!(find_curated_extension("exec; rm -rf /").is_err());
+        assert!(find_curated_extension("../../../etc/passwd").is_err());
     }
 }

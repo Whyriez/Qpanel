@@ -385,6 +385,21 @@ impl AgentServer {
                 RequestPayload::PhpRuntimeRemove(d) => {
                     ("php.runtime_remove".to_string(), d.version.clone())
                 }
+                RequestPayload::PhpExtensionList(d) => {
+                    ("php.extension_list".to_string(), d.version.clone())
+                }
+                RequestPayload::PhpExtensionInstall(d) => (
+                    "php.extension_install".to_string(),
+                    format!("php{}-{}", d.version, d.extension),
+                ),
+                RequestPayload::PhpExtensionToggle(d) => (
+                    "php.extension_toggle".to_string(),
+                    format!("php{}-{}", d.version, d.extension),
+                ),
+                RequestPayload::PhpExtensionRemove(d) => (
+                    "php.extension_remove".to_string(),
+                    format!("php{}-{}", d.version, d.extension),
+                ),
             };
 
             let response = match req.payload {
@@ -554,6 +569,54 @@ impl AgentServer {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
                             ResponsePayload::PhpRuntimeRemoved(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpExtensionList(data) => {
+                    match php::list_php_extensions(self.runner.as_ref(), &data.version) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpExtensionList(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpExtensionInstall(data) => {
+                    match php::install_php_extension(
+                        self.runner.as_ref(),
+                        &data.version,
+                        &data.extension,
+                    ) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpExtensionAction(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpExtensionToggle(data) => {
+                    match php::toggle_php_extension(
+                        self.runner.as_ref(),
+                        &data.version,
+                        &data.extension,
+                        data.enabled,
+                    ) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpExtensionAction(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpExtensionRemove(data) => {
+                    match php::remove_php_extension(
+                        self.runner.as_ref(),
+                        &data.version,
+                        &data.extension,
+                    ) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpExtensionAction(res),
                         ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

@@ -38,6 +38,9 @@ import {
   SslActionResponse,
   SiteLogsResponse,
   PhpRuntimeListApiResponse,
+  PhpExtensionActionApiResponse,
+  PhpExtensionListApiResponse,
+  SitePhpExtensionsResponse,
 } from '../types/api';
 
 const API_BASE = '';
@@ -550,6 +553,56 @@ export async function installPhpVersion(version: string): Promise<JobItem> {
 export async function removePhpVersion(version: string): Promise<JobItem> {
   return request<JobItem>(`/api/v1/php/versions/${encodeURIComponent(version)}/remove`, {
     method: 'POST',
+  });
+}
+
+export async function fetchPhpExtensions(version: string): Promise<PhpExtensionListApiResponse> {
+  return request<PhpExtensionListApiResponse>(`/api/v1/php/versions/${encodeURIComponent(version)}/extensions`);
+}
+
+export async function installPhpExtension(version: string, extension: string): Promise<JobItem> {
+  return request<JobItem>(
+    `/api/v1/php/versions/${encodeURIComponent(version)}/extensions/${encodeURIComponent(extension)}/install`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+export async function togglePhpExtension(
+  version: string,
+  extension: string,
+  enabled: boolean
+): Promise<PhpExtensionActionApiResponse> {
+  return request<PhpExtensionActionApiResponse>(
+    `/api/v1/php/versions/${encodeURIComponent(version)}/extensions/${encodeURIComponent(extension)}/toggle`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }
+  );
+}
+
+export async function removePhpExtension(version: string, extension: string): Promise<JobItem> {
+  return request<JobItem>(
+    `/api/v1/php/versions/${encodeURIComponent(version)}/extensions/${encodeURIComponent(extension)}/remove`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+export async function fetchSitePhpExtensions(siteId: number): Promise<SitePhpExtensionsResponse> {
+  return request<SitePhpExtensionsResponse>(`/api/v1/sites/${siteId}/php/extensions`);
+}
+
+export async function updateSitePhpExtensions(
+  siteId: number,
+  extensions: string[]
+): Promise<SitePhpExtensionsResponse> {
+  return request<SitePhpExtensionsResponse>(`/api/v1/sites/${siteId}/php/extensions`, {
+    method: 'PUT',
+    body: JSON.stringify({ extensions }),
   });
 }
 

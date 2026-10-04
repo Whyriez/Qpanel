@@ -18,6 +18,9 @@ pub enum RuntimeError {
     #[error("Versi runtime sedang digunakan oleh situs dan tidak dapat dihapus: {0}")]
     RuntimeInUse(String),
 
+    #[error("Ekstensi PHP '{0}' tidak valid atau tidak termasuk dalam daftar kurasi.")]
+    UnsupportedPhpExtension(String),
+
     #[error("Operasi I/O gagal: {0}")]
     Io(String),
 }

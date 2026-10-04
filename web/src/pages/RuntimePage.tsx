@@ -11,6 +11,7 @@ import {
   Loader2,
   Terminal,
   ExternalLink,
+  Puzzle,
 } from 'lucide-react';
 import { PhpRuntimeListApiResponse, PhpVersionStatusItem } from '../types/api';
 import {
@@ -20,6 +21,7 @@ import {
   removePhpVersion,
 } from '../api/client';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
+import { PhpExtensionsModal } from '../components/runtime/PhpExtensionsModal';
 import { toast } from 'sonner';
 
 export const RuntimePage: React.FC = () => {
@@ -32,6 +34,7 @@ export const RuntimePage: React.FC = () => {
   const [settingUpRepo, setSettingUpRepo] = useState(false);
   const [processingVersion, setProcessingVersion] = useState<string | null>(null);
   const [versionToRemove, setVersionToRemove] = useState<string | null>(null);
+  const [versionForExtensions, setVersionForExtensions] = useState<string | null>(null);
 
   const loadData = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -270,18 +273,28 @@ export const RuntimePage: React.FC = () => {
 
                   <div className="flex items-center gap-2 sm:self-center pl-11 sm:pl-0">
                     {v.installed ? (
-                      <button
-                        onClick={() => setVersionToRemove(v.version)}
-                        disabled={isProcessing}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
-                      >
-                        {isProcessing ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-3.5 h-3.5" />
-                        )}
-                        {t('runtime.remove')}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => setVersionForExtensions(v.version)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--line)]/40 text-[var(--ink)] transition-colors"
+                        >
+                          <Puzzle className="w-3.5 h-3.5 text-[var(--primary)]" />
+                          {t('runtime.extensions')}
+                        </button>
+
+                        <button
+                          onClick={() => setVersionToRemove(v.version)}
+                          disabled={isProcessing}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                        >
+                          {isProcessing ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                          {t('runtime.remove')}
+                        </button>
+                      </>
                     ) : (
                       <button
                         onClick={() => handleInstall(v.version)}
@@ -314,6 +327,15 @@ export const RuntimePage: React.FC = () => {
         confirmMatchText={`hapus php ${versionToRemove}`}
         confirmButtonLabel="Hapus Runtime PHP"
       />
+
+      {/* PHP Extensions Management Modal */}
+      {versionForExtensions && (
+        <PhpExtensionsModal
+          version={versionForExtensions}
+          isOpen={Boolean(versionForExtensions)}
+          onClose={() => setVersionForExtensions(null)}
+        />
+      )}
     </div>
   );
 };

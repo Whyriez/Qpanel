@@ -4,9 +4,13 @@
 use crate::AgentError;
 use crate::system::SystemRunner;
 use panel_proto::{
-    PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeListResponse, PhpVersionStatusDto,
+    PhpExtensionActionResponse, PhpExtensionDto, PhpExtensionListResponse, PhpRepoSetupResponse,
+    PhpRuntimeActionResponse, PhpRuntimeListResponse, PhpVersionStatusDto,
 };
-use panel_runtime::php::{PhpVersion, is_sury_repo_installed};
+use panel_runtime::php::{
+    CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension, is_sury_repo_installed,
+};
+use std::path::Path;
 use tracing::{info, warn};
 
 /// Sets up the Ondřej Surý PHP PPA repository on Debian/Ubuntu systems.
@@ -194,6 +198,218 @@ pub fn remove_php_runtime(
     })
 }
 
+/// Lists curated PHP extensions and their installation and enabled statuses for a given PHP version.
+pub fn list_php_extensions(
+    runner: &dyn SystemRunner,
+    version_str: &str,
+) -> Result<PhpExtensionListResponse, AgentError> {
+    let version =
+        PhpVersion::parse(version_str).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    let mut extensions = Vec::with_capacity(CURATED_PHP_EXTENSIONS.len());
+
+    for def in CURATED_PHP_EXTENSIONS {
+        let pkg_name = def.package_name(version);
+
+        // Check if extension is installed:
+        // 1) /etc/php/{ver}/mods-available/{ini}.ini exists
+        // 2) or dpkg-query status contains "install ok installed"
+        let mods_exist = def.ini_names.iter().any(|ini| {
+            let path_str = format!("/etc/php/{}/mods-available/{}.ini", version.as_str(), ini);
+            runner.path_exists(Path::new(&path_str))
+        });
+
+        let installed = if mods_exist {
+            true
+        } else {
+            match runner.run_command("dpkg-query", &["-W", "-f=${Status}", &pkg_name]) {
+                Ok(out) => {
+                    let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+                    s.contains("install ok installed")
+                }
+                _ => false,
+            }
+        };
+
+        // Check if extension is enabled in FPM or CLI conf.d
+        let enabled = if !installed {
+            false
+        } else {
+            let prefixes = ["20-", "10-", "30-", "15-", ""];
+            def.ini_names.iter().any(|ini| {
+                prefixes.iter().any(|prefix| {
+                    let fpm_ini = format!(
+                        "/etc/php/{}/fpm/conf.d/{}{}.ini",
+                        version.as_str(),
+                        prefix,
+                        ini
+                    );
+                    let cli_ini = format!(
+                        "/etc/php/{}/cli/conf.d/{}{}.ini",
+                        version.as_str(),
+                        prefix,
+                        ini
+                    );
+                    runner.path_exists(Path::new(&fpm_ini))
+                        || runner.path_exists(Path::new(&cli_ini))
+                })
+            })
+        };
+
+        extensions.push(PhpExtensionDto {
+            name: def.name.to_string(),
+            version: version.as_str().to_string(),
+            package_name: pkg_name,
+            installed,
+            enabled,
+            is_base: def.is_base,
+            category: def.category.to_string(),
+            description: def.description_id.to_string(),
+        });
+    }
+
+    Ok(PhpExtensionListResponse {
+        version: version.as_str().to_string(),
+        extensions,
+    })
+}
+
+/// Installs a curated PHP extension package and enables it.
+pub fn install_php_extension(
+    runner: &dyn SystemRunner,
+    version_str: &str,
+    ext_name: &str,
+) -> Result<PhpExtensionActionResponse, AgentError> {
+    let version =
+        PhpVersion::parse(version_str).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let def =
+        find_curated_extension(ext_name).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    let pkg_name = def.package_name(version);
+    info!(
+        "Installing PHP extension '{}' (package: {}) for PHP {}",
+        def.name,
+        pkg_name,
+        version.as_str()
+    );
+
+    runner.run_command(
+        "apt-get",
+        &["install", "-y", "--no-install-recommends", &pkg_name],
+    )?;
+
+    // Enable for all SAPI targets
+    let _ = runner.run_command("phpenmod", &["-v", version.as_str(), "-s", "ALL", def.name]);
+
+    Ok(PhpExtensionActionResponse {
+        version: version.as_str().to_string(),
+        extension: def.name.to_string(),
+        success: true,
+        message: format!(
+            "Ekstensi '{}' berhasil dipasang untuk PHP {}",
+            def.name,
+            version.as_str()
+        ),
+    })
+}
+
+/// Enables or disables an installed PHP extension across SAPIs.
+pub fn toggle_php_extension(
+    runner: &dyn SystemRunner,
+    version_str: &str,
+    ext_name: &str,
+    enabled: bool,
+) -> Result<PhpExtensionActionResponse, AgentError> {
+    let version =
+        PhpVersion::parse(version_str).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let def =
+        find_curated_extension(ext_name).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    if enabled {
+        info!(
+            "Enabling PHP extension '{}' for PHP {}",
+            def.name,
+            version.as_str()
+        );
+        runner.run_command("phpenmod", &["-v", version.as_str(), "-s", "ALL", def.name])?;
+    } else {
+        info!(
+            "Disabling PHP extension '{}' for PHP {}",
+            def.name,
+            version.as_str()
+        );
+        runner.run_command(
+            "phpdismod",
+            &["-v", version.as_str(), "-s", "ALL", def.name],
+        )?;
+    }
+
+    Ok(PhpExtensionActionResponse {
+        version: version.as_str().to_string(),
+        extension: def.name.to_string(),
+        success: true,
+        message: format!(
+            "Ekstensi '{}' berhasil {}",
+            def.name,
+            if enabled {
+                "diaktifkan"
+            } else {
+                "dinonaktifkan"
+            }
+        ),
+    })
+}
+
+/// Removes a PHP extension package from the host.
+pub fn remove_php_extension(
+    runner: &dyn SystemRunner,
+    version_str: &str,
+    ext_name: &str,
+) -> Result<PhpExtensionActionResponse, AgentError> {
+    let version =
+        PhpVersion::parse(version_str).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let def =
+        find_curated_extension(ext_name).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    if def.is_base {
+        return Err(AgentError::InvalidInput(format!(
+            "Ekstensi dasar '{}' tidak dapat dihapus karena merupakan modul standar PHP",
+            def.name
+        )));
+    }
+
+    let pkg_name = def.package_name(version);
+    info!(
+        "Removing PHP extension '{}' (package: {}) for PHP {}",
+        def.name,
+        pkg_name,
+        version.as_str()
+    );
+
+    // Disable first to clean symlinks
+    let _ = runner.run_command(
+        "phpdismod",
+        &["-v", version.as_str(), "-s", "ALL", def.name],
+    );
+
+    // Purge package
+    runner.run_command("apt-get", &["remove", "-y", "--purge", &pkg_name])?;
+
+    // Autoremove unused deps
+    let _ = runner.run_command("apt-get", &["autoremove", "-y"]);
+
+    Ok(PhpExtensionActionResponse {
+        version: version.as_str().to_string(),
+        extension: def.name.to_string(),
+        success: true,
+        message: format!(
+            "Ekstensi '{}' berhasil dihapus untuk PHP {}",
+            def.name,
+            version.as_str()
+        ),
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -291,5 +507,82 @@ mod tests {
         let v84 = res.versions.iter().find(|v| v.version == "8.4").unwrap();
         assert!(!v84.installed);
         assert_eq!(v84.status, "not_installed");
+    }
+
+    #[test]
+    fn test_list_php_extensions() {
+        let runner = MockSystemRunner::new();
+        // Simulate redis installed and enabled
+        runner.add_existing_path(PathBuf::from("/etc/php/8.3/mods-available/redis.ini"));
+        runner.add_existing_path(PathBuf::from("/etc/php/8.3/fpm/conf.d/20-redis.ini"));
+
+        let res = list_php_extensions(&runner, "8.3").unwrap();
+        assert_eq!(res.version, "8.3");
+        assert_eq!(res.extensions.len(), 16);
+
+        let redis = res.extensions.iter().find(|e| e.name == "redis").unwrap();
+        assert!(redis.installed);
+        assert!(redis.enabled);
+        assert_eq!(redis.package_name, "php8.3-redis");
+        assert!(!redis.is_base);
+
+        let bz2 = res.extensions.iter().find(|e| e.name == "bz2").unwrap();
+        assert!(!bz2.installed);
+        assert!(!bz2.enabled);
+    }
+
+    #[test]
+    fn test_install_and_toggle_and_remove_extension() {
+        let runner = MockSystemRunner::new();
+
+        // 1. Install extension
+        let inst = install_php_extension(&runner, "8.3", "redis").unwrap();
+        assert!(inst.success);
+        assert_eq!(inst.extension, "redis");
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| cmd.contains("apt-get install -y --no-install-recommends php8.3-redis"))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| cmd.contains("phpenmod -v 8.3 -s ALL redis"))
+        );
+
+        // 2. Toggle extension (disable)
+        let tog_off = toggle_php_extension(&runner, "8.3", "redis", false).unwrap();
+        assert!(tog_off.success);
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| cmd.contains("phpdismod -v 8.3 -s ALL redis"))
+        );
+
+        // 3. Toggle extension (enable)
+        let tog_on = toggle_php_extension(&runner, "8.3", "redis", true).unwrap();
+        assert!(tog_on.success);
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| cmd.contains("phpenmod -v 8.3 -s ALL redis"))
+        );
+
+        // 4. Remove base extension should fail
+        let rem_base = remove_php_extension(&runner, "8.3", "curl");
+        assert!(rem_base.is_err());
+
+        // 5. Remove non-base extension
+        let rem = remove_php_extension(&runner, "8.3", "redis").unwrap();
+        assert!(rem.success);
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| cmd.contains("apt-get remove -y --purge php8.3-redis"))
+        );
     }
 }

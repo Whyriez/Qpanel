@@ -69,6 +69,10 @@ pub enum RequestPayload {
     PhpRuntimeList(PhpRuntimeListRequest),
     PhpRuntimeInstall(PhpRuntimeInstallRequest),
     PhpRuntimeRemove(PhpRuntimeRemoveRequest),
+    PhpExtensionList(PhpExtensionListRequest),
+    PhpExtensionInstall(PhpExtensionInstallRequest),
+    PhpExtensionToggle(PhpExtensionToggleRequest),
+    PhpExtensionRemove(PhpExtensionRemoveRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -205,6 +209,8 @@ pub enum ResponsePayload {
     PhpRuntimeList(PhpRuntimeListResponse),
     PhpRuntimeInstalled(PhpRuntimeActionResponse),
     PhpRuntimeRemoved(PhpRuntimeActionResponse),
+    PhpExtensionList(PhpExtensionListResponse),
+    PhpExtensionAction(PhpExtensionActionResponse),
     Error(String),
 }
 
@@ -510,6 +516,56 @@ pub struct PhpRuntimeActionResponse {
     pub version: String,
     pub success: bool,
     pub masked: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionDto {
+    pub name: String,
+    pub version: String,
+    pub package_name: String,
+    pub installed: bool,
+    pub enabled: bool,
+    pub is_base: bool,
+    pub category: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionListRequest {
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionListResponse {
+    pub version: String,
+    pub extensions: Vec<PhpExtensionDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionInstallRequest {
+    pub version: String,
+    pub extension: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionToggleRequest {
+    pub version: String,
+    pub extension: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionRemoveRequest {
+    pub version: String,
+    pub extension: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpExtensionActionResponse {
+    pub version: String,
+    pub extension: String,
+    pub success: bool,
     pub message: String,
 }
 
@@ -958,5 +1014,40 @@ mod tests {
         let de_res_list: RpcResponse =
             serde_json::from_str(&s_res_list).expect("deserialize PhpRuntimeListResponse");
         assert_eq!(res_list, de_res_list);
+
+        let req_ext = RpcRequest::new(
+            "php-ext-1",
+            RequestPayload::PhpExtensionToggle(PhpExtensionToggleRequest {
+                version: "8.3".to_string(),
+                extension: "redis".to_string(),
+                enabled: true,
+            }),
+        );
+        let s_ext = serde_json::to_string(&req_ext).expect("serialize PhpExtensionToggle");
+        let de_ext: RpcRequest =
+            serde_json::from_str(&s_ext).expect("deserialize PhpExtensionToggle");
+        assert_eq!(req_ext, de_ext);
+
+        let res_ext = RpcResponse::ok(
+            "php-ext-1",
+            ResponsePayload::PhpExtensionList(PhpExtensionListResponse {
+                version: "8.3".to_string(),
+                extensions: vec![PhpExtensionDto {
+                    name: "redis".to_string(),
+                    version: "8.3".to_string(),
+                    package_name: "php8.3-redis".to_string(),
+                    installed: true,
+                    enabled: true,
+                    is_base: false,
+                    category: "Cache".to_string(),
+                    description: "Driver Redis".to_string(),
+                }],
+            }),
+        );
+        let s_res_ext =
+            serde_json::to_string(&res_ext).expect("serialize PhpExtensionListResponse");
+        let de_res_ext: RpcResponse =
+            serde_json::from_str(&s_res_ext).expect("deserialize PhpExtensionListResponse");
+        assert_eq!(res_ext, de_res_ext);
     }
 }

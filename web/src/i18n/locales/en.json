@@ -261,7 +261,20 @@
     "cliBinary": "CLI Binary",
     "serviceName": "Service Name",
     "maskingNote": "OS-level FPM service is automatically masked so it never runs globally or as root. Each tenant uses their own isolated FPM master.",
-    "inUseWarning": "This PHP version is currently in use by active websites and cannot be removed."
+    "inUseWarning": "This PHP version is currently in use by active websites and cannot be removed.",
+    "extensions": "Extensions",
+    "manageExtensions": "Manage Extensions",
+    "extensionsTitle": "PHP {{version}} Extensions",
+    "extensionsSubtitle": "Manage curated standard extensions, enable/disable modules, or install new packages.",
+    "extensionActive": "Active",
+    "extensionInactive": "Inactive",
+    "coreModule": "Core Module",
+    "toggleEnable": "Enable",
+    "toggleDisable": "Disable",
+    "installExt": "Install Extension",
+    "removeExt": "Remove Extension",
+    "allCategories": "All Categories",
+    "searchExtensions": "Search extensions..."
   }
 }
 

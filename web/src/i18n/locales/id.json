@@ -261,7 +261,20 @@
     "cliBinary": "Biner CLI",
     "serviceName": "Nama Service",
     "maskingNote": "Service FPM tingkat OS otomatis di-mask agar tidak berjalan sebagai root atau global. Setiap tenant akan menggunakan master FPM terisolasi sendiri.",
-    "inUseWarning": "Versi PHP ini sedang digunakan oleh situs aktif dan tidak dapat dihapus."
+    "inUseWarning": "Versi PHP ini sedang digunakan oleh situs aktif dan tidak dapat dihapus.",
+    "extensions": "Ekstensi",
+    "manageExtensions": "Kelola Ekstensi",
+    "extensionsTitle": "Ekstensi PHP {{version}}",
+    "extensionsSubtitle": "Kelola ekstensi standar terkurasikan, aktifkan/nonaktifkan modul, atau pasang paket baru.",
+    "extensionActive": "Aktif",
+    "extensionInactive": "Nonaktif",
+    "coreModule": "Modul Inti",
+    "toggleEnable": "Aktifkan",
+    "toggleDisable": "Nonaktifkan",
+    "installExt": "Pasang Ekstensi",
+    "removeExt": "Copot Ekstensi",
+    "allCategories": "Semua Kategori",
+    "searchExtensions": "Cari ekstensi..."
   }
 }
 

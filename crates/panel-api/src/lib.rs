@@ -193,6 +193,26 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/php/versions/{version}/remove",
             post(php::remove_php_version_handler),
         )
+        .route(
+            "/api/v1/php/versions/{version}/extensions",
+            get(php::list_php_extensions_handler),
+        )
+        .route(
+            "/api/v1/php/versions/{version}/extensions/{extension}/install",
+            post(php::install_php_extension_handler),
+        )
+        .route(
+            "/api/v1/php/versions/{version}/extensions/{extension}/toggle",
+            post(php::toggle_php_extension_handler),
+        )
+        .route(
+            "/api/v1/php/versions/{version}/extensions/{extension}/remove",
+            post(php::remove_php_extension_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/php/extensions",
+            get(php::get_site_php_extensions_handler).put(php::update_site_php_extensions_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

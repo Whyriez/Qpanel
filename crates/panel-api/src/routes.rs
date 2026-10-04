@@ -53,6 +53,12 @@ use panel_db::pool::DbPool;
         crate::php::setup_php_repo_handler,
         crate::php::install_php_version_handler,
         crate::php::remove_php_version_handler,
+        crate::php::list_php_extensions_handler,
+        crate::php::install_php_extension_handler,
+        crate::php::toggle_php_extension_handler,
+        crate::php::remove_php_extension_handler,
+        crate::php::get_site_php_extensions_handler,
+        crate::php::update_site_php_extensions_handler,
     ),
     components(
         schemas(
@@ -93,6 +99,12 @@ use panel_db::pool::DbPool;
             crate::logs::SiteLogsResponse,
             crate::php::PhpVersionStatusItem,
             crate::php::PhpRuntimeListApiResponse,
+            crate::php::PhpExtensionItem,
+            crate::php::PhpExtensionListApiResponse,
+            crate::php::ToggleExtensionRequest,
+            crate::php::PhpExtensionActionApiResponse,
+            crate::php::SitePhpExtensionsResponse,
+            crate::php::UpdateSitePhpExtensionsInput,
         )
     ),
     tags(

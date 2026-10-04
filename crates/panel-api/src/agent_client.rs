@@ -3,7 +3,9 @@
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
     AcmeChallengeDeployedResponse, HardeningApplyRequest, HardeningApplyResponse, HardeningStatus,
-    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, PhpRepoSetupRequest,
+    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, PhpExtensionActionResponse,
+    PhpExtensionInstallRequest, PhpExtensionListRequest, PhpExtensionListResponse,
+    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpRepoSetupRequest,
     PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
     QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
@@ -916,6 +918,154 @@ impl AgentClient {
             ResponsePayload::PhpRuntimeRemoved(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PhpRuntimeRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn list_php_extensions(
+        &self,
+        version: impl Into<String>,
+    ) -> Result<PhpExtensionListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-ext-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpExtensionList(PhpExtensionListRequest {
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpExtensionList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpExtensionList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn install_php_extension(
+        &self,
+        version: impl Into<String>,
+        extension: impl Into<String>,
+    ) -> Result<PhpExtensionActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-ext-install-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpExtensionInstall(PhpExtensionInstallRequest {
+                version: version.into(),
+                extension: extension.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpExtensionAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpExtensionAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn toggle_php_extension(
+        &self,
+        version: impl Into<String>,
+        extension: impl Into<String>,
+        enabled: bool,
+    ) -> Result<PhpExtensionActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-ext-toggle-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpExtensionToggle(PhpExtensionToggleRequest {
+                version: version.into(),
+                extension: extension.into(),
+                enabled,
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpExtensionAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpExtensionAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_php_extension(
+        &self,
+        version: impl Into<String>,
+        extension: impl Into<String>,
+    ) -> Result<PhpExtensionActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-ext-remove-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpExtensionRemove(PhpExtensionRemoveRequest {
+                version: version.into(),
+                extension: extension.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpExtensionAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpExtensionAction",
                 got: format!("{other:?}"),
             }),
         }

@@ -25,6 +25,8 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "apt-get",
     "add-apt-repository",
     "dpkg-query",
+    "phpenmod",
+    "phpdismod",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
