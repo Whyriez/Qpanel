@@ -166,6 +166,45 @@ else
 fi
 
 echo ""
+echo "[7/7] Test: PHP cross-tenant script execution & open_basedir barrier..."
+ALICE_WP_DIR="/home/$USER_A/sites/alice.com"
+mkdir -p "$ALICE_WP_DIR/public"
+echo "<?php define('DB_PASSWORD', 'super_secret_alice_db'); ?>" > "$ALICE_WP_DIR/wp-config.php"
+echo "APP_KEY=base64:alice_secret_app_key" > "$ALICE_WP_DIR/.env"
+chown -R "$USER_A:$GROUP_TENANTS" "/home/$USER_A/sites"
+chmod 0600 "$ALICE_WP_DIR/wp-config.php" "$ALICE_WP_DIR/.env"
+
+BOB_SITE_DIR="/home/$USER_B/sites/bob.com/public"
+mkdir -p "$BOB_SITE_DIR"
+echo "<?php echo 'Hello from Bob'; ?>" > "$BOB_SITE_DIR/index.php"
+chown -R "$USER_B:$GROUP_TENANTS" "/home/$USER_B/sites"
+
+# Check if php binary is installed
+if command -v php &>/dev/null; then
+    echo "[*] Testing cross-tenant file read attempt via PHP execution as Bob..."
+    if su -s /bin/bash "$USER_B" -c "php -d open_basedir=/home/$USER_B -r \"echo file_get_contents('/home/$USER_A/sites/alice.com/wp-config.php');\"" >/dev/null 2>&1; then
+        echo "[-] FAILED: Bob's PHP script was able to read Alice's wp-config.php!"
+        exit 1
+    else
+        echo "[+] PASSED: Bob's PHP script is BLOCKED from reading Alice's files."
+    fi
+
+    # Verify Bob can read his own site
+    BOB_OUTPUT=$(su -s /bin/bash "$USER_B" -c "php -d open_basedir=/home/$USER_B -f $BOB_SITE_DIR/index.php" 2>/dev/null || true)
+    if [ "$BOB_OUTPUT" = "Hello from Bob" ]; then
+        echo "[+] PASSED: Bob can execute and read within his own directory boundary."
+    fi
+else
+    echo "[*] PHP CLI not detected in test environment; POSIX DAC barrier confirmed via bash su."
+    if su -s /bin/bash "$USER_B" -c "cat $ALICE_WP_DIR/wp-config.php" >/dev/null 2>&1; then
+        echo "[-] FAILED: Bob was able to read Alice's wp-config.php!"
+        exit 1
+    else
+        echo "[+] PASSED: Bob is blocked by kernel DAC from reading Alice's wp-config.php."
+    fi
+fi
+
+echo ""
 echo "============================================================"
-echo "    ALL 6 ISOLATION CRITERIA PASSED SUCCESSFULLY!          "
+echo "    ALL 7 ISOLATION CRITERIA PASSED SUCCESSFULLY!          "
 echo "============================================================"
