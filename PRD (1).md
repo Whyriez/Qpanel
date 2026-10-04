@@ -15,7 +15,7 @@ Agent **wajib** mencentang checklist ini dan menyalinnya ke `docs/PROGRESS.md` s
 - [x] Phase 1 — Core panel (auth, DB, job, audit)
 - [x] Phase 2 — Tenant user & isolasi
 - [x] Phase 3 — Site engine: static + Nginx + domain + SSL
-- [ ] Phase 4 — PHP multi-versi terisolasi
+- [x] Phase 4 — PHP multi-versi terisolasi
 - [ ] Phase 5 — File manager custom
 - [ ] Phase 6 — Web terminal & SSH
 - [ ] Phase 7 — Node.js, Python, Reverse proxy
@@ -749,14 +749,14 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 **Tujuan**: PHP hosting yang terisolasi dan bisa ganti versi per site.
 **Prasyarat**: Phase 3.
 
-- [ ] **P4-T1 Manajer runtime PHP**: tambah repo Sury/PPA, install/hapus versi sebagai job dengan progres, daftar versi tersedia dan terpasang, **mask** service bawaan `phpX.Y-fpm`.
-- [ ] **P4-T2 Ekstensi**: daftar kurasi, aktif/nonaktif per versi (admin) dan per site (dalam batas plan).
-- [ ] **P4-T3 Master per (tenant, versi)**: generator unit systemd (jalan sebagai user tenant, sandbox 4.4, slice tenant), pool per site, socket `/run/panel/php/<user>-<ver>.sock`, default hardened (5.1), `pm = ondemand` dari plan, slowlog, status path internal.
-- [ ] **P4-T4 Template Nginx PHP**: preset generic, WordPress, Laravel (`public/`), custom front-controller; blok file sensitif; batas upload; `fastcgi_cache` opsional.
-- [ ] **P4-T5 Ganti versi**: alur pindah pool + reload + health check + **rollback otomatis**.
-- [ ] **P4-T6 Pengaturan PHP**: UI untuk pengaturan `php.ini` kurasi (5.1) dengan validasi dan batas plan; raw `php.ini` hanya admin.
-- [ ] **P4-T7 Log PHP**: viewer error log dan slow log; kumpulkan status FPM (active/idle/queue) untuk Phase 9.
-- [ ] **P4-T8 Uji kompatibilitas**: WordPress, Laravel, PHP polos; dua tenant dengan versi berbeda berjalan bersamaan; skrip PHP tenant A gagal membaca file tenant B.
+- [x] **P4-T1 Manajer runtime PHP**: tambah repo Sury/PPA, install/hapus versi sebagai job dengan progres, daftar versi tersedia dan terpasang, **mask** service bawaan `phpX.Y-fpm`.
+- [x] **P4-T2 Ekstensi**: daftar kurasi, aktif/nonaktif per versi (admin) dan per site (dalam batas plan).
+- [x] **P4-T3 Master per (tenant, versi)**: generator unit systemd (jalan sebagai user tenant, sandbox 4.4, slice tenant), pool per site, socket `/run/panel/php/<user>-<ver>.sock`, default hardened (5.1), `pm = ondemand` dari plan, slowlog, status path internal.
+- [x] **P4-T4 Template Nginx PHP**: preset generic, WordPress, Laravel (`public/`), custom front-controller; blok file sensitif; batas upload; `fastcgi_cache` opsional.
+- [x] **P4-T5 Ganti versi**: alur pindah pool + reload + health check + **rollback otomatis**.
+- [x] **P4-T6 Pengaturan PHP**: UI untuk pengaturan `php.ini` kurasi (5.1) dengan validasi dan batas plan; raw `php.ini` hanya admin.
+- [x] **P4-T7 Log PHP**: viewer error log dan slow log; kumpulkan status FPM (active/idle/queue) untuk Phase 9.
+- [x] **P4-T8 Uji kompatibilitas**: WordPress, Laravel, PHP polos; dua tenant dengan versi berbeda berjalan bersamaan; skrip PHP tenant A gagal membaca file tenant B.
 
 **Acceptance**: WordPress dan Laravel berjalan; ganti 8.1 → 8.3 tanpa error pelanggan; `phpinfo` menunjukkan `open_basedir` dan versi yang benar; RAM idle tanpa traffic = nol worker.
 **Jangan dulu**: Node/Python, backup, DB.

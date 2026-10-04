@@ -1266,6 +1266,8 @@ dependencies = [
  "panel-agent",
  "panel-core",
  "panel-proto",
+ "panel-runtime",
+ "panel-webserver",
  "tempfile",
  "thiserror",
  "tokio",
