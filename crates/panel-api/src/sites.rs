@@ -16,7 +16,8 @@ use panel_db::repositories::{
 };
 use panel_proto::{SiteApplyRequest, SiteProvisionRequest, SiteRemoveRequest};
 use panel_webserver::template::{
-    DomainRedirectConfig, NginxTemplateRenderer, StaticVhostContext, render_placeholder_html,
+    DomainRedirectConfig, FastCgiCacheConfig, NginxTemplateRenderer, PhpPreset, PhpVhostContext,
+    StaticVhostContext, render_placeholder_html,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -31,7 +32,15 @@ pub struct CreateStaticSiteRequest {
     pub spa_fallback: Option<bool>,
     pub force_https: Option<bool>,
     pub docroot: Option<String>,
+    pub kind: Option<String>,
+    pub php_version: Option<String>,
+    pub preset: Option<String>,
+    pub custom_entry_file: Option<String>,
+    pub upload_max_size: Option<String>,
+    pub fastcgi_cache: Option<bool>,
 }
+
+pub type CreateSiteRequest = CreateStaticSiteRequest;
 
 #[derive(Debug, Clone, Deserialize, IntoParams)]
 pub struct ListSitesQuery {
@@ -301,34 +310,101 @@ pub async fn recompile_and_apply_site_vhost(
         .as_deref()
         .unwrap_or(user.username.as_str());
 
-    let vhost_ctx = StaticVhostContext {
-        site_id: format!("site_{}", site.id),
-        primary_domain: primary_domain.to_string(),
-        alias_domains,
-        redirects,
-        docroot: site.docroot.clone(),
-        log_dir: format!("/var/log/panel/{linux_uname}/{primary_domain}"),
-        snippets_dir: "/etc/panel/nginx/snippets".to_string(),
-        index_files: Some("index.html index.htm".to_string()),
-        spa_fallback,
-        has_ssl,
-        ssl_cert,
-        ssl_key,
-        force_https,
-        ocsp_stapling: settings
-            .get("ocsp_stapling")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        custom_headers: vec![],
-    };
-
     let renderer = NginxTemplateRenderer::new();
-    let rendered = renderer.render_static(&vhost_ctx).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Vhost render failed: {e}"),
-        )
-    })?;
+    let is_php = site.kind == "php" || site.runtime.as_deref() == Some("php");
+
+    let rendered = if is_php {
+        let preset_str = settings
+            .get("preset")
+            .and_then(|v| v.as_str())
+            .unwrap_or("generic");
+        let preset = PhpPreset::parse(preset_str).unwrap_or(PhpPreset::Generic);
+        let custom_entry_file = settings
+            .get("custom_entry_file")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let upload_max_size = settings
+            .get("upload_max_size")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let php_ver = site.version.clone().unwrap_or_else(|| "8.3".to_string());
+        let fpm_socket = format!("unix:/run/panel/php/{linux_uname}-{php_ver}.sock");
+
+        let fastcgi_cache = settings.get("fastcgi_cache").and_then(|v| {
+            if let Some(b) = v.as_bool() {
+                if b {
+                    Some(FastCgiCacheConfig::enabled_default())
+                } else {
+                    None
+                }
+            } else if let Ok(cfg) = serde_json::from_value::<FastCgiCacheConfig>(v.clone()) {
+                if cfg.enabled { Some(cfg) } else { None }
+            } else {
+                None
+            }
+        });
+
+        let php_vhost_ctx = PhpVhostContext {
+            site_id: format!("site_{}", site.id),
+            primary_domain: primary_domain.to_string(),
+            alias_domains,
+            redirects,
+            docroot: site.docroot.clone(),
+            log_dir: format!("/var/log/panel/{linux_uname}/{primary_domain}"),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            index_files: Some("index.php index.html index.htm".to_string()),
+            has_ssl,
+            ssl_cert,
+            ssl_key,
+            force_https,
+            ocsp_stapling: settings
+                .get("ocsp_stapling")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            custom_headers: vec![],
+            php_version: php_ver,
+            fpm_socket,
+            preset,
+            custom_entry_file,
+            upload_max_size,
+            fastcgi_cache,
+        };
+
+        renderer.render_php(&php_vhost_ctx).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("PHP vhost render failed: {e}"),
+            )
+        })?
+    } else {
+        let vhost_ctx = StaticVhostContext {
+            site_id: format!("site_{}", site.id),
+            primary_domain: primary_domain.to_string(),
+            alias_domains,
+            redirects,
+            docroot: site.docroot.clone(),
+            log_dir: format!("/var/log/panel/{linux_uname}/{primary_domain}"),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            index_files: Some("index.html index.htm".to_string()),
+            spa_fallback,
+            has_ssl,
+            ssl_cert,
+            ssl_key,
+            force_https,
+            ocsp_stapling: settings
+                .get("ocsp_stapling")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            custom_headers: vec![],
+        };
+
+        renderer.render_static(&vhost_ctx).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Vhost render failed: {e}"),
+            )
+        })?
+    };
 
     let enable = site.status == "active";
     let apply_req = SiteApplyRequest {
@@ -355,6 +431,7 @@ pub async fn recompile_and_apply_site_vhost(
 }
 
 /// Creates a new static site with atomic Nginx vhost apply and docroot provisioning.
+#[allow(clippy::cognitive_complexity)]
 pub async fn create_static_site_handler(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -410,23 +487,57 @@ pub async fn create_static_site_handler(
         .linux_username
         .as_deref()
         .unwrap_or(target_user.username.as_str());
+    let is_php = payload.kind.as_deref() == Some("php");
+    let preset_str = payload.preset.as_deref().unwrap_or("generic");
+    let preset = PhpPreset::parse(preset_str).unwrap_or(PhpPreset::Generic);
+
     let docroot = payload
         .docroot
         .unwrap_or_else(|| format!("/home/{linux_uname}/sites/{ascii_domain}/public"));
     let spa_fallback = payload.spa_fallback.unwrap_or(false);
     let force_https = payload.force_https.unwrap_or(false);
-    let settings = serde_json::json!({
-        "spa_fallback": spa_fallback,
-        "force_https": force_https
-    });
+    let php_version = payload.php_version.unwrap_or_else(|| "8.3".to_string());
+    let upload_max_size = payload.upload_max_size.unwrap_or_else(|| "64M".to_string());
+    let fastcgi_cache = payload.fastcgi_cache.unwrap_or(false);
+
+    let mut settings_map = serde_json::Map::new();
+    settings_map.insert("spa_fallback".to_string(), serde_json::json!(spa_fallback));
+    settings_map.insert("force_https".to_string(), serde_json::json!(force_https));
+    if is_php {
+        settings_map.insert("preset".to_string(), serde_json::json!(preset.as_str()));
+        settings_map.insert(
+            "upload_max_size".to_string(),
+            serde_json::json!(upload_max_size),
+        );
+        settings_map.insert(
+            "fastcgi_cache".to_string(),
+            serde_json::json!(fastcgi_cache),
+        );
+        if let Some(ref entry) = payload.custom_entry_file {
+            settings_map.insert("custom_entry_file".to_string(), serde_json::json!(entry));
+        }
+    }
+    let settings = serde_json::Value::Object(settings_map);
 
     // 5. Create database record for Site
     let site_input = CreateSite {
         user_id: target_user.id,
-        kind: "static".to_string(),
+        kind: if is_php {
+            "php".to_string()
+        } else {
+            "static".to_string()
+        },
         docroot: docroot.clone(),
-        runtime: Some("none".to_string()),
-        version: Some("none".to_string()),
+        runtime: if is_php {
+            Some("php".to_string())
+        } else {
+            Some("none".to_string())
+        },
+        version: if is_php {
+            Some(php_version.clone())
+        } else {
+            Some("none".to_string())
+        },
         status: Some("active".to_string()),
         settings_json: Some(settings.to_string()),
     };
@@ -466,7 +577,11 @@ pub async fn create_static_site_handler(
     };
 
     // 7. Provision host docroot via agent
-    let placeholder = render_placeholder_html(&unicode_domain);
+    let placeholder = if is_php {
+        render_php_placeholder(&unicode_domain, &php_version, preset.as_str())
+    } else {
+        render_placeholder_html(&unicode_domain)
+    };
     let prov_req = SiteProvisionRequest {
         site_id: created_site.id,
         username: linux_uname.to_string(),
@@ -478,6 +593,36 @@ pub async fn create_static_site_handler(
     };
     if let Err(e) = state.agent_client.provision_site(prov_req).await {
         tracing::warn!("Agent docroot provision warning: {e}");
+    }
+
+    // 7b. If PHP site, ensure PHP-FPM master and pool exist
+    if is_php {
+        let uid = target_user.linux_uid.unwrap_or(1000) as u32;
+        if let Err(e) = state
+            .agent_client
+            .ensure_php_fpm_master(linux_uname, uid, &php_version)
+            .await
+        {
+            tracing::warn!("Ensure PHP-FPM master warning: {e}");
+        }
+
+        let pool_req = panel_proto::PhpFpmPoolApplyRequest {
+            username: linux_uname.to_string(),
+            uid,
+            version: php_version.clone(),
+            pool_name: format!("site_{}", created_site.id),
+            docroot: docroot.clone(),
+            socket_path: None,
+            max_children: None,
+            process_idle_timeout_secs: None,
+            max_requests: None,
+            open_basedir: None,
+            disable_functions: None,
+            reload: true,
+        };
+        if let Err(e) = state.agent_client.apply_php_fpm_pool(pool_req).await {
+            tracing::warn!("Apply PHP-FPM pool warning: {e}");
+        }
     }
 
     // 8. Recompile and apply vhost atomically
@@ -496,7 +641,10 @@ pub async fn create_static_site_handler(
         format!("site:{}", created_site.id),
         "success",
         None,
-        Some(format!("domain:{ascii_domain},kind:static")),
+        Some(format!(
+            "domain:{ascii_domain},kind:{}",
+            if is_php { "php" } else { "static" }
+        )),
     );
 
     (
@@ -727,6 +875,22 @@ pub async fn delete_site_handler(
         reload: true,
     };
     let _ = state.agent_client.remove_site(rm_req).await;
+
+    // 1b. If PHP site, remove PHP-FPM pool via agent
+    if site.kind == "php" || site.runtime.as_deref() == Some("php") {
+        let user_repo = SqliteUserRepository::new(state.pool.clone());
+        if let Ok(Some(owner)) = user_repo.find_by_id(site.user_id).await {
+            let uname = owner
+                .linux_username
+                .as_deref()
+                .unwrap_or(owner.username.as_str());
+            let ver = site.version.as_deref().unwrap_or("8.3");
+            let _ = state
+                .agent_client
+                .remove_php_fpm_pool(uname, ver, format!("site_{id}"), true)
+                .await;
+        }
+    }
 
     // 2. Delete database record (cascading deletes domains)
     if let Err(e) = site_repo.delete(id).await {
@@ -1224,4 +1388,96 @@ pub async fn set_force_https_handler(
         Json(build_site_response(&updated_site, &all_domains)),
     )
         .into_response()
+}
+
+fn render_php_placeholder(domain: &str, php_version: &str, preset: &str) -> String {
+    format!(
+        r#"<?php
+// Nusa Panel - Welcome Page
+// Domain: {domain}
+// PHP Version: {php_version}
+// Preset: {preset}
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Selamat Datang di <?= htmlspecialchars("{domain}") ?> - Nusa Panel</title>
+    <style>
+        :root {{
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --success: #10b981;
+        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }}
+        .card {{
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2.5rem;
+            max-width: 32rem;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }}
+        .badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }}
+        h1 {{ font-size: 1.75rem; font-weight: 700; margin-bottom: 0.75rem; letter-spacing: -0.025em; }}
+        p {{ color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin-bottom: 1.75rem; }}
+        .meta {{
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: var(--accent);
+            font-family: ui-monospace, monospace;
+            display: flex;
+            justify-content: space-around;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="badge">
+            <span>●</span> PHP <?= htmlspecialchars(PHP_VERSION) ?> Berjalan
+        </div>
+        <h1><?= htmlspecialchars("{domain}") ?></h1>
+        <p>Situs PHP Anda berhasil diprovisi dan berjalan aktif di bawah Nusa Panel dengan preset <strong><?= htmlspecialchars("{preset}") ?></strong>.</p>
+        <div class="meta">
+            <div>PHP: <?= htmlspecialchars(PHP_VERSION) ?></div>
+            <div>Preset: <?= htmlspecialchars("{preset}") ?></div>
+        </div>
+    </div>
+</body>
+</html>
+"#
+    )
 }

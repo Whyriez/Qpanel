@@ -19,6 +19,8 @@ pub struct NginxBaselineConfig {
     pub worker_processes: String,
     /// Maximum simultaneous connections per worker (default 4096).
     pub worker_connections: u32,
+    /// FastCGI cache directory (default `/var/cache/nginx/panel`).
+    pub cache_dir: PathBuf,
 }
 
 impl Default for NginxBaselineConfig {
@@ -27,6 +29,7 @@ impl Default for NginxBaselineConfig {
             base_dir: PathBuf::from("/etc/panel/nginx"),
             log_dir: PathBuf::from("/var/log/panel"),
             acme_dir: PathBuf::from("/var/lib/panel/acme"),
+            cache_dir: PathBuf::from("/var/cache/nginx/panel"),
             panel_api_port: 3000,
             panel_listen_port: 8443,
             worker_processes: "auto".to_string(),
@@ -42,6 +45,7 @@ impl NginxBaselineConfig {
         Self {
             log_dir: b.join("logs"),
             acme_dir: b.join("acme"),
+            cache_dir: b.join("cache"),
             base_dir: b,
             ..Default::default()
         }
@@ -243,6 +247,19 @@ server {{
         )
     }
 
+    /// Generates `conf.d/20-fastcgi-cache.conf`: Shared FastCGI microcache zone definition.
+    pub fn render_fastcgi_cache_conf(&self) -> String {
+        let cache_path = self.cache_dir.to_string_lossy().replace('\\', "/");
+        format!(
+            r#"# Nusa Panel FastCGI Microcache Configuration
+# Shared keys zone and storage path across virtual hosts.
+fastcgi_cache_path {cache_path} levels=1:2 keys_zone=panel_php_cache:10m max_size=250m inactive=60m use_temp_path=off;
+fastcgi_cache_key "$scheme$request_method$host$request_uri";
+"#,
+            cache_path = cache_path
+        )
+    }
+
     /// Generates `snippets/acme.conf`: Let's Encrypt HTTP-01 challenge handler.
     pub fn render_acme_snippet(&self) -> String {
         let acme_path = self.acme_dir.to_string_lossy().replace('\\', "/");
@@ -360,6 +377,7 @@ fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
         fs::create_dir_all(self.sites_enabled_dir())?;
         fs::create_dir_all(&self.log_dir)?;
         fs::create_dir_all(&self.acme_dir)?;
+        fs::create_dir_all(&self.cache_dir)?;
 
         // 2. Write main nginx.conf
         write_file_atomic(&self.nginx_conf_path(), &self.render_nginx_conf())?;
@@ -372,6 +390,10 @@ fastcgi_param  SCRIPT_FILENAME    $document_root$fastcgi_script_name;
         write_file_atomic(
             &self.conf_d_dir().join("10-panel.conf"),
             &self.render_panel_vhost(),
+        )?;
+        write_file_atomic(
+            &self.conf_d_dir().join("20-fastcgi-cache.conf"),
+            &self.render_fastcgi_cache_conf(),
         )?;
 
         // 4. Write snippets
@@ -521,10 +543,16 @@ mod tests {
         assert!(config.sites_enabled_dir().exists());
         assert!(config.log_dir.exists());
         assert!(config.acme_dir.exists());
+        assert!(config.cache_dir.exists());
+        assert!(config.conf_d_dir().join("20-fastcgi-cache.conf").exists());
 
         // Validate contents written match renderer
         let written_catchall =
             fs::read_to_string(config.conf_d_dir().join("00-default.conf")).unwrap();
         assert!(written_catchall.contains("return 444;"));
+
+        let written_cache =
+            fs::read_to_string(config.conf_d_dir().join("20-fastcgi-cache.conf")).unwrap();
+        assert!(written_cache.contains("keys_zone=panel_php_cache:10m"));
     }
 }

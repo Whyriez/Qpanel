@@ -18,6 +18,7 @@ use tracing::{info, warn};
 pub struct NginxManager {
     runner: Arc<dyn SystemRunner>,
     debouncer: ReloadDebouncer,
+    base_dir: Option<PathBuf>,
 }
 
 impl NginxManager {
@@ -25,6 +26,15 @@ impl NginxManager {
         Self {
             runner,
             debouncer: ReloadDebouncer::default(),
+            base_dir: None,
+        }
+    }
+
+    pub fn with_base_dir(runner: Arc<dyn SystemRunner>, base_dir: impl Into<PathBuf>) -> Self {
+        Self {
+            runner,
+            debouncer: ReloadDebouncer::default(),
+            base_dir: Some(base_dir.into()),
         }
     }
 
@@ -37,6 +47,7 @@ impl NginxManager {
             .base_dir
             .as_deref()
             .map(PathBuf::from)
+            .or_else(|| self.base_dir.clone())
             .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
         let log_dir = req
             .log_dir
@@ -49,10 +60,17 @@ impl NginxManager {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/var/lib/panel/acme"));
 
+        let cache_dir = if base_dir == std::path::Path::new("/etc/panel/nginx") {
+            PathBuf::from("/var/cache/nginx/panel")
+        } else {
+            base_dir.join("cache")
+        };
+
         NginxBaselineConfig {
             base_dir,
             log_dir,
             acme_dir,
+            cache_dir,
             panel_api_port: req.panel_api_port.unwrap_or(3000),
             panel_listen_port: req.panel_listen_port.unwrap_or(8443),
             worker_processes: "auto".to_string(),
@@ -140,6 +158,7 @@ impl NginxManager {
             .nginx_base_dir
             .as_deref()
             .map(PathBuf::from)
+            .or_else(|| self.base_dir.clone())
             .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
         let pipeline = NginxApplyPipeline::new(&base_dir);
         let nginx_conf_path = base_dir.join("nginx.conf");
@@ -202,6 +221,7 @@ impl NginxManager {
             .nginx_base_dir
             .as_deref()
             .map(PathBuf::from)
+            .or_else(|| self.base_dir.clone())
             .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
         let pipeline = NginxApplyPipeline::new(&base_dir);
         let nginx_conf_path = base_dir.join("nginx.conf");

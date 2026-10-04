@@ -9,6 +9,7 @@ pub use baseline::NginxBaselineConfig;
 pub use error::WebserverError;
 pub use pipeline::{ApplyResult, NginxApplyPipeline, ReloadDebouncer};
 pub use template::{
-    DomainRedirectConfig, HeaderConfig, NginxTemplateRenderer, StaticVhostContext,
-    render_placeholder_html,
+    DomainRedirectConfig, FastCgiCacheConfig, HeaderConfig, NginxTemplateRenderer, PhpPreset,
+    PhpVhostContext, StaticVhostContext, render_placeholder_html, validate_php_vhost_inputs,
+    validate_vhost_inputs,
 };
