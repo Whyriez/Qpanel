@@ -424,6 +424,10 @@ impl AgentServer {
                     "php.fpm_master_restart".to_string(),
                     format!("{}-{}", d.username, d.version),
                 ),
+                RequestPayload::PhpFpmHealthCheck(d) => (
+                    "php.fpm_health_check".to_string(),
+                    format!("{}-{}/{}", d.username, d.version, d.pool_name),
+                ),
             };
 
             let response = match req.payload {
@@ -693,6 +697,15 @@ impl AgentServer {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
                             ResponsePayload::PhpFpmMasterAction(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmHealthCheck(data) => {
+                    match php::check_php_fpm_health(self.runner.as_ref(), data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpFpmHealthChecked(res),
                         ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

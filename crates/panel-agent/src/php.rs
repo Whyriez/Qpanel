@@ -5,11 +5,12 @@ use crate::AgentError;
 use crate::system::SystemRunner;
 use panel_proto::{
     PhpExtensionActionResponse, PhpExtensionDto, PhpExtensionListResponse,
-    PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse,
-    PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest,
-    PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse,
-    PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse, PhpRepoSetupResponse,
-    PhpRuntimeActionResponse, PhpRuntimeListResponse, PhpVersionStatusDto,
+    PhpFpmHealthCheckRequest, PhpFpmHealthCheckResponse, PhpFpmMasterActionResponse,
+    PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest,
+    PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse,
+    PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest,
+    PhpFpmPoolRemoveResponse, PhpRepoSetupResponse, PhpRuntimeActionResponse,
+    PhpRuntimeListResponse, PhpVersionStatusDto,
 };
 use panel_runtime::fpm::{
     DEFAULT_PM_MAX_REQUESTS, DEFAULT_PM_PROCESS_IDLE_TIMEOUT_SECS, PhpFpmMasterConfig,
@@ -531,13 +532,15 @@ fn validate_and_swap_staging_pool(
     let fpm_bin = format!("php-fpm{}", version.as_str());
     let master_conf_str = master.master_conf_path().to_string_lossy().to_string();
 
-    let check_failure = runner
-        .run_command(&fpm_bin, &["-t", "-y", &master_conf_str])
-        .ok()
-        .filter(|out| !out.status.success());
+    let check_res = runner.run_command(&fpm_bin, &["-t", "-y", &master_conf_str]);
+    let err_msg = match check_res {
+        Ok(out) if !out.status.success() => Some(String::from_utf8_lossy(&out.stderr).to_string()),
+        Err(AgentError::CommandFailed { stderr, .. }) => Some(stderr),
+        Err(e) => return Err(e),
+        _ => None,
+    };
 
-    if let Some(check_out) = check_failure {
-        let err_msg = String::from_utf8_lossy(&check_out.stderr).to_string();
+    if let Some(err_msg) = err_msg {
         let _ = runner.remove_file(staging_path);
         warn!(
             "PHP-FPM syntax check failed for pool {}: {}",
@@ -812,6 +815,52 @@ pub fn restart_php_fpm_master(
             "PHP-FPM master '{}' berhasil di-restart",
             master.service_name()
         ),
+    })
+}
+
+/// Performs a health check on a tenant's PHP-FPM master and pool before or after cutover.
+pub fn check_php_fpm_health(
+    runner: &dyn SystemRunner,
+    req: PhpFpmHealthCheckRequest,
+) -> Result<PhpFpmHealthCheckResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    let service_active = match runner.run_command(
+        "systemctl",
+        &["is-active", "--quiet", &master.service_name()],
+    ) {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    };
+
+    let socket_path = master.default_socket_path();
+    let socket_exists = runner.path_exists(&socket_path);
+
+    let pool_file = master.pool_dir().join(format!("{}.conf", req.pool_name));
+    let pool_exists = runner.path_exists(&pool_file);
+
+    let healthy = service_active && (socket_exists || pool_exists);
+    let message = if healthy {
+        format!(
+            "Master PHP {} dan pool {} beroperasi secara normal",
+            version.as_str(),
+            req.pool_name
+        )
+    } else if !service_active {
+        format!("Service {} tidak aktif", master.service_name())
+    } else {
+        format!("Socket {} tidak ditemukan", socket_path.display())
+    };
+
+    Ok(PhpFpmHealthCheckResponse {
+        healthy,
+        service_active,
+        socket_exists,
+        pool_exists,
+        message,
     })
 }
 

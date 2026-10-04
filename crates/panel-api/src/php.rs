@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use panel_db::models::UpdateSite;
-use panel_db::repositories::{SqliteSiteRepository, SqliteUserRepository};
+use panel_db::repositories::{SqliteDomainRepository, SqliteSiteRepository, SqliteUserRepository};
 use panel_runtime::php::{CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use crate::auth::{RequireAdminCsrf, RequireAuth, RequireCsrf};
 use crate::jobs::JobItem;
 use crate::routes::AppState;
-use crate::sites::fetch_and_authorize_site;
+use crate::sites::{fetch_and_authorize_site, recompile_and_apply_site_vhost};
 
 /// Status information of a specific PHP runtime version.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -91,6 +91,22 @@ pub struct PhpFpmActionResponseDto {
     pub service_name: String,
     pub action: String,
     pub success: bool,
+    pub message: String,
+}
+
+/// Request payload to switch a website's PHP version.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SwitchPhpVersionRequest {
+    pub version: String,
+}
+
+/// Response returned after successfully switching a website's PHP version.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SwitchPhpVersionResponse {
+    pub site_id: i64,
+    pub previous_version: String,
+    pub current_version: String,
+    pub status: String,
     pub message: String,
 }
 
@@ -1169,4 +1185,302 @@ pub async fn restart_php_fpm_master_handler(
         )
             .into_response(),
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/sites/{id}/php/version",
+    params(
+        ("id" = i64, Path, description = "ID Situs")
+    ),
+    request_body = SwitchPhpVersionRequest,
+    responses(
+        (status = 200, description = "Versi PHP berhasil diganti tanpa downtime", body = SwitchPhpVersionResponse),
+        (status = 400, description = "Permintaan tidak valid, versi tidak terpasang, atau versi sama"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Situs tidak ditemukan"),
+        (status = 500, description = "Gagal migrasi dan otomatis di-rollback")
+    ),
+    tag = "runtime"
+)]
+#[allow(clippy::cognitive_complexity)]
+pub async fn switch_site_php_version_handler(
+    State(state): State<AppState>,
+    RequireCsrf(auth_user): RequireCsrf,
+    Path(id): Path<i64>,
+    Json(payload): Json<SwitchPhpVersionRequest>,
+) -> Response {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let domain_repo = SqliteDomainRepository::new(state.pool.clone());
+
+    // 1. Fetch site and authorize
+    let site = match fetch_and_authorize_site(&site_repo, &auth_user, id).await {
+        Ok(s) => s,
+        Err((code, msg)) => {
+            return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+    };
+
+    // 2. Must be a PHP site
+    if site.kind != "php" && site.runtime.as_deref() != Some("php") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Situs ini bukan situs PHP" })),
+        )
+            .into_response();
+    }
+
+    // 3. Parse and validate target version
+    let target_ver = match PhpVersion::parse(&payload.version) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Versi PHP tidak valid: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let target_ver_str = target_ver.as_str();
+    let old_ver_str = site.version.as_deref().unwrap_or("8.3");
+
+    if old_ver_str == target_ver_str {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Situs sudah menggunakan versi PHP {old_ver_str}")
+            })),
+        )
+            .into_response();
+    }
+
+    // 4. Verify target version is installed on host
+    let runtimes = match state.agent_client.list_php_runtimes().await {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Gagal memeriksa versi PHP yang terpasang di host: {e}")
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let is_installed = runtimes
+        .versions
+        .iter()
+        .any(|v| v.version == target_ver_str && v.installed);
+
+    if !is_installed {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Versi PHP {target_ver_str} belum terpasang di server host. Silakan pasang terlebih dahulu via menu Runtime.")
+            })),
+        )
+            .into_response();
+    }
+
+    // 5. Resolve site owner
+    let owner = match user_repo.find_by_id(site.user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "Pemilik situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+    };
+    let linux_uname = owner
+        .linux_username
+        .as_deref()
+        .unwrap_or(owner.username.as_str());
+    let owner_uid = owner.linux_uid.unwrap_or(10000) as u32;
+    let site_id_str = format!("site_{id}");
+
+    let domains = match domain_repo.find_by_site_id(id).await {
+        Ok(d) => d,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("Gagal membaca domain situs: {e}") })),
+            )
+                .into_response();
+        }
+    };
+
+    // 6. Zero-downtime Cutover with Automatic Rollback Flow:
+    // Step A: Ensure target PHP-FPM master exists and is ready
+    if let Err(e) = state
+        .agent_client
+        .ensure_php_fpm_master(linux_uname, owner_uid, target_ver_str)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Gagal memastikan master PHP-FPM {target_ver_str} aktif: {e}")
+            })),
+        )
+            .into_response();
+    }
+
+    // Step B: Apply pool in target master
+    let target_pool_req = panel_proto::PhpFpmPoolApplyRequest {
+        username: linux_uname.to_string(),
+        uid: owner_uid,
+        version: target_ver_str.to_string(),
+        pool_name: site_id_str.clone(),
+        docroot: site.docroot.clone(),
+        socket_path: None,
+        max_children: Some(5),
+        process_idle_timeout_secs: Some(10),
+        max_requests: Some(500),
+        open_basedir: None,
+        disable_functions: None,
+        reload: true,
+    };
+
+    if let Err(e) = state.agent_client.apply_php_fpm_pool(target_pool_req).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Gagal menerapkan konfigurasi pool pada PHP {target_ver_str}: {e}")
+            })),
+        )
+            .into_response();
+    }
+
+    // Step C: Atomically update Nginx virtual host to point to new target version UDS socket
+    let mut new_site = site.clone();
+    new_site.version = Some(target_ver_str.to_string());
+
+    if let Err((code, msg)) =
+        recompile_and_apply_site_vhost(&state, &new_site, &owner, &domains).await
+    {
+        // Rollback target pool if Nginx update fails
+        let _ = state
+            .agent_client
+            .remove_php_fpm_pool(linux_uname, target_ver_str, site_id_str.clone(), true)
+            .await;
+        return (
+            code,
+            Json(serde_json::json!({
+                "error": format!("Gagal menerapkan vhost Nginx untuk PHP {target_ver_str}: {msg}. Pool tujuan telah dibersihkan.")
+            })),
+        )
+            .into_response();
+    }
+
+    // Step D: Post-cutover Health Check on target master & socket
+    let health_check = state
+        .agent_client
+        .check_php_fpm_health(linux_uname, target_ver_str, &site_id_str)
+        .await;
+
+    let is_healthy = match health_check {
+        Ok(hc) => hc.healthy,
+        Err(_) => false,
+    };
+
+    if !is_healthy {
+        tracing::warn!(
+            "Health check failed after switching site {} to PHP {}. Initiating automatic rollback to PHP {}",
+            site.id,
+            target_ver_str,
+            old_ver_str
+        );
+
+        // --- AUTOMATIC ROLLBACK ---
+        // 1. Revert Nginx vhost back to old PHP version
+        let mut rollback_site = site.clone();
+        rollback_site.version = Some(old_ver_str.to_string());
+        let _ = recompile_and_apply_site_vhost(&state, &rollback_site, &owner, &domains).await;
+
+        // 2. Remove pool from target master
+        let _ = state
+            .agent_client
+            .remove_php_fpm_pool(linux_uname, target_ver_str, site_id_str.clone(), true)
+            .await;
+
+        // 3. Log rollback audit event
+        state.audit_writer.log_async(
+            Some(auth_user.id),
+            &auth_user.username,
+            "site.php_switch_rollback",
+            format!("site:{}", site.id),
+            "failure",
+            None,
+            Some(format!(
+                "Health check PHP {target_ver_str} gagal. Konfigurasi otomatis di-rollback ke PHP {old_ver_str}"
+            )),
+        );
+
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!(
+                    "Health check pada master PHP {target_ver_str} gagal. Sistem otomatis melakukan rollback ke versi {old_ver_str}."
+                ),
+                "rolled_back_to": old_ver_str
+            })),
+        )
+            .into_response();
+    }
+
+    // Step E: Health check passed! Clean up old pool from old master
+    let _ = state
+        .agent_client
+        .remove_php_fpm_pool(linux_uname, old_ver_str, site_id_str, true)
+        .await;
+
+    // Step F: Persist new version to DB
+    if let Err(e) = site_repo
+        .update(
+            site.id,
+            &UpdateSite {
+                version: Some(target_ver_str.to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("Versi PHP berhasil dialihkan, tetapi gagal menyimpan ke database: {e}")
+            })),
+        )
+            .into_response();
+    }
+
+    // Step G: Audit Log
+    state.audit_writer.log_async(
+        Some(auth_user.id),
+        &auth_user.username,
+        "site.php_version_changed",
+        format!("site:{}", site.id),
+        "success",
+        None,
+        Some(format!(
+            "Berhasil mengubah versi PHP dari {old_ver_str} ke {target_ver_str} tanpa downtime"
+        )),
+    );
+
+    (
+        StatusCode::OK,
+        Json(SwitchPhpVersionResponse {
+            site_id: site.id,
+            previous_version: old_ver_str.to_string(),
+            current_version: target_ver_str.to_string(),
+            status: "success".to_string(),
+            message: format!("Versi PHP situs berhasil diubah ke {target_ver_str} tanpa downtime"),
+        }),
+    )
+        .into_response()
 }

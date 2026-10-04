@@ -41,6 +41,7 @@ import {
   PhpExtensionActionApiResponse,
   PhpExtensionListApiResponse,
   SitePhpExtensionsResponse,
+  SwitchPhpVersionResponse,
 } from '../types/api';
 
 const API_BASE = '';
@@ -603,6 +604,16 @@ export async function updateSitePhpExtensions(
   return request<SitePhpExtensionsResponse>(`/api/v1/sites/${siteId}/php/extensions`, {
     method: 'PUT',
     body: JSON.stringify({ extensions }),
+  });
+}
+
+export async function switchSitePhpVersion(
+  siteId: number,
+  version: string
+): Promise<SwitchPhpVersionResponse> {
+  return request<SwitchPhpVersionResponse>(`/api/v1/sites/${siteId}/php/version`, {
+    method: 'POST',
+    body: JSON.stringify({ version }),
   });
 }
 

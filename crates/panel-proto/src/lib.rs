@@ -79,6 +79,7 @@ pub enum RequestPayload {
     PhpFpmMasterStatus(PhpFpmMasterStatusRequest),
     PhpFpmMasterReload(PhpFpmMasterReloadRequest),
     PhpFpmMasterRestart(PhpFpmMasterRestartRequest),
+    PhpFpmHealthCheck(PhpFpmHealthCheckRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -222,6 +223,7 @@ pub enum ResponsePayload {
     PhpFpmPoolRemove(PhpFpmPoolRemoveResponse),
     PhpFpmMasterStatus(PhpFpmMasterStatusResponse),
     PhpFpmMasterAction(PhpFpmMasterActionResponse),
+    PhpFpmHealthChecked(PhpFpmHealthCheckResponse),
     Error(String),
 }
 
@@ -668,6 +670,22 @@ pub struct PhpFpmMasterActionResponse {
     pub service_name: String,
     pub action: String,
     pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmHealthCheckRequest {
+    pub username: String,
+    pub version: String,
+    pub pool_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmHealthCheckResponse {
+    pub healthy: bool,
+    pub service_active: bool,
+    pub socket_exists: bool,
+    pub pool_exists: bool,
     pub message: String,
 }
 
@@ -1187,5 +1205,33 @@ mod tests {
         let de_res_fpm: RpcResponse =
             serde_json::from_str(&s_res_fpm).expect("deserialize PhpFpmPoolApplyResponse");
         assert_eq!(res_fpm, de_res_fpm);
+
+        let req_hc = RpcRequest::new(
+            "hc-req-1",
+            RequestPayload::PhpFpmHealthCheck(PhpFpmHealthCheckRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: "site-1".to_string(),
+            }),
+        );
+        let s_hc = serde_json::to_string(&req_hc).expect("serialize PhpFpmHealthCheckRequest");
+        let de_hc: RpcRequest =
+            serde_json::from_str(&s_hc).expect("deserialize PhpFpmHealthCheckRequest");
+        assert_eq!(req_hc, de_hc);
+
+        let res_hc = RpcResponse::ok(
+            "hc-res-1",
+            ResponsePayload::PhpFpmHealthChecked(PhpFpmHealthCheckResponse {
+                healthy: true,
+                service_active: true,
+                socket_exists: true,
+                pool_exists: true,
+                message: "Healthy".to_string(),
+            }),
+        );
+        let s_res_hc = serde_json::to_string(&res_hc).expect("serialize PhpFpmHealthCheckResponse");
+        let de_res_hc: RpcResponse =
+            serde_json::from_str(&s_res_hc).expect("deserialize PhpFpmHealthCheckResponse");
+        assert_eq!(res_hc, de_res_hc);
     }
 }

@@ -20,6 +20,7 @@ import {
   Search,
   Play,
   Pause,
+  Code2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -30,6 +31,7 @@ import {
   RedirectMode,
   IssueSslRequest,
   CustomCertRequest,
+  PhpVersionStatusItem,
 } from '../types/api';
 import {
   fetchSite,
@@ -46,6 +48,8 @@ import {
   renewSiteSsl,
   deleteSiteSsl,
   fetchSiteLogs,
+  fetchPhpVersions,
+  switchSitePhpVersion,
 } from '../api/client';
 import { StatusPill } from '../components/ui/StatusPill';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
@@ -97,6 +101,13 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const [customAutoRenew, setCustomAutoRenew] = useState(false);
   const [isUploadingCustom, setIsUploadingCustom] = useState(false);
   const [isRenewingSsl, setIsRenewingSsl] = useState(false);
+
+  // PHP Version Switcher States
+  const [isSwitchPhpModalOpen, setIsSwitchPhpModalOpen] = useState(false);
+  const [availablePhpVersions, setAvailablePhpVersions] = useState<PhpVersionStatusItem[]>([]);
+  const [selectedPhpVersion, setSelectedPhpVersion] = useState('');
+  const [isLoadingPhpVersions, setIsLoadingPhpVersions] = useState(false);
+  const [isSwitchingPhp, setIsSwitchingPhp] = useState(false);
 
   // Logs & WebSocket Live Tail States
   const [logType, setLogType] = useState<'access' | 'error'>('access');
@@ -158,6 +169,50 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         text: e.message || 'Gagal mengubah status situs',
         type: 'error',
       });
+    }
+  };
+
+  const handleOpenSwitchPhpModal = async () => {
+    setIsSwitchPhpModalOpen(true);
+    setIsLoadingPhpVersions(true);
+    try {
+      const res = await fetchPhpVersions();
+      const installed = res.versions.filter((v) => v.installed);
+      setAvailablePhpVersions(installed);
+      setSelectedPhpVersion(site?.version || (installed.length > 0 ? installed[0].version : '8.3'));
+    } catch (err: unknown) {
+      const e = err as Error;
+      setToastMessage({
+        text: e.message || 'Gagal memuat daftar versi PHP yang terpasang',
+        type: 'error',
+      });
+    } finally {
+      setIsLoadingPhpVersions(false);
+    }
+  };
+
+  const handleSwitchPhpVersion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!site || !selectedPhpVersion || selectedPhpVersion === site.version) {
+      return;
+    }
+    setIsSwitchingPhp(true);
+    try {
+      const res = await switchSitePhpVersion(site.id, selectedPhpVersion);
+      setToastMessage({
+        text: `Versi PHP berhasil dialihkan ke PHP ${res.new_version} tanpa downtime!`,
+        type: 'success',
+      });
+      setIsSwitchPhpModalOpen(false);
+      loadSiteData();
+    } catch (err: unknown) {
+      const e = err as Error;
+      setToastMessage({
+        text: e.message || 'Gagal mengalihkan versi PHP',
+        type: 'error',
+      });
+    } finally {
+      setIsSwitchingPhp(false);
     }
   };
 
@@ -535,7 +590,13 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             <div className="text-xs text-[var(--ink-muted)] flex items-center gap-2 mt-0.5">
               <span>Tenant #{site.user_id}</span>
               <span>&bull;</span>
-              <span>{site.kind === 'static' ? 'Situs Statis' : site.kind}</span>
+              <span>
+                {site.kind === 'static'
+                  ? 'Situs Statis'
+                  : site.kind === 'php'
+                  ? `PHP ${site.version || '8.3'}`
+                  : site.kind}
+              </span>
               {site.force_https && (
                 <>
                   <span>&bull;</span>
@@ -656,7 +717,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Quick Metrics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`grid grid-cols-1 ${site.kind === 'php' ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4`}>
             {/* Docroot Card */}
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
               <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
@@ -692,6 +753,32 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 />
               </div>
             </div>
+
+            {/* PHP Runtime Card (if site.kind === 'php') */}
+            {site.kind === 'php' && (
+              <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
+                <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
+                  Runtime PHP
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-xs text-[var(--ink)] flex items-center gap-1.5">
+                      <Code2 className="w-3.5 h-3.5 text-[var(--primary)]" />
+                      PHP {site.version || '8.3'}
+                    </div>
+                    <div className="text-[11px] text-[var(--ink-muted)] capitalize">
+                      Preset: {site.preset || 'standard'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleOpenSwitchPhpModal}
+                    className="px-2 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--primary)] hover:text-[var(--primary-hover)] transition-colors"
+                  >
+                    Ganti Versi
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* SSL Overview Card */}
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
@@ -738,7 +825,11 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
               <div className="flex items-center justify-between p-3.5">
                 <span className="text-[var(--ink-muted)]">Jenis Runtime:</span>
-                <span className="font-semibold text-[var(--ink)]">Static HTML/SPA</span>
+                <span className="font-semibold text-[var(--ink)]">
+                  {site.kind === 'php'
+                    ? `PHP ${site.version || '8.3'} (Preset: ${site.preset || 'standard'})`
+                    : 'Static HTML/SPA'}
+                </span>
               </div>
               <div className="flex items-center justify-between p-3.5">
                 <span className="text-[var(--ink-muted)]">Mode Fallback SPA:</span>
@@ -1457,6 +1548,91 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           onConfirm={handleDeleteDomain}
           onClose={() => setDomainToDelete(null)}
         />
+      )}
+
+      {/* Modal Ganti Versi PHP */}
+      {isSwitchPhpModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+              <h3 className="font-bold text-sm text-[var(--ink)] flex items-center gap-2">
+                <Code2 className="w-4 h-4 text-[var(--primary)]" />
+                Ganti Versi PHP Situs
+              </h3>
+              <button
+                onClick={() => setIsSwitchPhpModalOpen(false)}
+                className="text-xs text-[var(--ink-muted)] hover:text-[var(--ink)] p-1"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="text-xs text-[var(--ink-muted)] leading-relaxed space-y-2">
+              <p>
+                Versi saat ini:{' '}
+                <strong className="text-[var(--ink)] font-mono">
+                  PHP {site.version || '8.3'}
+                </strong>
+              </p>
+              <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--primary)]/10 border border-[var(--primary)]/20 text-[var(--ink)] text-[11px] leading-relaxed">
+                <strong>Zero-Downtime & Automatic Rollback:</strong> Master pool target disiapkan dan diverifikasi kesehatannya terlebih dahulu sebelum socket Nginx dialihkan. Jika pemeriksaan gagal, konfigurasi otomatis dibatalkan tanpa downtime.
+              </div>
+            </div>
+
+            <form onSubmit={handleSwitchPhpVersion} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[var(--ink)] mb-1.5">
+                  Pilih Versi PHP Baru
+                </label>
+                {isLoadingPhpVersions ? (
+                  <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)] py-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Memuat versi PHP yang terpasang...
+                  </div>
+                ) : availablePhpVersions.length === 0 ? (
+                  <div className="text-xs text-[var(--ink-muted)] py-2">
+                    Tidak ada versi PHP terpasang lain yang tersedia.
+                  </div>
+                ) : (
+                  <select
+                    value={selectedPhpVersion}
+                    onChange={(e) => setSelectedPhpVersion(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] font-mono"
+                  >
+                    {availablePhpVersions.map((v) => (
+                      <option key={v.version} value={v.version}>
+                        PHP {v.version} {v.version === site.version ? '(Saat Ini)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+                <button
+                  type="button"
+                  onClick={() => setIsSwitchPhpModalOpen(false)}
+                  className="px-3.5 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] border border-[var(--line)] text-[var(--ink)] hover:bg-[var(--raised)] transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    isSwitchingPhp ||
+                    !selectedPhpVersion ||
+                    selectedPhpVersion === site.version ||
+                    availablePhpVersions.length === 0
+                  }
+                  className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                >
+                  {isSwitchingPhp && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  {isSwitchingPhp ? 'Mengalihkan Versi...' : 'Ganti Versi'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

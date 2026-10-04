@@ -5,21 +5,21 @@ use panel_proto::{
     AcmeChallengeDeployedResponse, HardeningApplyRequest, HardeningApplyResponse, HardeningStatus,
     NginxBaselineAppliedResponse, NginxBaselineApplyRequest, PhpExtensionActionResponse,
     PhpExtensionInstallRequest, PhpExtensionListRequest, PhpExtensionListResponse,
-    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpFpmMasterActionResponse,
-    PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest,
-    PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse,
-    PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest,
-    PhpFpmPoolRemoveResponse, PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse,
-    PhpRuntimeInstallRequest, PhpRuntimeListRequest, PhpRuntimeListResponse,
-    PhpRuntimeRemoveRequest, ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
-    QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
-    ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
-    SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse,
-    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
-    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SslCertDeployRequest,
-    SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
-    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
-    UserUnsuspendedResponse, VersionInfo,
+    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpFpmHealthCheckRequest,
+    PhpFpmHealthCheckResponse, PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest,
+    PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest,
+    PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest,
+    PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse,
+    PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
+    PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
+    QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
+    QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
+    SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
+    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
+    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
+    SliceResourceMetrics, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
+    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
+    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -1291,6 +1291,45 @@ impl AgentClient {
             ResponsePayload::PhpFpmMasterAction(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PhpFpmMasterAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn check_php_fpm_health(
+        &self,
+        username: impl Into<String>,
+        version: impl Into<String>,
+        pool_name: impl Into<String>,
+    ) -> Result<PhpFpmHealthCheckResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-health-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmHealthCheck(PhpFpmHealthCheckRequest {
+                username: username.into(),
+                version: version.into(),
+                pool_name: pool_name.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmHealthChecked(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmHealthChecked",
                 got: format!("{other:?}"),
             }),
         }

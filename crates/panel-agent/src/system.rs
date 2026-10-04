@@ -328,6 +328,21 @@ impl SystemRunner for MockSystemRunner {
                 .unwrap_or_else(|_| panic!("Failed to get dummy ExitStatus"))
         };
 
+        if !status.success() {
+            let stderr_str = String::from_utf8_lossy(&stderr).to_string();
+            let is_ignorable = (binary == "groupadd" && stderr_str.contains("already exists"))
+                || (binary == "groupdel" && stderr_str.contains("does not exist"))
+                || (binary == "pkill" && status.code() == Some(1));
+
+            if !is_ignorable {
+                return Err(AgentError::CommandFailed {
+                    binary: binary.to_string(),
+                    code: status.code(),
+                    stderr: stderr_str,
+                });
+            }
+        }
+
         Ok(std::process::Output {
             status,
             stdout,

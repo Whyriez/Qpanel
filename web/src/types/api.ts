@@ -299,6 +299,9 @@ export interface Site {
   spa_fallback: boolean;
   force_https: boolean;
   domains: SiteDomain[];
+  runtime?: string | null;
+  version?: string | null;
+  preset?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -434,5 +437,18 @@ export interface SitePhpExtensionsResponse {
 export interface UpdateSitePhpExtensionsInput {
   extensions: string[];
 }
+
+export interface SwitchPhpVersionRequest {
+  version: string;
+}
+
+export interface SwitchPhpVersionResponse {
+  message: string;
+  site_id: number;
+  old_version: string;
+  new_version: string;
+  vhost_reloaded: boolean;
+}
+
 
 

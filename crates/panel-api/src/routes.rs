@@ -112,6 +112,8 @@ use panel_db::pool::DbPool;
             crate::php::PhpFpmMasterOverviewDto,
             crate::php::PhpFpmMasterStatusDto,
             crate::php::PhpFpmActionResponseDto,
+            crate::php::SwitchPhpVersionRequest,
+            crate::php::SwitchPhpVersionResponse,
         )
     ),
     tags(

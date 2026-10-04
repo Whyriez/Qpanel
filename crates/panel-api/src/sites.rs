@@ -92,6 +92,12 @@ pub struct SiteResponse {
     pub spa_fallback: bool,
     pub force_https: bool,
     pub domains: Vec<SiteDomainResponse>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub preset: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -135,6 +141,10 @@ fn build_site_response(s: &Site, domains: &[Domain]) -> SiteResponse {
         .get("force_https")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let preset = settings
+        .get("preset")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let domain_dtos = domains.iter().map(domain_to_response).collect();
 
@@ -148,6 +158,9 @@ fn build_site_response(s: &Site, domains: &[Domain]) -> SiteResponse {
         spa_fallback,
         force_https,
         domains: domain_dtos,
+        runtime: s.runtime.clone(),
+        version: s.version.clone(),
+        preset,
         created_at: s.created_at,
         updated_at: s.updated_at,
     }
