@@ -350,6 +350,7 @@ async fn create_test_site(ctx: &TestContext, domain: &str, user_id: i64) -> Site
         spa_fallback: Some(false),
         force_https: Some(false),
         docroot: None,
+        ..Default::default()
     };
 
     let req = Request::builder()

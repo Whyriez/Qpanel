@@ -254,6 +254,7 @@ async fn test_domain_alias_redirect_and_force_https_lifecycle() {
         spa_fallback: Some(false),
         force_https: Some(false),
         docroot: None,
+        ..Default::default()
     };
 
     let create_req = Request::builder()

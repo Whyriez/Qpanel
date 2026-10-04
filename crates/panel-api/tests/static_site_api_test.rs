@@ -253,6 +253,7 @@ async fn test_static_site_crud_and_lifecycle() {
         spa_fallback: Some(true),
         force_https: Some(false),
         docroot: None,
+        ..Default::default()
     };
 
     let create_req = Request::builder()
@@ -306,6 +307,7 @@ async fn test_static_site_crud_and_lifecycle() {
         spa_fallback: None,
         force_https: None,
         docroot: None,
+        ..Default::default()
     };
     let bad_req = Request::builder()
         .method("POST")
