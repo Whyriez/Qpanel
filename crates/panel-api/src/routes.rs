@@ -59,6 +59,10 @@ use panel_db::pool::DbPool;
         crate::php::remove_php_extension_handler,
         crate::php::get_site_php_extensions_handler,
         crate::php::update_site_php_extensions_handler,
+        crate::php::list_php_fpm_masters_handler,
+        crate::php::get_php_fpm_master_status_handler,
+        crate::php::reload_php_fpm_master_handler,
+        crate::php::restart_php_fpm_master_handler,
     ),
     components(
         schemas(
@@ -105,6 +109,9 @@ use panel_db::pool::DbPool;
             crate::php::PhpExtensionActionApiResponse,
             crate::php::SitePhpExtensionsResponse,
             crate::php::UpdateSitePhpExtensionsInput,
+            crate::php::PhpFpmMasterOverviewDto,
+            crate::php::PhpFpmMasterStatusDto,
+            crate::php::PhpFpmActionResponseDto,
         )
     ),
     tags(

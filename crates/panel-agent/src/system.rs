@@ -27,6 +27,13 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "dpkg-query",
     "phpenmod",
     "phpdismod",
+    "systemd-analyze",
+    "php-fpm7.4",
+    "php-fpm8.0",
+    "php-fpm8.1",
+    "php-fpm8.2",
+    "php-fpm8.3",
+    "php-fpm8.4",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
@@ -42,6 +49,7 @@ pub trait SystemRunner: Send + Sync {
     fn write_file(&self, path: &Path, content: &[u8], mode: u32) -> Result<(), AgentError>;
     fn read_file(&self, path: &Path) -> Result<Vec<u8>, AgentError>;
     fn remove_file(&self, path: &Path) -> Result<(), AgentError>;
+    fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>, AgentError>;
 }
 
 /// Real system runner executing actual Linux system binaries and system calls.
@@ -167,6 +175,17 @@ impl SystemRunner for RealSystemRunner {
             std::fs::remove_file(path)?;
         }
         Ok(())
+    }
+
+    fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>, AgentError> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let entries = std::fs::read_dir(path)
+            .map_err(AgentError::Io)?
+            .filter_map(|e| e.ok().map(|ent| ent.path()))
+            .collect();
+        Ok(entries)
     }
 }
 
@@ -361,6 +380,12 @@ impl SystemRunner for MockSystemRunner {
     }
 
     fn move_path(&self, from: &Path, to: &Path) -> Result<(), AgentError> {
+        if let Ok(mut files) = self.files.lock() {
+            let content = files.remove(from);
+            if let Some(content) = content {
+                files.insert(to.to_path_buf(), content);
+            }
+        }
         if let Ok(mut lock) = self.actions.lock() {
             lock.push(MockAction::MovePath {
                 from: from.to_path_buf(),
@@ -434,5 +459,25 @@ impl SystemRunner for MockSystemRunner {
             });
         }
         Ok(())
+    }
+
+    fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>, AgentError> {
+        let mut results = Vec::new();
+        if let Ok(files) = self.files.lock() {
+            for key in files.keys() {
+                if key.parent() == Some(path) {
+                    results.push(key.clone());
+                }
+            }
+        }
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !results.contains(&p) {
+                    results.push(p);
+                }
+            }
+        }
+        Ok(results)
     }
 }

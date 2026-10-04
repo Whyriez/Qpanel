@@ -4,13 +4,21 @@
 use crate::AgentError;
 use crate::system::SystemRunner;
 use panel_proto::{
-    PhpExtensionActionResponse, PhpExtensionDto, PhpExtensionListResponse, PhpRepoSetupResponse,
+    PhpExtensionActionResponse, PhpExtensionDto, PhpExtensionListResponse,
+    PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse,
+    PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest,
+    PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse,
+    PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse, PhpRepoSetupResponse,
     PhpRuntimeActionResponse, PhpRuntimeListResponse, PhpVersionStatusDto,
+};
+use panel_runtime::fpm::{
+    DEFAULT_PM_MAX_REQUESTS, DEFAULT_PM_PROCESS_IDLE_TIMEOUT_SECS, PhpFpmMasterConfig,
+    PhpFpmPoolConfig,
 };
 use panel_runtime::php::{
     CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension, is_sury_repo_installed,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// Sets up the Ondřej Surý PHP PPA repository on Debian/Ubuntu systems.
@@ -410,6 +418,403 @@ pub fn remove_php_extension(
     })
 }
 
+/// Ensures the PHP-FPM master instance for a specific (tenant, version) is configured,
+/// sandboxed systemd service written, directories created, and ready to receive pools.
+pub fn ensure_php_fpm_master(
+    runner: &dyn SystemRunner,
+    req: PhpFpmMasterEnsureRequest,
+) -> Result<PhpFpmMasterEnsureResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, req.uid, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    info!(
+        "Ensuring PHP-FPM master for tenant '{}' on PHP {}",
+        master.username,
+        master.version.as_str()
+    );
+
+    // 1. Ensure runtime, config, pool, and log directories exist
+    runner.create_dir_all(Path::new("/run/panel/php"), 0o755, 0, 0)?;
+    runner.create_dir_all(&master.config_dir(), 0o755, 0, 0)?;
+    runner.create_dir_all(&master.pool_dir(), 0o755, 0, 0)?;
+    runner.create_dir_all(&master.tenant_log_dir(), 0o750, 0, 0)?;
+
+    // Give tenant read ACL on their log dir so they can inspect logs without root
+    let _ = runner.set_facl(&master.tenant_log_dir(), &master.username, "r-x");
+
+    // Ensure tenant tmp dir exists for upload_tmp_dir and session.save_path
+    let user_tmp = PathBuf::from(format!("/home/{}/tmp", master.username));
+    runner.create_dir_all(&user_tmp, 0o750, master.uid, master.uid)?;
+
+    // 2. Write master configuration (php-fpm.conf)
+    runner.write_file(
+        &master.master_conf_path(),
+        master.render_master_conf().as_bytes(),
+        0o644,
+    )?;
+
+    // 3. Write sandboxed systemd service unit
+    let service_unit_path = PathBuf::from("/etc/systemd/system").join(master.service_name());
+    runner.write_file(
+        &service_unit_path,
+        master.render_systemd_unit().as_bytes(),
+        0o644,
+    )?;
+
+    // 4. Reload systemd daemon
+    runner.run_command("systemctl", &["daemon-reload"])?;
+
+    // 5. Query active status
+    let is_active = runner
+        .run_command(
+            "systemctl",
+            &["is-active", "--quiet", &master.service_name()],
+        )
+        .is_ok();
+
+    Ok(PhpFpmMasterEnsureResponse {
+        service_name: master.service_name(),
+        config_dir: master.config_dir().to_string_lossy().replace('\\', "/"),
+        default_socket_path: master
+            .default_socket_path()
+            .to_string_lossy()
+            .replace('\\', "/"),
+        is_active,
+    })
+}
+
+fn build_pool_config(
+    master: &PhpFpmMasterConfig,
+    req: &PhpFpmPoolApplyRequest,
+) -> Result<PhpFpmPoolConfig, AgentError> {
+    let mut pool = PhpFpmPoolConfig::new(master, &req.pool_name, &req.docroot)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    if let Some(sock) = req.socket_path.as_deref() {
+        pool = pool.with_socket_path(sock);
+    }
+    if let (Some(max_ch), Some(idle_to), Some(max_req)) = (
+        req.max_children,
+        req.process_idle_timeout_secs,
+        req.max_requests,
+    ) {
+        pool = pool.with_pm_limits(max_ch, idle_to, max_req);
+    } else if let Some(max_ch) = req.max_children {
+        pool = pool.with_pm_limits(
+            max_ch,
+            DEFAULT_PM_PROCESS_IDLE_TIMEOUT_SECS,
+            DEFAULT_PM_MAX_REQUESTS,
+        );
+    }
+    if let Some(open_bd) = &req.open_basedir {
+        pool.open_basedir = open_bd.iter().map(PathBuf::from).collect();
+    }
+    if let Some(dis_fn) = &req.disable_functions {
+        pool.disable_functions = dis_fn.clone();
+    }
+
+    Ok(pool)
+}
+
+fn validate_and_swap_staging_pool(
+    runner: &dyn SystemRunner,
+    master: &PhpFpmMasterConfig,
+    version: PhpVersion,
+    pool: &PhpFpmPoolConfig,
+    staging_path: &Path,
+    target_path: &Path,
+) -> Result<(), AgentError> {
+    runner.write_file(staging_path, pool.render_pool_conf().as_bytes(), 0o644)?;
+
+    let fpm_bin = format!("php-fpm{}", version.as_str());
+    let master_conf_str = master.master_conf_path().to_string_lossy().to_string();
+
+    let check_failure = runner
+        .run_command(&fpm_bin, &["-t", "-y", &master_conf_str])
+        .ok()
+        .filter(|out| !out.status.success());
+
+    if let Some(check_out) = check_failure {
+        let err_msg = String::from_utf8_lossy(&check_out.stderr).to_string();
+        let _ = runner.remove_file(staging_path);
+        warn!(
+            "PHP-FPM syntax check failed for pool {}: {}",
+            pool.pool_name, err_msg
+        );
+        return Err(AgentError::InvalidInput(format!(
+            "Validasi sintaks PHP-FPM gagal: {err_msg}"
+        )));
+    }
+
+    runner.move_path(staging_path, target_path)
+}
+
+fn activate_master_service(
+    runner: &dyn SystemRunner,
+    master: &PhpFpmMasterConfig,
+) -> Result<(), AgentError> {
+    let is_active = runner
+        .run_command(
+            "systemctl",
+            &["is-active", "--quiet", &master.service_name()],
+        )
+        .is_ok();
+
+    if is_active {
+        info!(
+            "Reloading active PHP-FPM service: {}",
+            master.service_name()
+        );
+        runner.run_command("systemctl", &["reload", &master.service_name()])?;
+    } else {
+        info!(
+            "Starting PHP-FPM service on-demand: {}",
+            master.service_name()
+        );
+        runner.run_command("systemctl", &["enable", "--now", &master.service_name()])?;
+    }
+    Ok(())
+}
+
+/// Applies an isolated PHP-FPM pool for a website under the tenant's master instance.
+/// Employs staging and atomic swap to prevent invalid configuration from breaking the master.
+pub fn apply_php_fpm_pool(
+    runner: &dyn SystemRunner,
+    req: PhpFpmPoolApplyRequest,
+) -> Result<PhpFpmPoolApplyResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, req.uid, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    // Step 1: Ensure master instance and systemd service exist
+    ensure_php_fpm_master(
+        runner,
+        PhpFpmMasterEnsureRequest {
+            username: req.username.clone(),
+            uid: req.uid,
+            version: req.version.clone(),
+        },
+    )?;
+
+    // Step 2: Build pool configuration
+    let pool = build_pool_config(&master, &req)?;
+    let target_path = pool.pool_conf_path(&master);
+    let staging_path = master
+        .pool_dir()
+        .join(format!("{}.conf.staging", pool.pool_name));
+
+    info!(
+        "Applying PHP-FPM pool '{}' at {}",
+        pool.pool_name,
+        target_path.display()
+    );
+
+    // Step 3-5: Staging, syntax validation, and atomic swap
+    validate_and_swap_staging_pool(runner, &master, version, &pool, &staging_path, &target_path)?;
+
+    // Step 6: Reload or start master on demand
+    let reloaded = if req.reload {
+        activate_master_service(runner, &master)?;
+        true
+    } else {
+        false
+    };
+
+    Ok(PhpFpmPoolApplyResponse {
+        pool_name: pool.pool_name,
+        pool_conf_path: target_path.to_string_lossy().replace('\\', "/"),
+        socket_path: pool.socket_path.to_string_lossy().replace('\\', "/"),
+        reloaded,
+    })
+}
+
+fn count_remaining_pools(runner: &dyn SystemRunner, master: &PhpFpmMasterConfig) -> usize {
+    let entries = runner.read_dir(&master.pool_dir()).unwrap_or_default();
+    entries
+        .iter()
+        .filter(|p| {
+            p.extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext == "conf")
+        })
+        .count()
+}
+
+fn handle_service_after_pool_removal(
+    runner: &dyn SystemRunner,
+    master: &PhpFpmMasterConfig,
+    remaining_pools: usize,
+    reload: bool,
+) -> Result<(bool, bool), AgentError> {
+    if remaining_pools == 0 {
+        info!(
+            "No remaining pools for master {}. Stopping and disabling service to conserve RAM.",
+            master.service_name()
+        );
+        let _ = runner.run_command("systemctl", &["stop", &master.service_name()]);
+        let _ = runner.run_command("systemctl", &["disable", &master.service_name()]);
+        Ok((true, false))
+    } else if reload {
+        let is_active = runner
+            .run_command(
+                "systemctl",
+                &["is-active", "--quiet", &master.service_name()],
+            )
+            .is_ok();
+        if is_active {
+            info!("Reloading PHP-FPM service: {}", master.service_name());
+            runner.run_command("systemctl", &["reload", &master.service_name()])?;
+            Ok((false, true))
+        } else {
+            Ok((false, false))
+        }
+    } else {
+        Ok((false, false))
+    }
+}
+
+/// Removes a PHP-FPM pool for a website.
+/// If no pools remain for the master, shuts down and disables the service to free idle RAM.
+pub fn remove_php_fpm_pool(
+    runner: &dyn SystemRunner,
+    req: PhpFpmPoolRemoveRequest,
+) -> Result<PhpFpmPoolRemoveResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    let pool_file = master.pool_dir().join(format!("{}.conf", req.pool_name));
+    let mut removed = false;
+
+    if runner.path_exists(&pool_file) {
+        info!(
+            "Removing PHP-FPM pool configuration: {}",
+            pool_file.display()
+        );
+        runner.remove_file(&pool_file)?;
+        removed = true;
+    }
+
+    let remaining_pools = count_remaining_pools(runner, &master);
+    let (master_stopped, reloaded) =
+        handle_service_after_pool_removal(runner, &master, remaining_pools, req.reload)?;
+
+    Ok(PhpFpmPoolRemoveResponse {
+        pool_name: req.pool_name,
+        removed,
+        remaining_pools,
+        master_stopped,
+        reloaded,
+    })
+}
+
+/// Retrieves the runtime and process status of a tenant's PHP-FPM master instance.
+pub fn get_php_fpm_master_status(
+    runner: &dyn SystemRunner,
+    req: PhpFpmMasterStatusRequest,
+) -> Result<PhpFpmMasterStatusResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    let is_active = runner
+        .run_command(
+            "systemctl",
+            &["is-active", "--quiet", &master.service_name()],
+        )
+        .is_ok();
+
+    let substate = runner
+        .run_command(
+            "systemctl",
+            &["show", "-p", "SubState", "--value", &master.service_name()],
+        )
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_else(|_| {
+            if is_active {
+                "running".to_string()
+            } else {
+                "inactive".to_string()
+            }
+        });
+
+    let socket_exists = runner.path_exists(&master.default_socket_path());
+
+    let entries = runner.read_dir(&master.pool_dir()).unwrap_or_default();
+    let pools_count = entries
+        .iter()
+        .filter(|p| {
+            p.extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext == "conf")
+        })
+        .count();
+
+    Ok(PhpFpmMasterStatusResponse {
+        service_name: master.service_name(),
+        is_active,
+        substate,
+        socket_exists,
+        pools_count,
+    })
+}
+
+/// Gracefully reloads a tenant's PHP-FPM master instance without dropping in-flight requests.
+pub fn reload_php_fpm_master(
+    runner: &dyn SystemRunner,
+    req: PhpFpmMasterReloadRequest,
+) -> Result<PhpFpmMasterActionResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    info!(
+        "Gracefully reloading PHP-FPM master: {}",
+        master.service_name()
+    );
+    runner.run_command("systemctl", &["reload", &master.service_name()])?;
+
+    Ok(PhpFpmMasterActionResponse {
+        service_name: master.service_name(),
+        action: "reload".to_string(),
+        success: true,
+        message: format!(
+            "PHP-FPM master '{}' berhasil di-reload",
+            master.service_name()
+        ),
+    })
+}
+
+/// Restarts a tenant's PHP-FPM master instance.
+pub fn restart_php_fpm_master(
+    runner: &dyn SystemRunner,
+    req: PhpFpmMasterRestartRequest,
+) -> Result<PhpFpmMasterActionResponse, AgentError> {
+    let version =
+        PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
+        .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+
+    info!("Restarting PHP-FPM master: {}", master.service_name());
+    runner.run_command("systemctl", &["restart", &master.service_name()])?;
+
+    Ok(PhpFpmMasterActionResponse {
+        service_name: master.service_name(),
+        action: "restart".to_string(),
+        success: true,
+        message: format!(
+            "PHP-FPM master '{}' berhasil di-restart",
+            master.service_name()
+        ),
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -583,6 +988,232 @@ mod tests {
             commands
                 .iter()
                 .any(|cmd| cmd.contains("apt-get remove -y --purge php8.3-redis"))
+        );
+    }
+
+    #[test]
+    fn test_ensure_php_fpm_master_creates_structure_and_service() {
+        let runner = MockSystemRunner::new();
+        let res = ensure_php_fpm_master(
+            &runner,
+            PhpFpmMasterEnsureRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                version: "8.3".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(res.service_name, "panel-fpm@p_alice-8.3.service");
+        assert_eq!(res.config_dir, "/etc/panel/php/p_alice-8.3");
+        assert_eq!(res.default_socket_path, "/run/panel/php/p_alice-8.3.sock");
+
+        let files = runner.files.lock().unwrap();
+        let master_conf_path = PathBuf::from("/etc/panel/php/p_alice-8.3/php-fpm.conf");
+        assert!(files.contains_key(&master_conf_path));
+        let conf_content =
+            String::from_utf8(files.get(&master_conf_path).unwrap().clone()).unwrap();
+        assert!(conf_content.contains("include = /etc/panel/php/p_alice-8.3/pool.d/*.conf"));
+
+        let unit_path = PathBuf::from("/etc/systemd/system/panel-fpm@p_alice-8.3.service");
+        assert!(files.contains_key(&unit_path));
+        let unit_content = String::from_utf8(files.get(&unit_path).unwrap().clone()).unwrap();
+        assert!(unit_content.contains("User=p_alice"));
+        assert!(unit_content.contains("Slice=panel-u10001.slice"));
+        assert!(unit_content.contains("NoNewPrivileges=true"));
+
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.contains("systemctl daemon-reload"))
+        );
+    }
+
+    #[test]
+    fn test_apply_php_fpm_pool_and_validation() {
+        let runner = MockSystemRunner::new();
+        let res = apply_php_fpm_pool(
+            &runner,
+            PhpFpmPoolApplyRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                version: "8.3".to_string(),
+                pool_name: "site-1".to_string(),
+                docroot: "/home/p_alice/sites/example.com/public".to_string(),
+                socket_path: None,
+                max_children: Some(15),
+                process_idle_timeout_secs: Some(15),
+                max_requests: Some(1000),
+                open_basedir: None,
+                disable_functions: None,
+                reload: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(res.pool_name, "site-1");
+        assert!(res.reloaded);
+        assert_eq!(
+            res.pool_conf_path,
+            PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/site-1.conf")
+                .to_string_lossy()
+                .to_string()
+        );
+
+        let files = runner.files.lock().unwrap();
+        let pool_path = PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/site-1.conf");
+        assert!(files.contains_key(&pool_path));
+        let pool_content = String::from_utf8(files.get(&pool_path).unwrap().clone()).unwrap();
+        assert!(pool_content.contains("[site-1]"));
+        assert!(pool_content.contains("listen = /run/panel/php/p_alice-8.3.sock"));
+        assert!(pool_content.contains("pm.max_children = 15"));
+        assert!(pool_content.contains("pm = ondemand"));
+
+        let commands = runner.get_commands();
+        assert!(commands.iter().any(|c| {
+            c.contains("systemctl reload panel-fpm@p_alice-8.3.service")
+                || c.contains("systemctl enable --now panel-fpm@p_alice-8.3.service")
+        }));
+    }
+
+    #[test]
+    fn test_apply_php_fpm_pool_syntax_error_rollback() {
+        let runner = MockSystemRunner::new();
+        runner.set_response(
+            "php-fpm8.3",
+            1,
+            b"",
+            b"Fatal error: pool configuration syntax invalid at line 10",
+        );
+
+        let res = apply_php_fpm_pool(
+            &runner,
+            PhpFpmPoolApplyRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                version: "8.3".to_string(),
+                pool_name: "broken-pool".to_string(),
+                docroot: "/home/p_alice/sites/broken.com/public".to_string(),
+                socket_path: None,
+                max_children: None,
+                process_idle_timeout_secs: None,
+                max_requests: None,
+                open_basedir: None,
+                disable_functions: None,
+                reload: true,
+            },
+        );
+
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.to_string().contains("Validasi sintaks PHP-FPM gagal"));
+
+        let files = runner.files.lock().unwrap();
+        let target_path = PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/broken-pool.conf");
+        let staging_path =
+            PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/broken-pool.conf.staging");
+        assert!(!files.contains_key(&target_path));
+        assert!(!files.contains_key(&staging_path));
+    }
+
+    #[test]
+    fn test_remove_php_fpm_pool_and_shutdown_idle_master() {
+        let runner = MockSystemRunner::new();
+        apply_php_fpm_pool(
+            &runner,
+            PhpFpmPoolApplyRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                version: "8.3".to_string(),
+                pool_name: "site-1".to_string(),
+                docroot: "/home/p_alice/sites/example.com/public".to_string(),
+                socket_path: None,
+                max_children: None,
+                process_idle_timeout_secs: None,
+                max_requests: None,
+                open_basedir: None,
+                disable_functions: None,
+                reload: false,
+            },
+        )
+        .unwrap();
+
+        let rem_res = remove_php_fpm_pool(
+            &runner,
+            PhpFpmPoolRemoveRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+                pool_name: "site-1".to_string(),
+                reload: true,
+            },
+        )
+        .unwrap();
+
+        assert!(rem_res.removed);
+        assert_eq!(rem_res.remaining_pools, 0);
+        assert!(rem_res.master_stopped);
+
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.contains("systemctl stop panel-fpm@p_alice-8.3.service"))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.contains("systemctl disable panel-fpm@p_alice-8.3.service"))
+        );
+    }
+
+    #[test]
+    fn test_get_php_fpm_master_status_and_actions() {
+        let runner = MockSystemRunner::new();
+        runner.set_response("systemctl", 0, b"active\n", b"");
+
+        let status = get_php_fpm_master_status(
+            &runner,
+            PhpFpmMasterStatusRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(status.service_name, "panel-fpm@p_alice-8.3.service");
+        assert!(status.is_active);
+
+        let reload_res = reload_php_fpm_master(
+            &runner,
+            PhpFpmMasterReloadRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+            },
+        )
+        .unwrap();
+        assert!(reload_res.success);
+
+        let restart_res = restart_php_fpm_master(
+            &runner,
+            PhpFpmMasterRestartRequest {
+                username: "p_alice".to_string(),
+                version: "8.3".to_string(),
+            },
+        )
+        .unwrap();
+        assert!(restart_res.success);
+
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.contains("systemctl reload panel-fpm@p_alice-8.3.service"))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.contains("systemctl restart panel-fpm@p_alice-8.3.service"))
         );
     }
 }

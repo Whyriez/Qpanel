@@ -5,17 +5,21 @@ use panel_proto::{
     AcmeChallengeDeployedResponse, HardeningApplyRequest, HardeningApplyResponse, HardeningStatus,
     NginxBaselineAppliedResponse, NginxBaselineApplyRequest, PhpExtensionActionResponse,
     PhpExtensionInstallRequest, PhpExtensionListRequest, PhpExtensionListResponse,
-    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpRepoSetupRequest,
-    PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
-    PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
-    QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
-    QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
-    SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
-    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
-    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
-    SliceResourceMetrics, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
-    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
-    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpFpmMasterActionResponse,
+    PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest,
+    PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse,
+    PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest,
+    PhpFpmPoolRemoveResponse, PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse,
+    PhpRuntimeInstallRequest, PhpRuntimeListRequest, PhpRuntimeListResponse,
+    PhpRuntimeRemoveRequest, ProtoError, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
+    QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
+    ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
+    SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse,
+    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
+    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SslCertDeployRequest,
+    SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
+    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
+    UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -1066,6 +1070,227 @@ impl AgentClient {
             ResponsePayload::PhpExtensionAction(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PhpExtensionAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn ensure_php_fpm_master(
+        &self,
+        username: impl Into<String>,
+        uid: u32,
+        version: impl Into<String>,
+    ) -> Result<PhpFpmMasterEnsureResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-ensure-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmMasterEnsure(PhpFpmMasterEnsureRequest {
+                username: username.into(),
+                uid,
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmMasterEnsure(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmMasterEnsure",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_php_fpm_pool(
+        &self,
+        req: PhpFpmPoolApplyRequest,
+    ) -> Result<PhpFpmPoolApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-pool-apply-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PhpFpmPoolApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmPoolApply(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmPoolApply",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_php_fpm_pool(
+        &self,
+        username: impl Into<String>,
+        version: impl Into<String>,
+        pool_name: impl Into<String>,
+        reload: bool,
+    ) -> Result<PhpFpmPoolRemoveResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-pool-rem-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmPoolRemove(PhpFpmPoolRemoveRequest {
+                username: username.into(),
+                version: version.into(),
+                pool_name: pool_name.into(),
+                reload,
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmPoolRemove(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmPoolRemove",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn get_php_fpm_master_status(
+        &self,
+        username: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Result<PhpFpmMasterStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmMasterStatus(PhpFpmMasterStatusRequest {
+                username: username.into(),
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmMasterStatus(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmMasterStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn reload_php_fpm_master(
+        &self,
+        username: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Result<PhpFpmMasterActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-reload-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmMasterReload(PhpFpmMasterReloadRequest {
+                username: username.into(),
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmMasterAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmMasterAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn restart_php_fpm_master(
+        &self,
+        username: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Result<PhpFpmMasterActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "php-fpm-restart-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::PhpFpmMasterRestart(PhpFpmMasterRestartRequest {
+                username: username.into(),
+                version: version.into(),
+            }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PhpFpmMasterAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PhpFpmMasterAction",
                 got: format!("{other:?}"),
             }),
         }

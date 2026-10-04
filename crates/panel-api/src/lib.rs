@@ -213,6 +213,23 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/sites/{id}/php/extensions",
             get(php::get_site_php_extensions_handler).put(php::update_site_php_extensions_handler),
         )
+        // PHP-FPM Master management endpoints
+        .route(
+            "/api/v1/php/masters",
+            get(php::list_php_fpm_masters_handler),
+        )
+        .route(
+            "/api/v1/php/masters/{username}/{version}/status",
+            get(php::get_php_fpm_master_status_handler),
+        )
+        .route(
+            "/api/v1/php/masters/{username}/{version}/reload",
+            post(php::reload_php_fpm_master_handler),
+        )
+        .route(
+            "/api/v1/php/masters/{username}/{version}/restart",
+            post(php::restart_php_fpm_master_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

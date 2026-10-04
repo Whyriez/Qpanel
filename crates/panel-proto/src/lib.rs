@@ -73,6 +73,12 @@ pub enum RequestPayload {
     PhpExtensionInstall(PhpExtensionInstallRequest),
     PhpExtensionToggle(PhpExtensionToggleRequest),
     PhpExtensionRemove(PhpExtensionRemoveRequest),
+    PhpFpmMasterEnsure(PhpFpmMasterEnsureRequest),
+    PhpFpmPoolApply(PhpFpmPoolApplyRequest),
+    PhpFpmPoolRemove(PhpFpmPoolRemoveRequest),
+    PhpFpmMasterStatus(PhpFpmMasterStatusRequest),
+    PhpFpmMasterReload(PhpFpmMasterReloadRequest),
+    PhpFpmMasterRestart(PhpFpmMasterRestartRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -211,6 +217,11 @@ pub enum ResponsePayload {
     PhpRuntimeRemoved(PhpRuntimeActionResponse),
     PhpExtensionList(PhpExtensionListResponse),
     PhpExtensionAction(PhpExtensionActionResponse),
+    PhpFpmMasterEnsure(PhpFpmMasterEnsureResponse),
+    PhpFpmPoolApply(PhpFpmPoolApplyResponse),
+    PhpFpmPoolRemove(PhpFpmPoolRemoveResponse),
+    PhpFpmMasterStatus(PhpFpmMasterStatusResponse),
+    PhpFpmMasterAction(PhpFpmMasterActionResponse),
     Error(String),
 }
 
@@ -565,6 +576,97 @@ pub struct PhpExtensionRemoveRequest {
 pub struct PhpExtensionActionResponse {
     pub version: String,
     pub extension: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterEnsureRequest {
+    pub username: String,
+    pub uid: u32,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterEnsureResponse {
+    pub service_name: String,
+    pub config_dir: String,
+    pub default_socket_path: String,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmPoolApplyRequest {
+    pub username: String,
+    pub uid: u32,
+    pub version: String,
+    pub pool_name: String,
+    pub docroot: String,
+    pub socket_path: Option<String>,
+    pub max_children: Option<u32>,
+    pub process_idle_timeout_secs: Option<u32>,
+    pub max_requests: Option<u32>,
+    pub open_basedir: Option<Vec<String>>,
+    pub disable_functions: Option<Vec<String>>,
+    pub reload: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmPoolApplyResponse {
+    pub pool_name: String,
+    pub pool_conf_path: String,
+    pub socket_path: String,
+    pub reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmPoolRemoveRequest {
+    pub username: String,
+    pub version: String,
+    pub pool_name: String,
+    pub reload: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmPoolRemoveResponse {
+    pub pool_name: String,
+    pub removed: bool,
+    pub remaining_pools: usize,
+    pub master_stopped: bool,
+    pub reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterStatusRequest {
+    pub username: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterStatusResponse {
+    pub service_name: String,
+    pub is_active: bool,
+    pub substate: String,
+    pub socket_exists: bool,
+    pub pools_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterReloadRequest {
+    pub username: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterRestartRequest {
+    pub username: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmMasterActionResponse {
+    pub service_name: String,
+    pub action: String,
     pub success: bool,
     pub message: String,
 }
@@ -1049,5 +1151,41 @@ mod tests {
         let de_res_ext: RpcResponse =
             serde_json::from_str(&s_res_ext).expect("deserialize PhpExtensionListResponse");
         assert_eq!(res_ext, de_res_ext);
+
+        let req_fpm = RpcRequest::new(
+            "fpm-req-1",
+            RequestPayload::PhpFpmPoolApply(PhpFpmPoolApplyRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                version: "8.3".to_string(),
+                pool_name: "site-1".to_string(),
+                docroot: "/home/p_alice/sites/example.com/public".to_string(),
+                socket_path: None,
+                max_children: Some(10),
+                process_idle_timeout_secs: Some(10),
+                max_requests: Some(500),
+                open_basedir: None,
+                disable_functions: None,
+                reload: true,
+            }),
+        );
+        let s_fpm = serde_json::to_string(&req_fpm).expect("serialize PhpFpmPoolApplyRequest");
+        let de_fpm: RpcRequest =
+            serde_json::from_str(&s_fpm).expect("deserialize PhpFpmPoolApplyRequest");
+        assert_eq!(req_fpm, de_fpm);
+
+        let res_fpm = RpcResponse::ok(
+            "fpm-res-1",
+            ResponsePayload::PhpFpmPoolApply(PhpFpmPoolApplyResponse {
+                pool_name: "site-1".to_string(),
+                pool_conf_path: "/etc/panel/php/p_alice-8.3/pool.d/site-1.conf".to_string(),
+                socket_path: "/run/panel/php/p_alice-8.3.sock".to_string(),
+                reloaded: true,
+            }),
+        );
+        let s_res_fpm = serde_json::to_string(&res_fpm).expect("serialize PhpFpmPoolApplyResponse");
+        let de_res_fpm: RpcResponse =
+            serde_json::from_str(&s_res_fpm).expect("deserialize PhpFpmPoolApplyResponse");
+        assert_eq!(res_fpm, de_res_fpm);
     }
 }

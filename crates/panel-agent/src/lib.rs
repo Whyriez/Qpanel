@@ -400,6 +400,30 @@ impl AgentServer {
                     "php.extension_remove".to_string(),
                     format!("php{}-{}", d.version, d.extension),
                 ),
+                RequestPayload::PhpFpmMasterEnsure(d) => (
+                    "php.fpm_master_ensure".to_string(),
+                    format!("{}-{}", d.username, d.version),
+                ),
+                RequestPayload::PhpFpmPoolApply(d) => (
+                    "php.fpm_pool_apply".to_string(),
+                    format!("{}-{}/{}", d.username, d.version, d.pool_name),
+                ),
+                RequestPayload::PhpFpmPoolRemove(d) => (
+                    "php.fpm_pool_remove".to_string(),
+                    format!("{}-{}/{}", d.username, d.version, d.pool_name),
+                ),
+                RequestPayload::PhpFpmMasterStatus(d) => (
+                    "php.fpm_master_status".to_string(),
+                    format!("{}-{}", d.username, d.version),
+                ),
+                RequestPayload::PhpFpmMasterReload(d) => (
+                    "php.fpm_master_reload".to_string(),
+                    format!("{}-{}", d.username, d.version),
+                ),
+                RequestPayload::PhpFpmMasterRestart(d) => (
+                    "php.fpm_master_restart".to_string(),
+                    format!("{}-{}", d.username, d.version),
+                ),
             };
 
             let response = match req.payload {
@@ -617,6 +641,58 @@ impl AgentServer {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
                             ResponsePayload::PhpExtensionAction(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmMasterEnsure(data) => {
+                    match php::ensure_php_fpm_master(self.runner.as_ref(), data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpFpmMasterEnsure(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmPoolApply(data) => {
+                    match php::apply_php_fpm_pool(self.runner.as_ref(), data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpFpmPoolApply(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmPoolRemove(data) => {
+                    match php::remove_php_fpm_pool(self.runner.as_ref(), data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PhpFpmPoolRemove(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmMasterStatus(data) => {
+                    match php::get_php_fpm_master_status(self.runner.as_ref(), data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpFpmMasterStatus(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmMasterReload(data) => {
+                    match php::reload_php_fpm_master(self.runner.as_ref(), data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpFpmMasterAction(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PhpFpmMasterRestart(data) => {
+                    match php::restart_php_fpm_master(self.runner.as_ref(), data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PhpFpmMasterAction(res),
                         ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

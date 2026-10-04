@@ -23,4 +23,7 @@ pub enum RuntimeError {
 
     #[error("Operasi I/O gagal: {0}")]
     Io(String),
+
+    #[error("Konfigurasi runtime tidak valid: {0}")]
+    InvalidConfig(String),
 }

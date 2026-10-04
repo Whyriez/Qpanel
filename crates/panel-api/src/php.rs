@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use panel_db::models::UpdateSite;
-use panel_db::repositories::SqliteSiteRepository;
+use panel_db::repositories::{SqliteSiteRepository, SqliteUserRepository};
 use panel_runtime::php::{CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -61,6 +61,37 @@ impl From<panel_proto::PhpRuntimeListResponse> for PhpRuntimeListApiResponse {
             versions: res.versions.into_iter().map(Into::into).collect(),
         }
     }
+}
+
+/// Overview information for a tenant's PHP-FPM master instance.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PhpFpmMasterOverviewDto {
+    pub username: String,
+    pub version: String,
+    pub service_name: String,
+    pub is_active: bool,
+    pub substate: String,
+    pub socket_exists: bool,
+    pub pools_count: usize,
+}
+
+/// Detailed status information for a specific master.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PhpFpmMasterStatusDto {
+    pub service_name: String,
+    pub is_active: bool,
+    pub substate: String,
+    pub socket_exists: bool,
+    pub pools_count: usize,
+}
+
+/// Generic message response for PHP-FPM actions (reload, restart).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PhpFpmActionResponseDto {
+    pub service_name: String,
+    pub action: String,
+    pub success: bool,
+    pub message: String,
 }
 
 #[utoipa::path(
@@ -833,4 +864,309 @@ pub async fn update_site_php_extensions_handler(
         }),
     )
         .into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/php/masters",
+    responses(
+        (status = 200, description = "Daftar master PHP-FPM tenant", body = Vec<PhpFpmMasterOverviewDto>),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "runtime"
+)]
+pub async fn list_php_fpm_masters_handler(
+    State(state): State<AppState>,
+    RequireAuth(auth_user): RequireAuth,
+) -> Response {
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let users = if auth_user.is_admin() {
+        user_repo.list_all().await.unwrap_or_default()
+    } else {
+        match user_repo.find_by_id(auth_user.id).await {
+            Ok(Some(u)) => vec![u],
+            _ => vec![],
+        }
+    };
+
+    let supported_versions = PhpVersion::all_supported();
+    let mut masters = Vec::new();
+
+    for user in users {
+        let linux_user = match user.linux_username.as_deref() {
+            Some(u) if !u.is_empty() => u,
+            _ => continue,
+        };
+
+        for ver in supported_versions {
+            let ver_str = ver.as_str();
+            let status = match state
+                .agent_client
+                .get_php_fpm_master_status(linux_user, ver_str)
+                .await
+            {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            if status.is_active || status.pools_count > 0 {
+                masters.push(PhpFpmMasterOverviewDto {
+                    username: linux_user.to_string(),
+                    version: ver_str.to_string(),
+                    service_name: status.service_name,
+                    is_active: status.is_active,
+                    substate: status.substate,
+                    socket_exists: status.socket_exists,
+                    pools_count: status.pools_count,
+                });
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(masters)).into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/php/masters/{username}/{version}/status",
+    params(
+        ("username" = String, Path, description = "Username Linux tenant"),
+        ("version" = String, Path, description = "Versi PHP (mis. 8.3)")
+    ),
+    responses(
+        (status = 200, description = "Status master PHP-FPM", body = PhpFpmMasterStatusDto),
+        (status = 400, description = "Versi PHP tidak valid"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden (Bukan pemilik akun)"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "runtime"
+)]
+pub async fn get_php_fpm_master_status_handler(
+    State(state): State<AppState>,
+    RequireAuth(auth_user): RequireAuth,
+    Path((username, version)): Path<(String, String)>,
+) -> Response {
+    if let Err(e) = PhpVersion::parse(&version) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("Versi PHP tidak valid: {}", e) })),
+        )
+            .into_response();
+    }
+
+    if !auth_user.is_admin() {
+        let user_repo = SqliteUserRepository::new(state.pool.clone());
+        let current_user = match user_repo.find_by_id(auth_user.id).await {
+            Ok(Some(u)) => u,
+            _ => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Pengguna tidak ditemukan" })),
+                )
+                    .into_response();
+            }
+        };
+        if current_user.linux_username.as_deref() != Some(&username) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Anda tidak memiliki akses ke master FPM tenant ini" })),
+            )
+                .into_response();
+        }
+    }
+
+    match state
+        .agent_client
+        .get_php_fpm_master_status(&username, &version)
+        .await
+    {
+        Ok(res) => (
+            StatusCode::OK,
+            Json(PhpFpmMasterStatusDto {
+                service_name: res.service_name,
+                is_active: res.is_active,
+                substate: res.substate,
+                socket_exists: res.socket_exists,
+                pools_count: res.pools_count,
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Gagal membaca status master FPM: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/php/masters/{username}/{version}/reload",
+    params(
+        ("username" = String, Path, description = "Username Linux tenant"),
+        ("version" = String, Path, description = "Versi PHP (mis. 8.3)")
+    ),
+    responses(
+        (status = 200, description = "PHP-FPM master berhasil di-reload", body = PhpFpmActionResponseDto),
+        (status = 400, description = "Versi PHP tidak valid"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden (Bukan pemilik atau CSRF tidak valid)"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "runtime"
+)]
+pub async fn reload_php_fpm_master_handler(
+    State(state): State<AppState>,
+    RequireCsrf(auth_user): RequireCsrf,
+    Path((username, version)): Path<(String, String)>,
+) -> Response {
+    if let Err(e) = PhpVersion::parse(&version) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("Versi PHP tidak valid: {}", e) })),
+        )
+            .into_response();
+    }
+
+    if !auth_user.is_admin() {
+        let user_repo = SqliteUserRepository::new(state.pool.clone());
+        let current_user = match user_repo.find_by_id(auth_user.id).await {
+            Ok(Some(u)) => u,
+            _ => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Pengguna tidak ditemukan" })),
+                )
+                    .into_response();
+            }
+        };
+        if current_user.linux_username.as_deref() != Some(&username) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Anda tidak memiliki izin me-reload master FPM ini" })),
+            )
+                .into_response();
+        }
+    }
+
+    match state
+        .agent_client
+        .reload_php_fpm_master(&username, &version)
+        .await
+    {
+        Ok(res) => {
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "php.fpm.reload",
+                format!("{}-{}", username, version),
+                "success",
+                None,
+                Some(format!("Reload master FPM {}-{}", username, version)),
+            );
+
+            (
+                StatusCode::OK,
+                Json(PhpFpmActionResponseDto {
+                    service_name: res.service_name,
+                    action: res.action,
+                    success: res.success,
+                    message: res.message,
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Gagal me-reload master FPM: {}", e) })),
+        )
+            .into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/php/masters/{username}/{version}/restart",
+    params(
+        ("username" = String, Path, description = "Username Linux tenant"),
+        ("version" = String, Path, description = "Versi PHP (mis. 8.3)")
+    ),
+    responses(
+        (status = 200, description = "PHP-FPM master berhasil di-restart", body = PhpFpmActionResponseDto),
+        (status = 400, description = "Versi PHP tidak valid"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden (Bukan pemilik atau CSRF tidak valid)"),
+        (status = 500, description = "Internal error")
+    ),
+    tag = "runtime"
+)]
+pub async fn restart_php_fpm_master_handler(
+    State(state): State<AppState>,
+    RequireCsrf(auth_user): RequireCsrf,
+    Path((username, version)): Path<(String, String)>,
+) -> Response {
+    if let Err(e) = PhpVersion::parse(&version) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("Versi PHP tidak valid: {}", e) })),
+        )
+            .into_response();
+    }
+
+    if !auth_user.is_admin() {
+        let user_repo = SqliteUserRepository::new(state.pool.clone());
+        let current_user = match user_repo.find_by_id(auth_user.id).await {
+            Ok(Some(u)) => u,
+            _ => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Pengguna tidak ditemukan" })),
+                )
+                    .into_response();
+            }
+        };
+        if current_user.linux_username.as_deref() != Some(&username) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Anda tidak memiliki izin me-restart master FPM ini" })),
+            )
+                .into_response();
+        }
+    }
+
+    match state
+        .agent_client
+        .restart_php_fpm_master(&username, &version)
+        .await
+    {
+        Ok(res) => {
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "php.fpm.restart",
+                format!("{}-{}", username, version),
+                "success",
+                None,
+                Some(format!("Restart master FPM {}-{}", username, version)),
+            );
+
+            (
+                StatusCode::OK,
+                Json(PhpFpmActionResponseDto {
+                    service_name: res.service_name,
+                    action: res.action,
+                    success: res.success,
+                    message: res.message,
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("Gagal me-restart master FPM: {}", e) })),
+        )
+            .into_response(),
+    }
 }
