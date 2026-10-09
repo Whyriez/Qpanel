@@ -12,6 +12,7 @@ import { PlansPage } from './pages/PlansPage';
 import { SitesPage } from './pages/SitesPage';
 import { SiteDetailPage } from './pages/SiteDetailPage';
 import { RuntimePage } from './pages/RuntimePage';
+import { FileManagerPage } from './pages/FileManagerPage';
 import { ToastProvider } from './components/ui/Toast';
 import { ThemeMode } from './types/api';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -145,6 +146,7 @@ const MainApp: React.FC = () => {
         )}
         {activeNav === 'plans' && <PlansPage />}
         {activeNav === 'runtime' && <RuntimePage />}
+        {activeNav === 'files' && <FileManagerPage />}
         {['analytics', 'settings'].includes(activeNav) && (
           <div className="p-8 text-center text-xs text-[var(--ink-muted)] border border-[var(--line)] rounded-[var(--radius-md)] bg-[var(--surface)]">
             Halaman <span className="font-semibold text-[var(--ink)]">{activeNav}</span> akan diimplementasikan pada fase berikutnya sesuai roadmap PRD.

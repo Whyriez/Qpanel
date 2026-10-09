@@ -47,6 +47,7 @@ import {
   SitePhpStatusResponse,
   SitePhpLogsResponse,
 } from '../types/api';
+import type { FsListResponse, TrashListResponse } from '../types/files';
 
 const API_BASE = '';
 let cachedCsrfToken: string | null = null;
@@ -651,5 +652,185 @@ export async function fetchSitePhpLogs(
   if (query) params.set('q', query);
   return request<SitePhpLogsResponse>(`/api/v1/sites/${siteId}/php/logs?${params.toString()}`);
 }
+
+// ==========================================
+// File Manager API
+// ==========================================
+
+export async function fetchFileList(params: {
+  path?: string;
+  offset?: number;
+  limit?: number;
+  sort_by?: string;
+  sort_order?: string;
+  show_hidden?: boolean;
+  search_query?: string;
+  extension?: string;
+}): Promise<FsListResponse> {
+  const q = new URLSearchParams();
+  if (params.path) q.set('path', params.path);
+  if (params.offset !== undefined) q.set('offset', params.offset.toString());
+  if (params.limit !== undefined) q.set('limit', params.limit.toString());
+  if (params.sort_by) q.set('sort_by', params.sort_by);
+  if (params.sort_order) q.set('sort_order', params.sort_order);
+  if (params.show_hidden !== undefined) q.set('show_hidden', params.show_hidden ? 'true' : 'false');
+  if (params.search_query) q.set('search_query', params.search_query);
+  if (params.extension) q.set('extension', params.extension);
+
+  const qs = q.toString() ? `?${q.toString()}` : '';
+  return request<FsListResponse>(`/api/v1/files/list${qs}`);
+}
+
+export async function createFolder(
+  path: string,
+  createParents = true
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/mkdir', {
+    method: 'POST',
+    body: JSON.stringify({ path, create_parents: createParents }),
+  });
+}
+
+export async function renameFile(
+  from: string,
+  to: string,
+  overwrite = false
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/rename', {
+    method: 'POST',
+    body: JSON.stringify({ from, to, overwrite }),
+  });
+}
+
+export async function moveFile(
+  from: string,
+  to: string,
+  overwrite = false
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/move', {
+    method: 'POST',
+    body: JSON.stringify({ from, to, overwrite }),
+  });
+}
+
+export async function copyFile(
+  from: string,
+  to: string,
+  overwrite = false,
+  asJob = false
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/copy', {
+    method: 'POST',
+    body: JSON.stringify({ from, to, overwrite, as_job: asJob }),
+  });
+}
+
+export async function moveToTrash(
+  path: string
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/trash', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+export async function fetchTrashList(): Promise<TrashListResponse> {
+  return request<TrashListResponse>('/api/v1/files/trash');
+}
+
+export async function restoreTrash(
+  trashId: string
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/trash/restore', {
+    method: 'POST',
+    body: JSON.stringify({ trash_id: trashId }),
+  });
+}
+
+export async function emptyTrash(): Promise<{
+  success: boolean;
+  message: string;
+  deleted_count: number;
+  reclaimed_bytes: number;
+}> {
+  return request<{
+    success: boolean;
+    message: string;
+    deleted_count: number;
+    reclaimed_bytes: number;
+  }>('/api/v1/files/trash/empty', {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteFilePermanent(
+  path: string
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>('/api/v1/files/permanent', {
+    method: 'DELETE',
+    body: JSON.stringify({ path }),
+  });
+}
+
+export async function compressArchive(
+  sources: string[],
+  targetArchive: string,
+  format = 'zip'
+): Promise<{ success: boolean; message: string; job_id?: string }> {
+  return request<{ success: boolean; message: string; job_id?: string }>(
+    '/api/v1/files/archive/compress',
+    {
+      method: 'POST',
+      body: JSON.stringify({ sources, target_archive: targetArchive, format }),
+    }
+  );
+}
+
+export async function extractArchive(
+  archivePath: string,
+  targetDir = ''
+): Promise<{ success: boolean; message: string; job_id?: string }> {
+  return request<{ success: boolean; message: string; job_id?: string }>(
+    '/api/v1/files/archive/extract',
+    {
+      method: 'POST',
+      body: JSON.stringify({ archive_path: archivePath, target_dir: targetDir }),
+    }
+  );
+}
+
+export async function initUpload(
+  path: string,
+  totalSize: number,
+  fileHash?: string
+): Promise<{ upload_id: string; chunk_size: number }> {
+  return request<{ upload_id: string; chunk_size: number }>('/api/v1/files/upload/init', {
+    method: 'POST',
+    body: JSON.stringify({ path, total_size: totalSize, file_hash: fileHash }),
+  });
+}
+
+export async function uploadChunk(
+  uploadId: string,
+  offset: number,
+  chunk: Blob
+): Promise<{ success: boolean; current_offset: number; complete: boolean }> {
+  const res = await fetch(`/api/v1/files/upload/${uploadId}/chunk?offset=${offset}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+    },
+    body: chunk,
+    credentials: 'include',
+  });
+
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { detail?: string; message?: string };
+    throw new Error(err.detail || err.message || `Unggah gagal dengan status ${res.status}`);
+  }
+
+  return res.json() as Promise<{ success: boolean; current_offset: number; complete: boolean }>;
+}
+
 
 

@@ -22,7 +22,9 @@ import {
   Pause,
   Code2,
   Sliders,
+  Folder,
 } from 'lucide-react';
+import { FileManager } from '../components/files/FileManager';
 import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
 import { PhpStatusCard } from '../components/sites/PhpStatusCard';
 import { useTranslation } from 'react-i18next';
@@ -62,7 +64,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'ssl' | 'logs' | 'php' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -675,6 +677,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         </button>
 
         <button
+          onClick={() => setActiveTab('files')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'files'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <Folder className="w-4 h-4" />
+          Berkas
+        </button>
+
+        <button
           onClick={() => setActiveTab('ssl')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'ssl'
@@ -1069,6 +1083,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 2.5: FILE MANAGER (BERKAS SITUS)                                  */}
+      {/* ===================================================================== */}
+      {activeTab === 'files' && (
+        <div className="pt-2">
+          <FileManager
+            initialPath={site.docroot.startsWith('/') ? site.docroot.substring(1) : site.docroot}
+            title={`Berkas Situs: ${site.primary_domain}`}
+          />
         </div>
       )}
 

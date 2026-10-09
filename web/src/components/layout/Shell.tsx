@@ -20,6 +20,7 @@ import {
   Server,
   LogOut,
   Layers,
+  FolderTree,
 } from 'lucide-react';
 import { ThemeMode } from '../../types/api';
 import { useAuth } from '../../context/AuthContext';
@@ -50,6 +51,7 @@ export const Shell: React.FC<ShellProps> = ({
   const navItems = [
     { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
     { id: 'sites', label: t('nav.sites'), icon: Globe },
+    { id: 'files', label: t('nav.files'), icon: FolderTree },
     { id: 'tenants', label: t('nav.tenants'), icon: Users },
     { id: 'plans', label: t('nav.plans'), icon: Layers },
     { id: 'analytics', label: t('nav.analytics'), icon: BarChart3 },

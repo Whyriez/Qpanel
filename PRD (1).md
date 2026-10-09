@@ -16,7 +16,7 @@ Agent **wajib** mencentang checklist ini dan menyalinnya ke `docs/PROGRESS.md` s
 - [x] Phase 2 — Tenant user & isolasi
 - [x] Phase 3 — Site engine: static + Nginx + domain + SSL
 - [x] Phase 4 — PHP multi-versi terisolasi
-- [ ] Phase 5 — File manager custom
+- [x] Phase 5 — File manager custom
 - [ ] Phase 6 — Web terminal & SSH
 - [ ] Phase 7 — Node.js, Python, Reverse proxy
 - [ ] Phase 8 — Kelengkapan detail project
@@ -768,15 +768,15 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 **Tujuan**: file manager yang aman dan terasa premium, dirancang sendiri.
 **Prasyarat**: Phase 2 (UID tenant), Phase 3 (struktur site).
 
-- [ ] **P5-T1 `panel-fs`**: library resolusi path confined (`openat2` / `cap-std`) dan operasi dasar; test adversarial lengkap (5.3).
-- [ ] **P5-T2 Model fs-worker**: agent men-spawn worker yang drop ke UID/GID tenant (`setgroups`, `setgid`, `setuid`, `no_new_privs`, rlimit), protokol via socketpair, pool + idle timeout.
-- [ ] **P5-T3 API operasi**: list (cursor, sort, filter), stat, mkdir, rename, move, copy (job + progres), hapus → **trash** (restore, retensi, hitung quota), kosongkan trash.
-- [ ] **P5-T4 Upload/download**: upload resumable chunked + cek quota di muka + finalize atomic; download Range/ETag; zip folder streaming.
-- [ ] **P5-T5 Arsip**: compress zip/tar.gz dan extract aman (anti zip-slip, symlink, zip-bomb) sebagai job.
-- [ ] **P5-T6 Permission**: lihat/ubah mode (rekursif dengan mode file dan folder terpisah), peringatan 777, batasan chown.
-- [ ] **P5-T7 Editor dan preview**: CodeMirror 6, batas ukuran, deteksi konflik (mtime/ETag), preview gambar/PDF/video/teks.
-- [ ] **P5-T8 Pencarian**: nama dan isi, batas waktu dan batas hasil, sebagai job.
-- [ ] **P5-T9 UI file manager**: sesuai 8.4: breadcrumb, pohon, list/grid virtual, multi-select, rubber band, drag-drop, context menu, shortcut keyboard, tray unggah (jeda/lanjut), meter quota, empty/loading/error state, tombol "Terminal di sini" (disabled sampai Phase 6).
+- [x] **P5-T1 `panel-fs`**: library resolusi path confined (`openat2` / `cap-std`) dan operasi dasar; test adversarial lengkap (5.3).
+- [x] **P5-T2 Model fs-worker**: agent men-spawn worker yang drop ke UID/GID tenant (`setgroups`, `setgid`, `setuid`, `no_new_privs`, rlimit), protokol via socketpair, pool + idle timeout.
+- [x] **P5-T3 API operasi**: list (cursor, sort, filter), stat, mkdir, rename, move, copy (job + progres), hapus → **trash** (restore, retensi, hitung quota), kosongkan trash.
+- [x] **P5-T4 Upload/download**: upload resumable chunked + cek quota di muka + finalize atomic; download Range/ETag; zip folder streaming.
+- [x] **P5-T5 Arsip**: compress zip/tar.gz dan extract aman (anti zip-slip, symlink, zip-bomb) sebagai job.
+- [x] **P5-T6 Permission**: lihat/ubah mode (rekursif dengan mode file dan folder terpisah), peringatan 777, batasan chown.
+- [x] **P5-T7 Editor dan preview**: CodeMirror 6, batas ukuran, deteksi konflik (mtime/ETag), preview gambar/PDF/video/teks.
+- [x] **P5-T8 Pencarian**: nama dan isi, batas waktu dan batas hasil, sebagai job.
+- [x] **P5-T9 UI file manager**: sesuai 8.4: breadcrumb, pohon, list/grid virtual, multi-select, rubber band, drag-drop, context menu, shortcut keyboard, tray unggah (jeda/lanjut), meter quota, empty/loading/error state, tombol "Terminal di sini" (disabled sampai Phase 6).
 
 **Acceptance**: seluruh test adversarial `panel-fs` lulus; unggah 10 GB bisa dilanjutkan setelah koneksi putus dengan memori konstan; 10.000 entri tetap mulus; tenant tidak bisa keluar dari home-nya lewat jalur apa pun.
 **Jangan dulu**: terminal, SSH.
