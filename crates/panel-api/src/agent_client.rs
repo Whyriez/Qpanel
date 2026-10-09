@@ -31,10 +31,10 @@ use panel_proto::{
     ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
     SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse,
     SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
-    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SslCertDeployRequest,
-    SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
-    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
-    UserUnsuspendedResponse, VersionInfo,
+    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SshKeysSyncRequest,
+    SshKeysSyncResponse, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
+    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
+    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -2232,6 +2232,33 @@ impl AgentClient {
             ResponsePayload::PtyList(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PtyList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn sync_ssh_keys(
+        &self,
+        linux_username: &str,
+        keys: Vec<String>,
+    ) -> Result<SshKeysSyncResponse, AgentClientError> {
+        let req = SshKeysSyncRequest {
+            linux_username: linux_username.to_string(),
+            keys,
+        };
+        let res = self
+            .send_rpc("ssh-keys-sync", RequestPayload::SshKeysSync(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SshKeysSync(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SshKeysSync",
                 got: format!("{other:?}"),
             }),
         }

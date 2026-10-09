@@ -16,5 +16,6 @@ describe('SecurityProfilePage Component', () => {
     expect(html).toContain('Informasi Akun');
     expect(html).toContain('Ganti Kata Sandi');
     expect(html).toContain('Autentikasi Dua Faktor (2FA)');
+    expect(html).toContain('Kunci SSH Publik');
   });
 });

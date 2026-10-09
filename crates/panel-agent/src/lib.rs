@@ -8,6 +8,7 @@ pub mod pty;
 pub mod quota;
 pub mod resource;
 pub mod slice;
+pub mod ssh;
 pub mod system;
 pub mod user;
 pub mod webserver;
@@ -75,6 +76,7 @@ pub struct AgentServer {
     webserver_manager: Arc<webserver::NginxManager>,
     fs_manager: Arc<fs_manager::FsManager>,
     pty_manager: Arc<pty::PtySessionManager>,
+    ssh_manager: Arc<ssh::SshManager>,
 }
 
 fn create_default_pty_manager() -> Arc<pty::PtySessionManager> {
@@ -114,6 +116,9 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let pty_manager = create_default_pty_manager();
+        let ssh_manager = Arc::new(ssh::SshManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -125,6 +130,7 @@ impl AgentServer {
             webserver_manager,
             fs_manager,
             pty_manager,
+            ssh_manager,
         }
     }
 
@@ -150,6 +156,9 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let pty_manager = create_default_pty_manager();
+        let ssh_manager = Arc::new(ssh::SshManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -161,6 +170,7 @@ impl AgentServer {
             webserver_manager,
             fs_manager,
             pty_manager,
+            ssh_manager,
         }
     }
 
@@ -180,6 +190,9 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let pty_manager = create_default_pty_manager();
+        let ssh_manager = Arc::new(ssh::SshManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -191,6 +204,7 @@ impl AgentServer {
             webserver_manager,
             fs_manager,
             pty_manager,
+            ssh_manager,
         }
     }
 
@@ -208,6 +222,9 @@ impl AgentServer {
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
         let pty_manager = create_default_pty_manager();
+        let ssh_manager = Arc::new(ssh::SshManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -219,6 +236,7 @@ impl AgentServer {
             webserver_manager,
             fs_manager,
             pty_manager,
+            ssh_manager,
         }
     }
 
@@ -237,8 +255,17 @@ impl AgentServer {
         self
     }
 
+    pub fn with_ssh_manager(mut self, ssh_manager: Arc<ssh::SshManager>) -> Self {
+        self.ssh_manager = ssh_manager;
+        self
+    }
+
     pub fn pty_manager(&self) -> &Arc<pty::PtySessionManager> {
         &self.pty_manager
+    }
+
+    pub fn ssh_manager(&self) -> &Arc<ssh::SshManager> {
+        &self.ssh_manager
     }
 
     pub fn config(&self) -> &AgentConfig {
@@ -600,6 +627,9 @@ impl AgentServer {
                 ),
                 RequestPayload::PtyClose(d) => ("pty.close".to_string(), d.session_id.clone()),
                 RequestPayload::PtyList(d) => ("pty.list".to_string(), format!("{:?}", d.username)),
+                RequestPayload::SshKeysSync(d) => {
+                    ("ssh.sync_keys".to_string(), d.linux_username.clone())
+                }
             };
 
             let response = match req.payload {
@@ -1056,6 +1086,13 @@ impl AgentServer {
                 },
                 RequestPayload::PtyList(data) => match self.pty_manager.list_sessions(data).await {
                     Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PtyList(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::SshKeysSync(data) => match self
+                    .ssh_manager
+                    .sync_authorized_keys(&data)
+                {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::SshKeysSync(res)),
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
             };

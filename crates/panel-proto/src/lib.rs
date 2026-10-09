@@ -111,6 +111,7 @@ pub enum RequestPayload {
     PtyResize(PtyResizeRequest),
     PtyClose(PtyCloseRequest),
     PtyList(PtyListRequest),
+    SshKeysSync(SshKeysSyncRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -283,6 +284,7 @@ pub enum ResponsePayload {
     PtyResize(PtyResizeResponse),
     PtyClose(PtyCloseResponse),
     PtyList(PtyListResponse),
+    SshKeysSync(SshKeysSyncResponse),
     Error(String),
 }
 
@@ -1279,6 +1281,19 @@ pub struct PhpFpmHealthCheckResponse {
     pub socket_exists: bool,
     pub pool_exists: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SshKeysSyncRequest {
+    pub linux_username: String,
+    pub keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SshKeysSyncResponse {
+    pub success: bool,
+    pub path: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -883,5 +883,48 @@ export async function resizeTerminalSession(
   );
 }
 
+// SSH Key Management API (Phase 6 - P6-T5)
+export async function fetchSshKeys(
+  query?: { user_id?: number; tenant?: string }
+): Promise<import('../types/api').SshKeyItem[]> {
+  const params = new URLSearchParams();
+  if (query?.user_id) params.set('user_id', String(query.user_id));
+  if (query?.tenant) params.set('tenant', query.tenant);
+  const q = params.toString() ? `?${params.toString()}` : '';
+  return request<import('../types/api').SshKeyItem[]>(`/api/v1/ssh-keys${q}`);
+}
+
+export async function createSshKey(
+  data: import('../types/api').CreateSshKeyRequest
+): Promise<import('../types/api').SshKeyItem> {
+  return request<import('../types/api').SshKeyItem>('/api/v1/ssh-keys', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSshKey(
+  id: number
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/api/v1/ssh-keys/${id}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function validateSshKey(
+  publicKey: string
+): Promise<import('../types/api').ValidateSshKeyResponse> {
+  return request<import('../types/api').ValidateSshKeyResponse>(
+    '/api/v1/ssh-keys/validate',
+    {
+      method: 'POST',
+      body: JSON.stringify({ public_key: publicKey }),
+    }
+  );
+}
+
 
 

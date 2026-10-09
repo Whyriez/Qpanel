@@ -10,6 +10,7 @@ pub mod php;
 pub mod plans;
 pub mod routes;
 pub mod sites;
+pub mod ssh;
 pub mod ssl;
 pub mod static_files;
 pub mod tenants;
@@ -325,6 +326,19 @@ pub fn create_router(state: AppState) -> Router {
             get(terminal::get_terminal_audit_handler),
         )
         .route("/ws/terminal/{id}", get(terminal::terminal_ws_handler))
+        // SSH Key Management (Phase 6 - P6-T5)
+        .route(
+            "/api/v1/ssh-keys",
+            get(ssh::list_ssh_keys_handler).post(ssh::create_ssh_key_handler),
+        )
+        .route(
+            "/api/v1/ssh-keys/{id}",
+            axum::routing::delete(ssh::delete_ssh_key_handler),
+        )
+        .route(
+            "/api/v1/ssh-keys/validate",
+            post(ssh::validate_ssh_key_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

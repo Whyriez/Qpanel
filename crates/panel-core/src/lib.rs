@@ -7,11 +7,13 @@ pub mod auth;
 pub mod domain;
 pub mod php;
 pub mod rbac;
+pub mod ssh;
 pub mod tenant;
 pub mod totp;
 pub use auth::{hash_password, hash_token, verify_password};
 pub use domain::{DomainName, DomainValidationError};
 pub use rbac::{Action, Role, authorize, check_permission};
+pub use ssh::{ParsedSshKey, SshKeyError, parse_ssh_public_key};
 pub use tenant::{MAX_TENANT_UID, MIN_TENANT_UID, ShellPolicy, TenantUid, is_reserved_username};
 pub use totp::{
     generate_recovery_codes, generate_totp_qr_base64, generate_totp_secret, generate_totp_uri,

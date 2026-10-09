@@ -792,7 +792,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 - [x] **P6-T2 Protokol WebSocket**: frame biner, resize, heartbeat, cek `Origin`, autentikasi cookie, backpressure; reconnect dengan scrollback terbatas.
 - [x] **P6-T3 UI terminal**: xterm.js (fit, search), multi-tab, tema mengikuti token, tombol "Terminal di sini" dari file manager, indikator koneksi.
 - [x] **P6-T4 Audit**: catat awal/akhir sesi (tenant, folder, durasi, IP). Perekaman keystroke tidak aktif secara default.
-- [ ] **P6-T5 Manajemen SSH key**: tambah/hapus public key per tenant (file dikelola panel di lokasi root-owned), validasi format, fingerprint di UI.
+- [x] **P6-T5 Manajemen SSH key**: tambah/hapus public key per tenant (file dikelola panel di lokasi root-owned), validasi format, fingerprint di UI.
 - [ ] **P6-T6 Kebijakan shell**: `none | sftp | full` per plan/tenant; drop-in `sshd` untuk grup `panel-tenants` (SFTP-only via `internal-sftp` + chroot); validasi `sshd -t` sebelum reload; **uji bahwa akses SSH admin tidak pernah terkunci**.
 - [ ] **P6-T7 Salin perintah SSH**: UI membuat perintah `ssh -t user@host "cd '<folder>' && exec $SHELL -l"` dan info SFTP.
 

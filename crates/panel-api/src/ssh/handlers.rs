@@ -1,0 +1,394 @@
+//! Handlers for SSH public key management.
+
+use super::{
+    CreateSshKeyRequest, SshKeyQuery, SshKeyResponse, ValidateSshKeyRequest, ValidateSshKeyResponse,
+};
+use crate::AppState;
+use crate::auth::AuthenticatedUser;
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+};
+use panel_core::ssh::parse_ssh_public_key;
+use panel_db::models::CreateSshKey;
+use panel_db::repositories::{SqliteSshKeyRepository, SqliteUserRepository};
+use tracing::{info, warn};
+
+/// `GET /api/v1/ssh-keys`: List SSH public keys for the current user or target tenant (admin only).
+#[utoipa::path(
+    get,
+    path = "/api/v1/ssh-keys",
+    params(SshKeyQuery),
+    responses(
+        (status = 200, description = "List of registered SSH public keys", body = Vec<SshKeyResponse>),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden: Access denied to other tenant's keys")
+    ),
+    tag = "ssh"
+)]
+pub async fn list_ssh_keys_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(query): Query<SshKeyQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let ssh_repo = SqliteSshKeyRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+
+    let target_user_id = if auth_user.is_admin() {
+        if let Some(uid) = query.user_id {
+            uid
+        } else if let Some(ref tenant_slug) = query.tenant {
+            // Find user by linux_username or username
+            let found = if tenant_slug.starts_with("p_") {
+                user_repo
+                    .find_by_linux_username(tenant_slug)
+                    .await
+                    .map_err(|e| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": e.to_string() })),
+                        )
+                    })?
+            } else {
+                user_repo.find_by_username(tenant_slug).await.map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": e.to_string() })),
+                    )
+                })?
+            };
+            match found {
+                Some(u) => u.id,
+                None => {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(serde_json::json!({ "error": "Tenant tidak ditemukan" })),
+                    ));
+                }
+            }
+        } else {
+            auth_user.id
+        }
+    } else {
+        // Tenants can strictly only list their own keys
+        if let Some(uid) = query.user_id
+            && uid != auth_user.id
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Akses ditolak ke SSH keys tenant lain" })),
+            ));
+        }
+        auth_user.id
+    };
+
+    let keys = ssh_repo.list_by_user(target_user_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let response: Vec<SshKeyResponse> = keys.into_iter().map(SshKeyResponse::from).collect();
+    Ok(Json(response))
+}
+
+/// `POST /api/v1/ssh-keys`: Register a new SSH public key for the current user.
+#[utoipa::path(
+    post,
+    path = "/api/v1/ssh-keys",
+    request_body = CreateSshKeyRequest,
+    responses(
+        (status = 201, description = "SSH public key registered", body = SshKeyResponse),
+        (status = 400, description = "Invalid key format, algorithm or modulus size"),
+        (status = 409, description = "SSH key with this fingerprint already exists"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "ssh"
+)]
+pub async fn create_ssh_key_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    headers: HeaderMap,
+    Json(req): Json<CreateSshKeyRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let name = req.name.trim();
+    if name.is_empty() || name.len() > 100 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(
+                serde_json::json!({ "error": "Nama kunci SSH harus antara 1 sampai 100 karakter" }),
+            ),
+        ));
+    }
+
+    let parsed = parse_ssh_public_key(&req.public_key).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let ssh_repo = SqliteSshKeyRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+
+    // Check for duplicate fingerprint for this user
+    let existing = ssh_repo
+        .find_by_user_and_fingerprint(auth_user.id, &parsed.fingerprint_sha256)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    if existing.is_some() {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(
+                serde_json::json!({ "error": "Kunci SSH dengan fingerprint ini sudah terdaftar" }),
+            ),
+        ));
+    }
+
+    let created = ssh_repo
+        .create(&CreateSshKey {
+            user_id: auth_user.id,
+            name: name.to_string(),
+            public_key: parsed.public_key.clone(),
+            key_type: parsed.key_type.clone(),
+            fingerprint_sha256: parsed.fingerprint_sha256.clone(),
+            fingerprint_md5: Some(parsed.fingerprint_md5.clone()),
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    // Synchronize root-owned authorized_keys file via agent
+    let user_record = user_repo.find_by_id(auth_user.id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let linux_user = user_record.and_then(|u| u.linux_username);
+
+    if let Some(ref linux_username) = linux_user {
+        let all_keys = ssh_repo
+            .list_by_user(auth_user.id)
+            .await
+            .unwrap_or_default();
+        let key_strings: Vec<String> = all_keys.into_iter().map(|k| k.public_key).collect();
+
+        if let Err(e) = state
+            .agent_client
+            .sync_ssh_keys(linux_username, key_strings)
+            .await
+        {
+            warn!(
+                "Failed to synchronize authorized_keys for {}: {:?}",
+                linux_username, e
+            );
+        } else {
+            info!(
+                "Synchronized authorized_keys for {} after adding key id {}",
+                linux_username, created.id
+            );
+        }
+    }
+
+    // Record audit event
+    let client_ip = crate::audit::extract_client_ip(&headers);
+    let details = serde_json::json!({
+        "name": created.name,
+        "key_type": created.key_type,
+        "fingerprint": created.fingerprint_sha256,
+        "linux_username": linux_user,
+    });
+
+    state.audit_writer.log_async(
+        Some(auth_user.id),
+        &auth_user.username,
+        "ssh_key.create",
+        created.id.to_string(),
+        "success",
+        client_ip,
+        Some(details.to_string()),
+    );
+
+    Ok((StatusCode::CREATED, Json(SshKeyResponse::from(created))))
+}
+
+/// `DELETE /api/v1/ssh-keys/{id}`: Delete an existing SSH public key.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/ssh-keys/{id}",
+    params(
+        ("id" = i64, Path, description = "SSH key database identifier")
+    ),
+    responses(
+        (status = 200, description = "SSH key successfully deleted"),
+        (status = 403, description = "Forbidden: Access denied to other tenant's key"),
+        (status = 404, description = "SSH key not found"),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "ssh"
+)]
+pub async fn delete_ssh_key_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let ssh_repo = SqliteSshKeyRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+
+    let existing = ssh_repo.get_by_id(id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    let key = match existing {
+        Some(k) => k,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Kunci SSH tidak ditemukan" })),
+            ));
+        }
+    };
+
+    // RBAC: Non-admin users can only delete their own keys
+    if !auth_user.is_admin() && key.user_id != auth_user.id {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Akses ditolak untuk menghapus kunci SSH ini" })),
+        ));
+    }
+
+    let deleted = ssh_repo
+        .delete(
+            id,
+            if auth_user.is_admin() {
+                None
+            } else {
+                Some(auth_user.id)
+            },
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+        })?;
+
+    if !deleted {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Kunci SSH tidak ditemukan" })),
+        ));
+    }
+
+    // Synchronize remaining keys to agent
+    let owner = user_repo.find_by_id(key.user_id).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+    })?;
+
+    if let Some(user) = owner
+        && let Some(linux_username) = user.linux_username
+    {
+        let remaining = ssh_repo.list_by_user(key.user_id).await.unwrap_or_default();
+        let key_strings: Vec<String> = remaining.into_iter().map(|k| k.public_key).collect();
+
+        if let Err(e) = state
+            .agent_client
+            .sync_ssh_keys(&linux_username, key_strings)
+            .await
+        {
+            warn!(
+                "Failed to synchronize authorized_keys for {} after deletion: {:?}",
+                linux_username, e
+            );
+        } else {
+            info!(
+                "Synchronized authorized_keys for {} after deleting key id {}",
+                linux_username, id
+            );
+        }
+    }
+
+    // Record audit event
+    let client_ip = crate::audit::extract_client_ip(&headers);
+    let details = serde_json::json!({
+        "name": key.name,
+        "key_type": key.key_type,
+        "fingerprint": key.fingerprint_sha256,
+        "owner_user_id": key.user_id,
+    });
+
+    state.audit_writer.log_async(
+        Some(auth_user.id),
+        &auth_user.username,
+        "ssh_key.delete",
+        id.to_string(),
+        "success",
+        client_ip,
+        Some(details.to_string()),
+    );
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": "Kunci SSH berhasil dihapus"
+    })))
+}
+
+/// `POST /api/v1/ssh-keys/validate`: Live validation utility endpoint.
+#[utoipa::path(
+    post,
+    path = "/api/v1/ssh-keys/validate",
+    request_body = ValidateSshKeyRequest,
+    responses(
+        (status = 200, description = "Key validation results with parsed metadata", body = ValidateSshKeyResponse),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "ssh"
+)]
+pub async fn validate_ssh_key_handler(
+    _auth_user: AuthenticatedUser,
+    Json(req): Json<ValidateSshKeyRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    match parse_ssh_public_key(&req.public_key) {
+        Ok(parsed) => Ok(Json(ValidateSshKeyResponse {
+            valid: true,
+            key_type: Some(parsed.key_type),
+            fingerprint_sha256: Some(parsed.fingerprint_sha256),
+            fingerprint_md5: Some(parsed.fingerprint_md5),
+            comment: parsed.comment,
+            bit_length: parsed.bit_length,
+            error: None,
+        })),
+        Err(e) => Ok(Json(ValidateSshKeyResponse {
+            valid: false,
+            key_type: None,
+            fingerprint_sha256: None,
+            fingerprint_md5: None,
+            comment: None,
+            bit_length: None,
+            error: Some(e.to_string()),
+        })),
+    }
+}

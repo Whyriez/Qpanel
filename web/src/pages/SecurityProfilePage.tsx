@@ -21,6 +21,7 @@ import {
   fetch2FAStatus,
 } from '../api/client';
 import { StatusPill } from '../components/ui/StatusPill';
+import { SshKeyManager } from '../components/ssh/SshKeyManager';
 
 export const SecurityProfilePage: React.FC = () => {
   const { t } = useTranslation();
@@ -545,6 +546,11 @@ export const SecurityProfilePage: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* SSH Keys Management */}
+      <div className="pt-2">
+        <SshKeyManager />
       </div>
     </div>
   );

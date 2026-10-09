@@ -524,5 +524,36 @@ export interface SitePhpLogsResponse {
   total_matched: number;
 }
 
+// SSH Key Types (Phase 6 - P6-T5)
+export interface SshKeyItem {
+  id: number;
+  user_id: number;
+  name: string;
+  key_type: string;
+  fingerprint_sha256: string;
+  fingerprint_md5?: string | null;
+  public_key: string;
+  created_at: number;
+}
+
+export interface CreateSshKeyRequest {
+  name: string;
+  public_key: string;
+}
+
+export interface ValidateSshKeyRequest {
+  public_key: string;
+}
+
+export interface ValidateSshKeyResponse {
+  valid: boolean;
+  key_type?: string | null;
+  fingerprint_sha256?: string | null;
+  fingerprint_md5?: string | null;
+  comment?: string | null;
+  bit_length?: number | null;
+  error?: string | null;
+}
+
 
 

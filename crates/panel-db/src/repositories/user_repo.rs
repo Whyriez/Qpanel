@@ -92,6 +92,26 @@ impl SqliteUserRepository {
         Ok(user)
     }
 
+    pub async fn find_by_linux_username(
+        &self,
+        linux_username: &str,
+    ) -> Result<Option<User>, DbError> {
+        let user = sqlx::query_as::<_, User>(
+            r#"
+            SELECT
+                id, username, password_hash, role, email, totp_secret,
+                totp_enabled, status, linux_username, linux_uid, plan_id, created_at, updated_at
+            FROM users
+            WHERE linux_username = ?
+            "#,
+        )
+        .bind(linux_username)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(user)
+    }
+
     pub async fn update_password(&self, id: i64, new_hash: &str) -> Result<(), DbError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

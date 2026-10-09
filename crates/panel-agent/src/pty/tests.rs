@@ -1,4 +1,5 @@
 //! Unit tests for PTY session management, path confinement, quota enforcement, and idle reaping.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
 use crate::AgentError;
