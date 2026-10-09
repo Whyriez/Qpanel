@@ -13,6 +13,7 @@ pub mod sites;
 pub mod ssl;
 pub mod static_files;
 pub mod tenants;
+pub mod terminal;
 
 use axum::{
     Router,
@@ -306,6 +307,20 @@ pub fn create_router(state: AppState) -> Router {
             get(files::get_file_content_handler).put(files::save_file_content_handler),
         )
         .route("/api/v1/files/search", post(files::search_files_handler))
+        // Web Terminal & PTY Streaming (Phase 6)
+        .route(
+            "/api/v1/terminal/sessions",
+            post(terminal::create_session_handler).get(terminal::list_sessions_handler),
+        )
+        .route(
+            "/api/v1/terminal/sessions/{id}",
+            get(terminal::get_session_handler).delete(terminal::close_session_handler),
+        )
+        .route(
+            "/api/v1/terminal/sessions/{id}/resize",
+            post(terminal::resize_session_handler),
+        )
+        .route("/ws/terminal/{id}", get(terminal::terminal_ws_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

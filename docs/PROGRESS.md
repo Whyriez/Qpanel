@@ -68,7 +68,7 @@
 ## Phase 6 — Web terminal dan SSH
 
 - [x] P6-T1 Session manager PTY di agent: alokasi pseudoterminal (master/slave PTY), spawn login shell sebagai UID/GID Linux tenant (`p_<slug>`), attachment proses ke slice cgroup v2 tenant (`panel-u<uid>.slice`), validasi direktori kerja `cwd` terkurung aman dalam home tenant anti-traversal & symlink escape via `panel-fs`, hardening proses (`PR_SET_NO_NEW_PRIVS`, `rlimit` NPROC & NOFILE), I/O streaming non-blocking, resize window terminal (`TIOCSWINSZ`), batas sesi konkuren per tenant, idle timeout reaper berkala, protokol IPC typed `panel-proto` dan klien API `panel-api` — test: panel_agent::pty::tests (4 tests), pty_ipc_test (1 integration test), ADR-0039
-- [ ] P6-T2 WebSocket terminal streaming
+- [x] P6-T2 WebSocket terminal streaming: protokol WebSocket bidirectional `/ws/terminal/{id}` (frame biner raw keystroke/output, kontrol JSON resize/ping/input/closed/connected), proteksi CSWSH via validasi header Origin, autentikasi sesi panel & RBAC multi-tenant, kuota sesi konkuren dari batas Plan tenant (429 Too Many Requests), preservasi scrollback ring-buffer (64 KB) untuk pemulihan instan saat reconnect/refresh, backpressure via bounded async channel, single-reader multi-subscriber broadcast, endpoint RESTful lengkap lifecycle sesi (create, list, get, resize, close), audit logging `terminal.session_create`/`terminal.session_close` — test: terminal_ws_test (2 integration tests), ADR-0040
 - [ ] P6-T3 UI terminal (xterm.js)
 - [ ] P6-T4 Audit terminal
 - [ ] P6-T5 SSH key management

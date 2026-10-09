@@ -88,6 +88,11 @@ use panel_db::pool::DbPool;
         crate::files::get_file_content_handler,
         crate::files::save_file_content_handler,
         crate::files::search_files_handler,
+        crate::terminal::create_session_handler,
+        crate::terminal::list_sessions_handler,
+        crate::terminal::get_session_handler,
+        crate::terminal::close_session_handler,
+        crate::terminal::resize_session_handler,
     ),
     components(
         schemas(
@@ -172,6 +177,12 @@ use panel_db::pool::DbPool;
             crate::files::ContentMatchApiDto,
             crate::files::SearchResultItemApi,
             crate::files::FileSearchApiResponse,
+            crate::terminal::CreateTerminalSessionRequest,
+            crate::terminal::TerminalSessionResponse,
+            crate::terminal::TerminalSessionListResponse,
+            crate::terminal::TerminalCloseApiResponse,
+            crate::terminal::TerminalResizeRequest,
+            crate::terminal::TerminalResizeResponse,
         )
     ),
     tags(
@@ -183,7 +194,8 @@ use panel_db::pool::DbPool;
         (name = "jobs", description = "Background jobs and real-time progress tracking endpoints"),
         (name = "ssl", description = "SSL/TLS and ACME certificate management"),
         (name = "runtime", description = "Runtime and PHP version management"),
-        (name = "files", description = "File manager operations and trash management")
+        (name = "files", description = "File manager operations and trash management"),
+        (name = "terminal", description = "Web terminal and PTY session endpoints")
     ),
     info(
         title = "Nusa Panel API",
@@ -221,6 +233,7 @@ pub struct AppState {
     pub lockout_manager: Arc<LockoutManager>,
     pub audit_writer: Arc<crate::audit::AuditWriter>,
     pub job_runner: Arc<crate::jobs::JobRunner>,
+    pub terminal_hub: Arc<crate::terminal::TerminalHub>,
 }
 
 impl AppState {
@@ -237,6 +250,7 @@ impl AppState {
             pool.clone(),
             job_registry,
         ));
+        let terminal_hub = Arc::new(crate::terminal::TerminalHub::new(Arc::clone(&agent_client)));
         Self {
             agent_client,
             pool,
@@ -245,6 +259,7 @@ impl AppState {
             lockout_manager,
             audit_writer,
             job_runner,
+            terminal_hub,
         }
     }
 }
