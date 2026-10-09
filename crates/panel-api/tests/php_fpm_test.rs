@@ -332,6 +332,8 @@ async fn test_php_fpm_agent_client_direct_lifecycle() {
             max_requests: Some(500),
             open_basedir: None,
             disable_functions: None,
+            settings: None,
+            admin_ini: None,
             reload: true,
         })
         .await
@@ -398,6 +400,8 @@ async fn test_php_fpm_api_endpoints() {
             max_requests: Some(500),
             open_basedir: None,
             disable_functions: None,
+            settings: None,
+            admin_ini: None,
             reload: true,
         })
         .await

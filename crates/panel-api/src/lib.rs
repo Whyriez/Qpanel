@@ -320,6 +320,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/terminal/sessions/{id}/resize",
             post(terminal::resize_session_handler),
         )
+        .route(
+            "/api/v1/terminal/audit",
+            get(terminal::get_terminal_audit_handler),
+        )
         .route("/ws/terminal/{id}", get(terminal::terminal_ws_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

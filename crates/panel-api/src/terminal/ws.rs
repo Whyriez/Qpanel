@@ -36,6 +36,7 @@ const HEARTBEAT_INTERVAL_SECS: u64 = 20;
 const WS_OUTBOUND_QUEUE_CAPACITY: usize = 128;
 
 /// WebSocket terminal connection handler: `GET /ws/terminal/{id}`
+#[allow(clippy::cognitive_complexity)]
 pub async fn terminal_ws_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
@@ -66,6 +67,15 @@ pub async fn terminal_ws_handler(
             auth_user.username, auth_user.id, session_id, session.user_id
         );
         return Err((StatusCode::FORBIDDEN, "Access denied to terminal session"));
+    }
+
+    // Populate client IP if not yet registered
+    let client_ip = crate::audit::extract_client_ip(&headers);
+    if let Some(ip) = client_ip {
+        let mut cur_ip = session.client_ip.write().await;
+        if cur_ip.is_none() {
+            *cur_ip = Some(ip);
+        }
     }
 
     info!(

@@ -113,13 +113,16 @@ pub struct ActiveTerminalSession {
     pub is_closed: Arc<AtomicBool>,
     pub exit_code: Arc<RwLock<Option<i32>>>,
     pub tx: broadcast::Sender<TerminalBroadcastEvent>,
+    pub linux_username: String,
+    pub client_ip: Arc<RwLock<Option<String>>>,
+    pub closed_audit_emitted: Arc<AtomicBool>,
 }
 
 impl ActiveTerminalSession {
     pub fn to_response(&self) -> TerminalSessionResponse {
         TerminalSessionResponse {
             session_id: self.session_id.clone(),
-            username: self.username.clone(),
+            username: self.linux_username.clone(),
             pid: self.pid,
             cwd: self.cwd.clone(),
             cols: self.cols.load(Ordering::Relaxed),
@@ -148,6 +151,7 @@ impl ActiveTerminalSession {
 pub struct TerminalHub {
     sessions: Arc<RwLock<HashMap<String, Arc<ActiveTerminalSession>>>>,
     agent_client: Arc<AgentClient>,
+    audit_writer: Option<Arc<crate::audit::AuditWriter>>,
 }
 
 impl TerminalHub {
@@ -155,7 +159,13 @@ impl TerminalHub {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             agent_client,
+            audit_writer: None,
         }
+    }
+
+    pub fn with_audit_writer(mut self, audit_writer: Arc<crate::audit::AuditWriter>) -> Self {
+        self.audit_writer = Some(audit_writer);
+        self
     }
 
     /// Spawn a new PTY session on the agent and register it in the in-memory hub.
@@ -164,6 +174,7 @@ impl TerminalHub {
         &self,
         user_id: i64,
         username: String,
+        linux_username: String,
         uid: u32,
         gid: u32,
         cwd: Option<String>,
@@ -171,9 +182,10 @@ impl TerminalHub {
         rows: u16,
         max_sessions: Option<usize>,
         idle_timeout_secs: Option<u64>,
+        client_ip: Option<String>,
     ) -> Result<Arc<ActiveTerminalSession>, TerminalHubError> {
         let req = PtyOpenRequest {
-            username: username.clone(),
+            username: linux_username.clone(),
             uid,
             gid,
             cwd: cwd.clone(),
@@ -204,13 +216,15 @@ impl TerminalHub {
         let is_closed = Arc::new(AtomicBool::new(false));
         let exit_code = Arc::new(RwLock::new(None));
         let last_active = Arc::new(AtomicI64::new(now));
+        let client_ip_arc = Arc::new(RwLock::new(client_ip));
+        let closed_audit_emitted = Arc::new(AtomicBool::new(false));
 
         let session = Arc::new(ActiveTerminalSession {
             session_id: open_res.session_id.clone(),
             user_id,
-            username: open_res.username,
+            username: username.clone(),
             pid: open_res.pid,
-            cwd: open_res.cwd,
+            cwd: open_res.cwd.clone(),
             cols: cols_atomic,
             rows: rows_atomic,
             created_at: open_res.created_at,
@@ -219,6 +233,9 @@ impl TerminalHub {
             is_closed: Arc::clone(&is_closed),
             exit_code: Arc::clone(&exit_code),
             tx: tx.clone(),
+            linux_username: open_res.username,
+            client_ip: Arc::clone(&client_ip_arc),
+            closed_audit_emitted: Arc::clone(&closed_audit_emitted),
         });
 
         {
@@ -231,6 +248,14 @@ impl TerminalHub {
         let reader_sid = open_res.session_id.clone();
         let reader_closed = Arc::clone(&is_closed);
         let reader_exit = Arc::clone(&exit_code);
+        let audit_writer_opt = self.audit_writer.clone();
+        let reader_user_id = user_id;
+        let reader_username = username.clone();
+        let reader_linux_user = linux_username.clone();
+        let reader_cwd = open_res.cwd.clone();
+        let reader_created_at = open_res.created_at;
+        let reader_ip_lock = Arc::clone(&client_ip_arc);
+        let reader_audit_emitted = Arc::clone(&closed_audit_emitted);
 
         tokio::spawn(async move {
             run_pty_reader_loop(
@@ -240,6 +265,14 @@ impl TerminalHub {
                 reader_closed,
                 reader_exit,
                 tx,
+                audit_writer_opt,
+                reader_user_id,
+                reader_username,
+                reader_linux_user,
+                reader_cwd,
+                reader_created_at,
+                reader_ip_lock,
+                reader_audit_emitted,
             )
             .await;
         });
@@ -384,10 +417,73 @@ impl TerminalHub {
 
         let _ = session.tx.send(TerminalBroadcastEvent::Closed(None));
 
+        // Emit audit log for terminal session end (P6-T4: catat akhir sesi)
+        let client_ip = session.client_ip.read().await.clone();
+        Self::emit_session_end_audit(
+            &self.audit_writer,
+            session_id,
+            session.user_id,
+            &session.username,
+            &session.linux_username,
+            &session.cwd,
+            session.created_at,
+            client_ip,
+            *session.exit_code.read().await,
+            "manual_close",
+            &session.closed_audit_emitted,
+        );
+
         // Note: We retain the session in in-memory map temporarily so clients can inspect exit status,
         // or prune if explicitly requested.
         info!("Closed terminal session {}", session_id);
         Ok(res)
+    }
+
+    /// Helper to record session end audit log entry safely without double emissions.
+    #[allow(clippy::too_many_arguments)]
+    pub fn emit_session_end_audit(
+        audit_writer: &Option<Arc<crate::audit::AuditWriter>>,
+        session_id: &str,
+        user_id: i64,
+        username: &str,
+        linux_username: &str,
+        cwd: &str,
+        created_at: i64,
+        client_ip: Option<String>,
+        exit_code: Option<i32>,
+        reason: &str,
+        closed_audit_emitted: &AtomicBool,
+    ) {
+        if !closed_audit_emitted.swap(true, Ordering::SeqCst)
+            && let Some(writer) = audit_writer
+        {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let duration_secs = (now - created_at).max(0);
+
+            let details = serde_json::json!({
+                "session_id": session_id,
+                "tenant_user_id": user_id,
+                "tenant": linux_username,
+                "linux_username": linux_username,
+                "folder": cwd,
+                "duration_secs": duration_secs,
+                "exit_code": exit_code,
+                "reason": reason,
+            });
+
+            writer.log_async(
+                Some(user_id),
+                username,
+                "terminal.session_end",
+                session_id,
+                "success",
+                client_ip,
+                Some(details.to_string()),
+            );
+        }
     }
 
     /// Remove a terminated session entirely from hub memory.
@@ -399,7 +495,7 @@ impl TerminalHub {
 
 /// Background loop running continuously per session, pulling non-blocking output
 /// from the host agent and streaming to broadcast channels + scrollback buffer.
-#[allow(clippy::cognitive_complexity)]
+#[allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 async fn run_pty_reader_loop(
     session_id: String,
     agent_client: Arc<AgentClient>,
@@ -407,6 +503,14 @@ async fn run_pty_reader_loop(
     is_closed: Arc<AtomicBool>,
     exit_code_store: Arc<RwLock<Option<i32>>>,
     tx: broadcast::Sender<TerminalBroadcastEvent>,
+    audit_writer: Option<Arc<crate::audit::AuditWriter>>,
+    user_id: i64,
+    username: String,
+    linux_username: String,
+    cwd: String,
+    created_at: i64,
+    client_ip_lock: Arc<RwLock<Option<String>>>,
+    closed_audit_emitted: Arc<AtomicBool>,
 ) {
     let mut consecutive_empty_reads = 0;
 
@@ -444,6 +548,21 @@ async fn run_pty_reader_loop(
                         "PTY process for session {} exited with code {:?}",
                         session_id, res.exit_code
                     );
+
+                    let client_ip = client_ip_lock.read().await.clone();
+                    TerminalHub::emit_session_end_audit(
+                        &audit_writer,
+                        &session_id,
+                        user_id,
+                        &username,
+                        &linux_username,
+                        &cwd,
+                        created_at,
+                        client_ip,
+                        res.exit_code,
+                        "process_exit",
+                        &closed_audit_emitted,
+                    );
                     break;
                 }
 
@@ -460,6 +579,21 @@ async fn run_pty_reader_loop(
                 warn!("PTY reader poll failed for session {}: {:?}", session_id, e);
                 is_closed.store(true, Ordering::SeqCst);
                 let _ = tx.send(TerminalBroadcastEvent::Closed(None));
+
+                let client_ip = client_ip_lock.read().await.clone();
+                TerminalHub::emit_session_end_audit(
+                    &audit_writer,
+                    &session_id,
+                    user_id,
+                    &username,
+                    &linux_username,
+                    &cwd,
+                    created_at,
+                    client_ip,
+                    None,
+                    "agent_read_error",
+                    &closed_audit_emitted,
+                );
                 break;
             }
         }

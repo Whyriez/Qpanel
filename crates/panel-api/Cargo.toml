@@ -47,6 +47,7 @@ panel-agent = { workspace = true }
 panel-webserver = { workspace = true }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }
+zip = { workspace = true }
 
 [lints]
 workspace = true

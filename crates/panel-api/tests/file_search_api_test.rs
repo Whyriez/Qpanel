@@ -111,9 +111,12 @@ async fn setup_test_context() -> TestContext {
     let alice_home = home_base.join("p_alice");
     fs::create_dir_all(&alice_home).expect("create alice home");
 
-    let runner = Arc::new(MockSystemRunner::new());
-    let fs_manager = Arc::new(FsManager::with_home_base(runner.clone(), home_base.clone()));
-    let quota_manager = Arc::new(QuotaManager::with_home_base(runner.clone(), home_base));
+    let runner: Arc<dyn panel_agent::system::SystemRunner> = Arc::new(MockSystemRunner::new());
+    let fs_manager = Arc::new(FsManager::with_home_base(
+        Arc::clone(&runner),
+        home_base.clone(),
+    ));
+    let quota_manager = Arc::new(QuotaManager::with_home_base(Arc::clone(&runner), home_base));
 
     let agent_cfg = AgentConfig {
         socket_path: sock_path.clone(),
@@ -173,13 +176,16 @@ async fn setup_test_context() -> TestContext {
     ));
 
     let state = AppState {
-        agent_client,
+        agent_client: Arc::clone(&agent_client),
         pool,
         environment: "testing".to_string(),
         auth_config,
         lockout_manager,
         audit_writer,
         job_runner: Arc::clone(&job_runner),
+        terminal_hub: Arc::new(panel_api::terminal::TerminalHub::new(Arc::clone(
+            &agent_client,
+        ))),
     };
     let app = create_router(state);
 

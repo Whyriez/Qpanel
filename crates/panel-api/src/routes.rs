@@ -93,6 +93,7 @@ use panel_db::pool::DbPool;
         crate::terminal::get_session_handler,
         crate::terminal::close_session_handler,
         crate::terminal::resize_session_handler,
+        crate::terminal::get_terminal_audit_handler,
     ),
     components(
         schemas(
@@ -183,6 +184,8 @@ use panel_db::pool::DbPool;
             crate::terminal::TerminalCloseApiResponse,
             crate::terminal::TerminalResizeRequest,
             crate::terminal::TerminalResizeResponse,
+            crate::terminal::TerminalAuditItem,
+            crate::terminal::TerminalAuditListResponse,
         )
     ),
     tags(
@@ -250,7 +253,10 @@ impl AppState {
             pool.clone(),
             job_registry,
         ));
-        let terminal_hub = Arc::new(crate::terminal::TerminalHub::new(Arc::clone(&agent_client)));
+        let terminal_hub = Arc::new(
+            crate::terminal::TerminalHub::new(Arc::clone(&agent_client))
+                .with_audit_writer(Arc::clone(&audit_writer)),
+        );
         Self {
             agent_client,
             pool,

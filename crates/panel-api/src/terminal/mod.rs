@@ -119,3 +119,37 @@ pub enum WsServerMessage {
     /// Error notification
     Error { message: String },
 }
+
+/// Query parameters for retrieving terminal audit entries.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct TerminalAuditQuery {
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+    pub tenant: Option<String>,
+}
+
+/// Structured terminal audit item with duration, folder, and client IP.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TerminalAuditItem {
+    pub id: i64,
+    pub session_id: String,
+    pub actor_username: String,
+    pub action: String,
+    pub tenant: Option<String>,
+    pub folder: Option<String>,
+    pub duration_secs: Option<i64>,
+    pub ip_address: Option<String>,
+    pub status: String,
+    pub keystroke_recording: bool,
+    pub created_at: i64,
+}
+
+/// Paginated list response of terminal audit events.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TerminalAuditListResponse {
+    pub items: Vec<TerminalAuditItem>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+    pub total_pages: i64,
+}
