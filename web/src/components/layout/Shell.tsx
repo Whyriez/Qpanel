@@ -21,6 +21,7 @@ import {
   LogOut,
   Layers,
   FolderTree,
+  Terminal,
 } from 'lucide-react';
 import { ThemeMode } from '../../types/api';
 import { useAuth } from '../../context/AuthContext';
@@ -52,6 +53,7 @@ export const Shell: React.FC<ShellProps> = ({
     { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
     { id: 'sites', label: t('nav.sites'), icon: Globe },
     { id: 'files', label: t('nav.files'), icon: FolderTree },
+    { id: 'terminal', label: t('nav.terminal'), icon: Terminal },
     { id: 'tenants', label: t('nav.tenants'), icon: Users },
     { id: 'plans', label: t('nav.plans'), icon: Layers },
     { id: 'analytics', label: t('nav.analytics'), icon: BarChart3 },

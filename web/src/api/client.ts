@@ -832,5 +832,56 @@ export async function uploadChunk(
   return res.json() as Promise<{ success: boolean; current_offset: number; complete: boolean }>;
 }
 
+export async function createTerminalSession(
+  payload: import('../types/terminal').CreateTerminalSessionPayload
+): Promise<import('../types/terminal').TerminalSession> {
+  return request<import('../types/terminal').TerminalSession>('/api/v1/terminal/sessions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchTerminalSessions(
+  tenant?: string
+): Promise<{ sessions: import('../types/terminal').TerminalSession[] }> {
+  const query = tenant ? `?tenant=${encodeURIComponent(tenant)}` : '';
+  return request<{ sessions: import('../types/terminal').TerminalSession[] }>(
+    `/api/v1/terminal/sessions${query}`
+  );
+}
+
+export async function getTerminalSession(
+  sessionId: string
+): Promise<import('../types/terminal').TerminalSession> {
+  return request<import('../types/terminal').TerminalSession>(
+    `/api/v1/terminal/sessions/${encodeURIComponent(sessionId)}`
+  );
+}
+
+export async function closeTerminalSession(
+  sessionId: string
+): Promise<import('../types/terminal').TerminalCloseResponse> {
+  return request<import('../types/terminal').TerminalCloseResponse>(
+    `/api/v1/terminal/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function resizeTerminalSession(
+  sessionId: string,
+  cols: number,
+  rows: number
+): Promise<import('../types/terminal').TerminalResizeResponse> {
+  return request<import('../types/terminal').TerminalResizeResponse>(
+    `/api/v1/terminal/sessions/${encodeURIComponent(sessionId)}/resize`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ cols, rows }),
+    }
+  );
+}
+
 
 

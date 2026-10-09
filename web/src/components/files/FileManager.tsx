@@ -58,6 +58,7 @@ import { FileEditorModal } from './FileEditorModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { FilePermissionModal } from './FilePermissionModal';
 import { FileSearchModal } from './FileSearchModal';
+import { TerminalDrawer } from '../terminal/TerminalDrawer';
 
 export interface FileManagerProps {
   initialPath?: string;
@@ -80,6 +81,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
   baseRootPath = '',
   title = 'Pengelola Berkas',
   quotaInfo = { usedBytes: 4.5 * 1024 * 1024 * 1024, limitBytes: 5 * 1024 * 1024 * 1024, percentage: 90 },
+  onNavigateTerminal,
 }) => {
   // Navigation and files state
   const [currentPath, setCurrentPath] = useState(initialPath || baseRootPath);
@@ -174,6 +176,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
   const [activePermission, setActivePermission] = useState<ActivePermissionState | null>(null);
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
   // Rubber Band Marquee State
   const fileContainerRef = useRef<HTMLDivElement>(null);
@@ -923,20 +926,23 @@ export const FileManager: React.FC<FileManagerProps> = ({
             </div>
           )}
 
-          {/* Tombol Terminal di sini (Disabled sampai Phase 6) */}
+          {/* Tombol Terminal di sini */}
           <div className="relative group">
             <button
               type="button"
-              disabled
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--muted-foreground)] opacity-60 cursor-not-allowed text-xs font-medium"
-              title="Terminal di folder ini (Tersedia di Phase 6 — Web terminal)"
+              onClick={() => {
+                if (onNavigateTerminal) {
+                  onNavigateTerminal(currentPath);
+                } else {
+                  setIsTerminalOpen(true);
+                }
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface-hover)] hover:bg-[var(--surface-active)] text-[var(--foreground)] transition-colors text-xs font-medium cursor-pointer"
+              title="Buka terminal di folder ini"
             >
-              <Terminal className="h-3.5 w-3.5" />
+              <Terminal className="h-3.5 w-3.5 text-emerald-500" />
               <span>Terminal di sini</span>
             </button>
-            <div className="absolute right-0 top-full mt-1 hidden group-hover:block z-30 px-2 py-1 text-[10px] font-medium text-white bg-neutral-900 rounded shadow-md whitespace-nowrap">
-              Tersedia di Phase 6 — Web terminal
-            </div>
           </div>
         </div>
       </div>
@@ -2099,6 +2105,12 @@ export const FileManager: React.FC<FileManagerProps> = ({
           }}
         />
       )}
+
+      <TerminalDrawer
+        isOpen={isTerminalOpen}
+        onClose={() => setIsTerminalOpen(false)}
+        initialCwd={currentPath}
+      />
     </div>
   );
 };

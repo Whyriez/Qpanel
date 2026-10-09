@@ -27,6 +27,7 @@
     "audit": "Audit",
     "settings": "Pengaturan",
     "files": "Berkas",
+    "terminal": "Terminal",
     "profile": "Profil & Keamanan"
   },
   "dashboard": {
@@ -276,6 +277,19 @@
     "removeExt": "Copot Ekstensi",
     "allCategories": "Semua Kategori",
     "searchExtensions": "Cari ekstensi..."
+  },
+  "terminal": {
+    "title": "Terminal Web",
+    "subtitle": "Akses pseudoterminal (PTY) terisolasi aman dengan emulasi xterm.js",
+    "newSession": "Sesi Baru",
+    "closeSession": "Tutup Sesi",
+    "reconnect": "Hubungkan Ulang",
+    "search": "Cari teks",
+    "clear": "Bersihkan Layar",
+    "noSessions": "Belum ada sesi terminal aktif. Klik tombol di atas untuk membuka terminal.",
+    "connected": "Terhubung",
+    "connecting": "Menghubungkan...",
+    "disconnected": "Terputus"
   }
 }
 

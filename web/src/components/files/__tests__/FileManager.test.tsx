@@ -66,12 +66,11 @@ describe('FileManager Component', () => {
     expect(html).toContain('10 GB');
   });
 
-  it('renders disabled "Terminal di sini" button with Phase 6 tooltip according to PRD wireframe 8.4', () => {
+  it('renders interactive "Terminal di sini" button in toolbar', () => {
     const html = renderToString(<FileManager />);
 
     expect(html).toContain('Terminal di sini');
-    expect(html).toContain('Tersedia di Phase 6 — Web terminal');
-    expect(html).toContain('disabled');
+    expect(html).toContain('Buka terminal di folder ini');
   });
 
   it('renders collapsible left folder tree and breadcrumbs for nested paths', () => {

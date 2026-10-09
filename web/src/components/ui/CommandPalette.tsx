@@ -13,6 +13,8 @@ import {
   Monitor,
   Languages,
   LogOut,
+  FolderTree,
+  Terminal,
 } from 'lucide-react';
 import { ThemeMode } from '../../types/api';
 import { useAuth } from '../../context/AuthContext';
@@ -124,6 +126,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               >
                 <Globe className="w-4 h-4 text-[var(--ink-muted)]" />
                 <span>{t('nav.sites')}</span>
+              </Command.Item>
+              <Command.Item
+                onSelect={() => handleSelectNav('files')}
+                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
+              >
+                <FolderTree className="w-4 h-4 text-[var(--ink-muted)]" />
+                <span>{t('nav.files')}</span>
+              </Command.Item>
+              <Command.Item
+                onSelect={() => handleSelectNav('terminal')}
+                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
+              >
+                <Terminal className="w-4 h-4 text-[var(--ink-muted)]" />
+                <span>{t('nav.terminal')}</span>
               </Command.Item>
               <Command.Item
                 onSelect={() => handleSelectNav('jobs')}

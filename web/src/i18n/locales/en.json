@@ -27,6 +27,7 @@
     "audit": "Audit",
     "settings": "Settings",
     "files": "Files",
+    "terminal": "Terminal",
     "profile": "Profile & Security"
   },
   "dashboard": {
@@ -276,6 +277,19 @@
     "removeExt": "Remove Extension",
     "allCategories": "All Categories",
     "searchExtensions": "Search extensions..."
+  },
+  "terminal": {
+    "title": "Web Terminal",
+    "subtitle": "Secure isolated pseudoterminal (PTY) shell access powered by xterm.js",
+    "newSession": "New Session",
+    "closeSession": "Close Session",
+    "reconnect": "Reconnect",
+    "search": "Search text",
+    "clear": "Clear Terminal",
+    "noSessions": "No active terminal sessions. Click above to launch a new terminal.",
+    "connected": "Connected",
+    "connecting": "Connecting...",
+    "disconnected": "Disconnected"
   }
 }
 
