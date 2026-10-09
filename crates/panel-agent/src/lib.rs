@@ -1,6 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod fs_manager;
 pub mod hardening;
 pub mod php;
 pub mod quota;
@@ -42,6 +43,8 @@ pub enum AgentError {
         code: Option<i32>,
         stderr: String,
     },
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 /// Agent daemon configuration.
@@ -69,6 +72,7 @@ pub struct AgentServer {
     resource_reader: Arc<resource::CgroupReader>,
     hardening_manager: Arc<hardening::HardeningManager>,
     webserver_manager: Arc<webserver::NginxManager>,
+    fs_manager: Arc<fs_manager::FsManager>,
 }
 
 impl AgentServer {
@@ -90,6 +94,9 @@ impl AgentServer {
         let webserver_manager = Arc::new(webserver::NginxManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let fs_manager = Arc::new(fs_manager::FsManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -99,6 +106,7 @@ impl AgentServer {
             resource_reader,
             hardening_manager,
             webserver_manager,
+            fs_manager,
         }
     }
 
@@ -120,6 +128,9 @@ impl AgentServer {
         let webserver_manager = Arc::new(webserver::NginxManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let fs_manager = Arc::new(fs_manager::FsManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -129,6 +140,7 @@ impl AgentServer {
             resource_reader,
             hardening_manager,
             webserver_manager,
+            fs_manager,
         }
     }
 
@@ -144,6 +156,9 @@ impl AgentServer {
         let webserver_manager = Arc::new(webserver::NginxManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let fs_manager = Arc::new(fs_manager::FsManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -153,6 +168,7 @@ impl AgentServer {
             resource_reader,
             hardening_manager,
             webserver_manager,
+            fs_manager,
         }
     }
 
@@ -166,6 +182,9 @@ impl AgentServer {
         webserver_manager: Arc<webserver::NginxManager>,
     ) -> Self {
         let runner = Arc::clone(webserver_manager.runner());
+        let fs_manager = Arc::new(fs_manager::FsManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
         Self {
             config,
             runner,
@@ -175,7 +194,18 @@ impl AgentServer {
             resource_reader,
             hardening_manager,
             webserver_manager,
+            fs_manager,
         }
+    }
+
+    pub fn with_fs_manager(mut self, fs_manager: Arc<fs_manager::FsManager>) -> Self {
+        self.fs_manager = fs_manager;
+        self
+    }
+
+    pub fn with_quota_manager(mut self, quota_manager: Arc<quota::QuotaManager>) -> Self {
+        self.quota_manager = quota_manager;
+        self
     }
 
     pub fn config(&self) -> &AgentConfig {
@@ -435,6 +465,93 @@ impl AgentServer {
                 RequestPayload::PhpLogsRead(d) => (
                     "php.logs_read".to_string(),
                     format!("{}-{}/{}", d.username, d.version, d.log_type),
+                ),
+                RequestPayload::FsList(d) => {
+                    ("fs.list".to_string(), format!("{}/{}", d.username, d.path))
+                }
+                RequestPayload::FsStat(d) => {
+                    ("fs.stat".to_string(), format!("{}/{}", d.username, d.path))
+                }
+                RequestPayload::FsMkdir(d) => {
+                    ("fs.mkdir".to_string(), format!("{}/{}", d.username, d.path))
+                }
+                RequestPayload::FsRename(d) => (
+                    "fs.rename".to_string(),
+                    format!("{}:{}->{}", d.username, d.source, d.destination),
+                ),
+                RequestPayload::FsCopy(d) => (
+                    "fs.copy".to_string(),
+                    format!("{}:{}->{}", d.username, d.source, d.destination),
+                ),
+                RequestPayload::FsTrash(d) => {
+                    ("fs.trash".to_string(), format!("{}/{}", d.username, d.path))
+                }
+                RequestPayload::FsTrashList(d) => ("fs.trash_list".to_string(), d.username.clone()),
+                RequestPayload::FsTrashRestore(d) => (
+                    "fs.trash_restore".to_string(),
+                    format!("{}/{}", d.username, d.trash_id),
+                ),
+                RequestPayload::FsTrashEmpty(d) => {
+                    ("fs.trash_empty".to_string(), d.username.clone())
+                }
+                RequestPayload::FsDelete(d) => (
+                    "fs.delete".to_string(),
+                    format!("{}/{}", d.username, d.path),
+                ),
+                RequestPayload::FsUploadInit(d) => (
+                    "fs.upload_init".to_string(),
+                    format!("{}:{}/{}", d.username, d.target_path, d.file_name),
+                ),
+                RequestPayload::FsUploadGetSession(d) => (
+                    "fs.upload_get_session".to_string(),
+                    format!("{}:{}", d.username, d.upload_id),
+                ),
+                RequestPayload::FsUploadAppendChunk(d) => (
+                    "fs.upload_append_chunk".to_string(),
+                    format!("{}:{}:{}", d.username, d.upload_id, d.offset),
+                ),
+                RequestPayload::FsReadRange(d) => (
+                    "fs.read_range".to_string(),
+                    format!("{}:{}:{}-{}", d.username, d.path, d.start, d.length),
+                ),
+                RequestPayload::FsZipDirectory(d) => (
+                    "fs.zip_directory".to_string(),
+                    format!("{}:{}", d.username, d.path),
+                ),
+                RequestPayload::FsArchiveCompress(d) => (
+                    "fs.archive_compress".to_string(),
+                    format!("{}:{}", d.username, d.destination),
+                ),
+                RequestPayload::FsArchiveExtract(d) => (
+                    "fs.archive_extract".to_string(),
+                    format!("{}:{}", d.username, d.archive_path),
+                ),
+                RequestPayload::FsChmod(d) => (
+                    "fs.chmod".to_string(),
+                    format!("{}:{}:{:04o}", d.username, d.path, d.mode),
+                ),
+                RequestPayload::FsChmodRecursive(d) => (
+                    "fs.chmod_recursive".to_string(),
+                    format!(
+                        "{}:{}:{:04o}:{:04o}",
+                        d.username, d.path, d.file_mode, d.dir_mode
+                    ),
+                ),
+                RequestPayload::FsChown(d) => (
+                    "fs.chown".to_string(),
+                    format!("{}:{}:{:?}:{:?}", d.username, d.path, d.uid, d.gid),
+                ),
+                RequestPayload::FsReadFile(d) => (
+                    "fs.read_file".to_string(),
+                    format!("{}:{}", d.username, d.path),
+                ),
+                RequestPayload::FsWriteAtomic(d) => (
+                    "fs.write_atomic".to_string(),
+                    format!("{}:{}:{}b", d.username, d.path, d.data.len()),
+                ),
+                RequestPayload::FsSearch(d) => (
+                    "fs.search".to_string(),
+                    format!("{}:{}:{}", d.username, d.path, d.query),
                 ),
             };
 
@@ -734,6 +851,138 @@ impl AgentServer {
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }
+                RequestPayload::FsList(data) => match self.fs_manager.list_dir(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsList(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsStat(data) => match self.fs_manager.stat(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsStat(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsMkdir(data) => match self.fs_manager.mkdir(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsAction(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsRename(data) => match self.fs_manager.rename(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsAction(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsCopy(data) => match self.fs_manager.copy(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsAction(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsTrash(data) => match self.fs_manager.trash(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsTrash(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsTrashList(data) => match self.fs_manager.trash_list(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsTrashList(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsTrashRestore(data) => {
+                    match self.fs_manager.trash_restore(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::FsTrashRestore(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsTrashEmpty(data) => match self.fs_manager.trash_empty(data).await
+                {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsTrashEmpty(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsDelete(data) => match self.fs_manager.delete(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsAction(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsUploadInit(data) => {
+                    match self.fs_manager.upload_init(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::FsUploadInit(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsUploadGetSession(data) => {
+                    match self.fs_manager.upload_get_session(data).await {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::FsUploadGetSession(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsUploadAppendChunk(data) => {
+                    match self.fs_manager.upload_append_chunk(data).await {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::FsUploadAppendChunk(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsReadRange(data) => match self.fs_manager.read_range(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsReadRange(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsZipDirectory(data) => {
+                    match self.fs_manager.zip_directory(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::FsZipDirectory(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsArchiveCompress(data) => {
+                    match self.fs_manager.archive_compress(data).await {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::FsArchiveCompress(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsArchiveExtract(data) => {
+                    match self.fs_manager.archive_extract(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::FsArchiveExtract(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsChmod(data) => match self.fs_manager.chmod(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsChmod(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsChmodRecursive(data) => {
+                    match self.fs_manager.chmod_recursive(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::FsChmodRecursive(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsChown(data) => match self.fs_manager.chown(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsChown(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsReadFile(data) => match self.fs_manager.read_file(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsReadFile(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::FsWriteAtomic(data) => {
+                    match self.fs_manager.write_atomic(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::FsWriteAtomic(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::FsSearch(data) => match self.fs_manager.search(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsSearch(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
             };
 
             let audit_record = audit::AgentAuditRecord::new(

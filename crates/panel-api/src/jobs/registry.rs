@@ -569,6 +569,236 @@ impl JobHandler for PhpExtensionRemoveHandler {
     }
 }
 
+pub struct FileArchiveCompressHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl FileArchiveCompressHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for FileArchiveCompressHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'username' wajib disertakan dalam payload".to_string())?;
+            let destination = payload
+                .get("destination")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'destination' wajib disertakan dalam payload".to_string())?;
+            let source_paths = payload
+                .get("source_paths")
+                .and_then(Value::as_array)
+                .ok_or_else(|| "Field 'source_paths' wajib berupa array".to_string())?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            let format_str = payload.get("format").and_then(Value::as_str);
+            let format = match format_str {
+                Some("targz") | Some("tar.gz") => panel_proto::ArchiveFormatDto::TarGz,
+                _ => {
+                    if destination.ends_with(".tar.gz") || destination.ends_with(".tgz") {
+                        panel_proto::ArchiveFormatDto::TarGz
+                    } else {
+                        panel_proto::ArchiveFormatDto::Zip
+                    }
+                }
+            };
+
+            let _ = ctx
+                .report_progress(10, Some("Memulai pembuatan arsip..."))
+                .await;
+
+            if ctx.is_cancelled() {
+                return Err("Job was cancelled before compression".to_string());
+            }
+
+            let res = self
+                .agent_client
+                .fs_archive_compress(panel_proto::FsArchiveCompressRequest {
+                    username: username.to_string(),
+                    source_paths,
+                    destination: destination.to_string(),
+                    format,
+                })
+                .await
+                .map_err(|e| format!("Kompresi arsip gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(100, Some("Arsip berhasil dibuat"))
+                .await;
+
+            let result = serde_json::json!({
+                "success": true,
+                "result": res.result,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+pub struct FileArchiveExtractHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl FileArchiveExtractHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for FileArchiveExtractHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'username' wajib disertakan dalam payload".to_string())?;
+            let archive_path = payload
+                .get("archive_path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'archive_path' wajib disertakan dalam payload".to_string())?;
+            let destination_dir = payload
+                .get("destination_dir")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    "Field 'destination_dir' wajib disertakan dalam payload".to_string()
+                })?;
+            let format_str = payload.get("format").and_then(Value::as_str);
+            let format = match format_str {
+                Some("zip") => Some(panel_proto::ArchiveFormatDto::Zip),
+                Some("targz") | Some("tar.gz") => Some(panel_proto::ArchiveFormatDto::TarGz),
+                _ => None,
+            };
+
+            let _ = ctx
+                .report_progress(10, Some("Memulai ekstraksi arsip..."))
+                .await;
+
+            if ctx.is_cancelled() {
+                return Err("Job was cancelled before extraction".to_string());
+            }
+
+            let res = self
+                .agent_client
+                .fs_archive_extract(panel_proto::FsArchiveExtractRequest {
+                    username: username.to_string(),
+                    archive_path: archive_path.to_string(),
+                    destination_dir: destination_dir.to_string(),
+                    format,
+                })
+                .await
+                .map_err(|e| format!("Ekstraksi arsip gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(100, Some("Arsip berhasil diekstrak"))
+                .await;
+
+            let result = serde_json::json!({
+                "success": true,
+                "result": res.result,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// File search background job handler coordinating deep searches.
+pub struct FileSearchHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl FileSearchHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for FileSearchHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let username = payload
+                .get("username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'username' wajib disertakan dalam payload".to_string())?;
+            let path = payload
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let query = payload
+                .get("query")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'query' wajib disertakan dalam payload".to_string())?
+                .to_string();
+            let search_content = payload
+                .get("search_content")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let case_sensitive = payload
+                .get("case_sensitive")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let extension = payload
+                .get("extension")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            let max_results = payload
+                .get("max_results")
+                .and_then(Value::as_u64)
+                .map(|v| v as usize);
+            let timeout_secs = payload.get("timeout_secs").and_then(Value::as_u64);
+
+            let _ = ctx
+                .report_progress(10, Some("Memulai pemindaian berkas..."))
+                .await;
+
+            if ctx.is_cancelled() {
+                return Err("Job was cancelled before search started".to_string());
+            }
+
+            let res = self
+                .agent_client
+                .fs_search(panel_proto::FsSearchRequest {
+                    username: username.to_string(),
+                    path,
+                    query,
+                    search_content,
+                    case_sensitive,
+                    extension,
+                    max_results,
+                    timeout_secs,
+                })
+                .await
+                .map_err(|e| format!("Pencarian berkas gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(100, Some("Pencarian berkas selesai"))
+                .await;
+
+            let result = serde_json::json!({
+                "items": res.items,
+                "total_scanned": res.total_scanned,
+                "limit_reached": res.limit_reached,
+                "timed_out": res.timed_out,
+                "duration_ms": res.duration_ms,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
 /// Central registry mapping job names to their respective handlers.
 pub struct JobRegistry {
     handlers: HashMap<String, Arc<dyn JobHandler>>,
@@ -619,8 +849,17 @@ impl JobRegistry {
         );
         reg.register(
             "php.extension.remove",
-            PhpExtensionRemoveHandler::new(agent_client),
+            PhpExtensionRemoveHandler::new(Arc::clone(&agent_client)),
         );
+        reg.register(
+            "files.archive.compress",
+            FileArchiveCompressHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "files.archive.extract",
+            FileArchiveExtractHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register("files.search", FileSearchHandler::new(agent_client));
         reg
     }
 

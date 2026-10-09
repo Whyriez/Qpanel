@@ -82,6 +82,29 @@ pub enum RequestPayload {
     PhpFpmHealthCheck(PhpFpmHealthCheckRequest),
     PhpFpmPoolStatus(PhpFpmPoolStatusRequest),
     PhpLogsRead(PhpLogsReadRequest),
+    FsList(FsListRequest),
+    FsStat(FsStatRequest),
+    FsMkdir(FsMkdirRequest),
+    FsRename(FsRenameRequest),
+    FsCopy(FsCopyRequest),
+    FsTrash(FsTrashRequest),
+    FsTrashList(FsTrashListRequest),
+    FsTrashRestore(FsTrashRestoreRequest),
+    FsTrashEmpty(FsTrashEmptyRequest),
+    FsDelete(FsDeleteRequest),
+    FsUploadInit(FsUploadInitRequest),
+    FsUploadGetSession(FsUploadGetSessionRequest),
+    FsUploadAppendChunk(FsUploadAppendChunkRequest),
+    FsReadRange(FsReadRangeRequest),
+    FsZipDirectory(FsZipDirectoryRequest),
+    FsArchiveCompress(FsArchiveCompressRequest),
+    FsArchiveExtract(FsArchiveExtractRequest),
+    FsChmod(FsChmodRequest),
+    FsChmodRecursive(FsChmodRecursiveRequest),
+    FsChown(FsChownRequest),
+    FsReadFile(FsReadFileRequest),
+    FsWriteAtomic(FsWriteAtomicRequest),
+    FsSearch(FsSearchRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -228,7 +251,390 @@ pub enum ResponsePayload {
     PhpFpmHealthChecked(PhpFpmHealthCheckResponse),
     PhpFpmPoolStatus(PhpFpmPoolStatusResponse),
     PhpLogsRead(PhpLogsReadResponse),
+    FsList(FsListResponse),
+    FsStat(FsStatResponse),
+    FsTrash(FsTrashResponse),
+    FsTrashList(FsTrashListResponse),
+    FsTrashRestore(FsTrashRestoreResponse),
+    FsTrashEmpty(FsTrashEmptyResponse),
+    FsAction(FsActionResponse),
+    FsUploadInit(FsUploadInitResponse),
+    FsUploadGetSession(FsUploadGetSessionResponse),
+    FsUploadAppendChunk(FsUploadAppendChunkResponse),
+    FsReadRange(FsReadRangeResponse),
+    FsZipDirectory(FsZipDirectoryResponse),
+    FsArchiveCompress(FsArchiveCompressResponse),
+    FsArchiveExtract(FsArchiveExtractResponse),
+    FsChmod(FsChmodResponse),
+    FsChmodRecursive(FsChmodRecursiveResponse),
+    FsChown(FsChownResponse),
+    FsReadFile(FsReadFileResponse),
+    FsWriteAtomic(FsWriteAtomicResponse),
+    FsSearch(FsSearchResponse),
     Error(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsEntryDto {
+    pub name: String,
+    pub relative_path: String,
+    pub is_dir: bool,
+    pub is_file: bool,
+    pub is_symlink: bool,
+    pub symlink_target: Option<String>,
+    pub size_bytes: u64,
+    pub modified_at: Option<i64>,
+    pub created_at: Option<i64>,
+    pub mode: u32,
+    pub mode_octal: String,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsListRequest {
+    pub username: String,
+    pub path: String,
+    pub limit: usize,
+    pub offset: usize,
+    pub sort_by: String,
+    pub sort_order: String,
+    pub show_hidden: bool,
+    pub search_query: Option<String>,
+    pub extension: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsListResponse {
+    pub entries: Vec<FsEntryDto>,
+    pub total_count: usize,
+    pub offset: usize,
+    pub limit: usize,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsStatRequest {
+    pub username: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsStatResponse {
+    pub entry: FsEntryDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsMkdirRequest {
+    pub username: String,
+    pub path: String,
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsRenameRequest {
+    pub username: String,
+    pub source: String,
+    pub destination: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsCopyRequest {
+    pub username: String,
+    pub source: String,
+    pub destination: String,
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrashedItemDto {
+    pub trash_id: String,
+    pub original_path: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub size_bytes: u64,
+    pub trashed_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashRequest {
+    pub username: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashResponse {
+    pub item: TrashedItemDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashListRequest {
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashListResponse {
+    pub items: Vec<TrashedItemDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashRestoreRequest {
+    pub username: String,
+    pub trash_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashRestoreResponse {
+    pub item: TrashedItemDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashEmptyRequest {
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsTrashEmptyResponse {
+    pub purged_count: usize,
+    pub bytes_freed: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsDeleteRequest {
+    pub username: String,
+    pub path: String,
+    pub recursive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsActionResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UploadMetadataDto {
+    pub upload_id: String,
+    pub file_name: String,
+    pub target_path: String,
+    pub total_size: u64,
+    pub current_offset: u64,
+    pub created_at: i64,
+    pub completed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsUploadInitRequest {
+    pub username: String,
+    pub target_path: String,
+    pub file_name: String,
+    pub total_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsUploadInitResponse {
+    pub metadata: UploadMetadataDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsUploadGetSessionRequest {
+    pub username: String,
+    pub upload_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsUploadGetSessionResponse {
+    pub metadata: UploadMetadataDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsUploadAppendChunkRequest {
+    pub username: String,
+    pub upload_id: String,
+    pub offset: u64,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsUploadAppendChunkResponse {
+    pub metadata: UploadMetadataDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsReadRangeRequest {
+    pub username: String,
+    pub path: String,
+    pub start: u64,
+    pub length: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsReadRangeResponse {
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsZipDirectoryRequest {
+    pub username: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsZipDirectoryResponse {
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArchiveFormatDto {
+    Zip,
+    TarGz,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ArchiveResultDto {
+    pub entries_processed: usize,
+    pub total_bytes: u64,
+    pub target_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsArchiveCompressRequest {
+    pub username: String,
+    pub source_paths: Vec<String>,
+    pub destination: String,
+    pub format: ArchiveFormatDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsArchiveCompressResponse {
+    pub result: ArchiveResultDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsArchiveExtractRequest {
+    pub username: String,
+    pub archive_path: String,
+    pub destination_dir: String,
+    pub format: Option<ArchiveFormatDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsArchiveExtractResponse {
+    pub result: ArchiveResultDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsChmodRequest {
+    pub username: String,
+    pub path: String,
+    pub mode: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsChmodResponse {
+    pub path: String,
+    pub mode: u32,
+    pub mode_octal: String,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsChmodRecursiveRequest {
+    pub username: String,
+    pub path: String,
+    pub file_mode: u32,
+    pub dir_mode: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsChmodRecursiveResponse {
+    pub path: String,
+    pub file_mode: u32,
+    pub file_mode_octal: String,
+    pub dir_mode: u32,
+    pub dir_mode_octal: String,
+    pub affected_count: usize,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsChownRequest {
+    pub username: String,
+    pub path: String,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+    pub caller_uid: u32,
+    pub is_admin: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsChownResponse {
+    pub path: String,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsReadFileRequest {
+    pub username: String,
+    pub path: String,
+    pub max_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsReadFileResponse {
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsWriteAtomicRequest {
+    pub username: String,
+    pub path: String,
+    pub data: Vec<u8>,
+    pub mode: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsWriteAtomicResponse {
+    pub bytes_written: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContentMatchDto {
+    pub line_number: usize,
+    pub line_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsSearchItemDto {
+    pub path: String,
+    pub is_dir: bool,
+    pub size_bytes: u64,
+    pub modified_at: Option<i64>,
+    pub matches: Vec<ContentMatchDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsSearchRequest {
+    pub username: String,
+    pub path: String,
+    pub query: String,
+    pub search_content: bool,
+    pub case_sensitive: bool,
+    pub extension: Option<String>,
+    pub max_results: Option<usize>,
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FsSearchResponse {
+    pub items: Vec<FsSearchItemDto>,
+    pub total_scanned: usize,
+    pub limit_reached: bool,
+    pub timed_out: bool,
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

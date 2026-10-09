@@ -2,16 +2,27 @@
 
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
-    AcmeChallengeDeployedResponse, HardeningApplyRequest, HardeningApplyResponse, HardeningStatus,
-    NginxBaselineAppliedResponse, NginxBaselineApplyRequest, PhpExtensionActionResponse,
-    PhpExtensionInstallRequest, PhpExtensionListRequest, PhpExtensionListResponse,
-    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpFpmHealthCheckRequest,
-    PhpFpmHealthCheckResponse, PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest,
-    PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest,
-    PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest,
-    PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse,
-    PhpFpmPoolStatusRequest, PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse,
-    PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
+    AcmeChallengeDeployedResponse, FsActionResponse, FsArchiveCompressRequest,
+    FsArchiveCompressResponse, FsArchiveExtractRequest, FsArchiveExtractResponse,
+    FsChmodRecursiveRequest, FsChmodRecursiveResponse, FsChmodRequest, FsChmodResponse,
+    FsChownRequest, FsChownResponse, FsCopyRequest, FsDeleteRequest, FsListRequest, FsListResponse,
+    FsMkdirRequest, FsReadFileRequest, FsReadFileResponse, FsReadRangeRequest, FsReadRangeResponse,
+    FsRenameRequest, FsSearchRequest, FsSearchResponse, FsStatRequest, FsStatResponse,
+    FsTrashEmptyRequest, FsTrashEmptyResponse, FsTrashListRequest, FsTrashListResponse,
+    FsTrashRequest, FsTrashResponse, FsTrashRestoreRequest, FsTrashRestoreResponse,
+    FsUploadAppendChunkRequest, FsUploadAppendChunkResponse, FsUploadGetSessionRequest,
+    FsUploadGetSessionResponse, FsUploadInitRequest, FsUploadInitResponse, FsWriteAtomicRequest,
+    FsWriteAtomicResponse, FsZipDirectoryRequest, FsZipDirectoryResponse, HardeningApplyRequest,
+    HardeningApplyResponse, HardeningStatus, NginxBaselineAppliedResponse,
+    NginxBaselineApplyRequest, PhpExtensionActionResponse, PhpExtensionInstallRequest,
+    PhpExtensionListRequest, PhpExtensionListResponse, PhpExtensionRemoveRequest,
+    PhpExtensionToggleRequest, PhpFpmHealthCheckRequest, PhpFpmHealthCheckResponse,
+    PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse,
+    PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest,
+    PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse,
+    PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse, PhpFpmPoolStatusRequest,
+    PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse, PhpRepoSetupRequest,
+    PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
     QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
     QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
@@ -1400,6 +1411,678 @@ impl AgentClient {
             ResponsePayload::PhpLogsRead(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PhpLogsRead",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_list(&self, req: FsListRequest) -> Result<FsListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsList(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_stat(&self, req: FsStatRequest) -> Result<FsStatResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-stat-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsStat(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsStat(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsStat",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_mkdir(
+        &self,
+        req: FsMkdirRequest,
+    ) -> Result<FsActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-mkdir-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsMkdir(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_rename(
+        &self,
+        req: FsRenameRequest,
+    ) -> Result<FsActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-rename-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsRename(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_copy(&self, req: FsCopyRequest) -> Result<FsActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-copy-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsCopy(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_trash(&self, req: FsTrashRequest) -> Result<FsTrashResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-trash-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsTrash(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsTrash(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsTrash",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_trash_list(
+        &self,
+        req: FsTrashListRequest,
+    ) -> Result<FsTrashListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-trash-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsTrashList(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsTrashList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsTrashList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_trash_restore(
+        &self,
+        req: FsTrashRestoreRequest,
+    ) -> Result<FsTrashRestoreResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-trash-restore-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsTrashRestore(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsTrashRestore(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsTrashRestore",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_trash_empty(
+        &self,
+        req: FsTrashEmptyRequest,
+    ) -> Result<FsTrashEmptyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-trash-empty-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsTrashEmpty(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsTrashEmpty(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsTrashEmpty",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_delete(
+        &self,
+        req: FsDeleteRequest,
+    ) -> Result<FsActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-delete-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsDelete(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_upload_init(
+        &self,
+        req: FsUploadInitRequest,
+    ) -> Result<FsUploadInitResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-upload-init-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsUploadInit(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsUploadInit(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsUploadInit",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_upload_get_session(
+        &self,
+        req: FsUploadGetSessionRequest,
+    ) -> Result<FsUploadGetSessionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-upload-get-session-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsUploadGetSession(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsUploadGetSession(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsUploadGetSession",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_upload_append_chunk(
+        &self,
+        req: FsUploadAppendChunkRequest,
+    ) -> Result<FsUploadAppendChunkResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-upload-append-chunk-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsUploadAppendChunk(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsUploadAppendChunk(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsUploadAppendChunk",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_read_range(
+        &self,
+        req: FsReadRangeRequest,
+    ) -> Result<FsReadRangeResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-read-range-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsReadRange(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsReadRange(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsReadRange",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_zip_directory(
+        &self,
+        req: FsZipDirectoryRequest,
+    ) -> Result<FsZipDirectoryResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-zip-directory-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsZipDirectory(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsZipDirectory(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsZipDirectory",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_archive_compress(
+        &self,
+        req: FsArchiveCompressRequest,
+    ) -> Result<FsArchiveCompressResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-archive-compress-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsArchiveCompress(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsArchiveCompress(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsArchiveCompress",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_archive_extract(
+        &self,
+        req: FsArchiveExtractRequest,
+    ) -> Result<FsArchiveExtractResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-archive-extract-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsArchiveExtract(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsArchiveExtract(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsArchiveExtract",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_chmod(&self, req: FsChmodRequest) -> Result<FsChmodResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-chmod-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsChmod(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsChmod(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsChmod",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_chmod_recursive(
+        &self,
+        req: FsChmodRecursiveRequest,
+    ) -> Result<FsChmodRecursiveResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-chmod-recursive-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsChmodRecursive(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsChmodRecursive(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsChmodRecursive",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_chown(&self, req: FsChownRequest) -> Result<FsChownResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-chown-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsChown(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsChown(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsChown",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_read_file(
+        &self,
+        req: FsReadFileRequest,
+    ) -> Result<FsReadFileResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-read-file-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsReadFile(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsReadFile(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsReadFile",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_write_atomic(
+        &self,
+        req: FsWriteAtomicRequest,
+    ) -> Result<FsWriteAtomicResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-write-atomic-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsWriteAtomic(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsWriteAtomic(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsWriteAtomic",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn fs_search(
+        &self,
+        req: FsSearchRequest,
+    ) -> Result<FsSearchResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "fs-search-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::FsSearch(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::FsSearch(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "FsSearch",
                 got: format!("{other:?}"),
             }),
         }

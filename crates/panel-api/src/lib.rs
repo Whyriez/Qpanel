@@ -3,6 +3,7 @@ pub mod agent_client;
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod files;
 pub mod jobs;
 pub mod logs;
 pub mod php;
@@ -246,6 +247,65 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/php/masters/{username}/{version}/restart",
             post(php::restart_php_fpm_master_handler),
         )
+        // File manager endpoints
+        .route("/api/v1/files/list", get(files::list_files_handler))
+        .route("/api/v1/files/stat", get(files::stat_file_handler))
+        .route("/api/v1/files/mkdir", post(files::mkdir_handler))
+        .route("/api/v1/files/rename", post(files::rename_handler))
+        .route("/api/v1/files/move", post(files::rename_handler))
+        .route("/api/v1/files/copy", post(files::copy_handler))
+        .route(
+            "/api/v1/files/trash",
+            post(files::trash_handler).get(files::list_trash_handler),
+        )
+        .route(
+            "/api/v1/files/trash/restore",
+            post(files::restore_trash_handler),
+        )
+        .route(
+            "/api/v1/files/trash/empty",
+            axum::routing::delete(files::empty_trash_handler),
+        )
+        .route(
+            "/api/v1/files/permanent",
+            axum::routing::delete(files::delete_permanent_handler),
+        )
+        .route(
+            "/api/v1/files/upload/init",
+            post(files::upload_init_handler),
+        )
+        .route(
+            "/api/v1/files/upload/{upload_id}",
+            get(files::upload_status_handler),
+        )
+        .route(
+            "/api/v1/files/upload/{upload_id}/chunk",
+            post(files::upload_chunk_handler),
+        )
+        .route("/api/v1/files/download", get(files::download_file_handler))
+        .route(
+            "/api/v1/files/download-zip",
+            get(files::download_zip_handler),
+        )
+        .route(
+            "/api/v1/files/archive/compress",
+            post(files::archive_compress_handler),
+        )
+        .route(
+            "/api/v1/files/archive/extract",
+            post(files::archive_extract_handler),
+        )
+        .route("/api/v1/files/chmod", post(files::chmod_handler))
+        .route(
+            "/api/v1/files/chmod-recursive",
+            post(files::chmod_recursive_handler),
+        )
+        .route("/api/v1/files/chown", post(files::chown_handler))
+        .route(
+            "/api/v1/files/content",
+            get(files::get_file_content_handler).put(files::save_file_content_handler),
+        )
+        .route("/api/v1/files/search", post(files::search_files_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
