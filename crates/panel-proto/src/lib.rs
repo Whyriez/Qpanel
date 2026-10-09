@@ -105,6 +105,12 @@ pub enum RequestPayload {
     FsReadFile(FsReadFileRequest),
     FsWriteAtomic(FsWriteAtomicRequest),
     FsSearch(FsSearchRequest),
+    PtyOpen(PtyOpenRequest),
+    PtyInput(PtyInputRequest),
+    PtyReadOutput(PtyReadOutputRequest),
+    PtyResize(PtyResizeRequest),
+    PtyClose(PtyCloseRequest),
+    PtyList(PtyListRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -271,6 +277,12 @@ pub enum ResponsePayload {
     FsReadFile(FsReadFileResponse),
     FsWriteAtomic(FsWriteAtomicResponse),
     FsSearch(FsSearchResponse),
+    PtyOpen(PtyOpenResponse),
+    PtyInput(PtyInputResponse),
+    PtyReadOutput(PtyReadOutputResponse),
+    PtyResize(PtyResizeResponse),
+    PtyClose(PtyCloseResponse),
+    PtyList(PtyListResponse),
     Error(String),
 }
 
@@ -635,6 +647,107 @@ pub struct FsSearchResponse {
     pub limit_reached: bool,
     pub timed_out: bool,
     pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyOpenRequest {
+    pub username: String,
+    pub uid: u32,
+    pub gid: u32,
+    pub cwd: Option<String>,
+    pub rows: u16,
+    pub cols: u16,
+    pub term: Option<String>,
+    pub max_sessions: Option<usize>,
+    pub idle_timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyOpenResponse {
+    pub session_id: String,
+    pub username: String,
+    pub pid: u32,
+    pub cwd: String,
+    pub rows: u16,
+    pub cols: u16,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyInputRequest {
+    pub session_id: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyInputResponse {
+    pub session_id: String,
+    pub bytes_written: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyReadOutputRequest {
+    pub session_id: String,
+    pub max_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyReadOutputResponse {
+    pub session_id: String,
+    pub data: Vec<u8>,
+    pub closed: bool,
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyResizeRequest {
+    pub session_id: String,
+    pub rows: u16,
+    pub cols: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyResizeResponse {
+    pub session_id: String,
+    pub rows: u16,
+    pub cols: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyCloseRequest {
+    pub session_id: String,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyCloseResponse {
+    pub session_id: String,
+    pub closed: bool,
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyListRequest {
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtySessionInfoDto {
+    pub session_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub pid: u32,
+    pub cwd: String,
+    pub rows: u16,
+    pub cols: u16,
+    pub created_at: i64,
+    pub last_active_at: i64,
+    pub is_alive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PtyListResponse {
+    pub sessions: Vec<PtySessionInfoDto>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1770,5 +1883,65 @@ mod tests {
         let s_logs = serde_json::to_string(&req_logs).unwrap();
         let de_logs: RpcRequest = serde_json::from_str(&s_logs).unwrap();
         assert_eq!(req_logs, de_logs);
+
+        // PTY Open RPC test
+        let req_pty_open = RpcRequest::new(
+            "pty-open-1",
+            RequestPayload::PtyOpen(PtyOpenRequest {
+                username: "p_alice".to_string(),
+                uid: 10001,
+                gid: 10001,
+                cwd: Some("sites/example.com".to_string()),
+                rows: 24,
+                cols: 80,
+                term: Some("xterm-256color".to_string()),
+                max_sessions: Some(5),
+                idle_timeout_secs: Some(900),
+            }),
+        );
+        let s_pty_open = serde_json::to_string(&req_pty_open).unwrap();
+        let de_pty_open: RpcRequest = serde_json::from_str(&s_pty_open).unwrap();
+        assert_eq!(req_pty_open, de_pty_open);
+
+        let res_pty_open = RpcResponse::ok(
+            "pty-open-1",
+            ResponsePayload::PtyOpen(PtyOpenResponse {
+                session_id: "test-sess-1".to_string(),
+                username: "p_alice".to_string(),
+                pid: 12345,
+                cwd: "/home/p_alice/sites/example.com".to_string(),
+                rows: 24,
+                cols: 80,
+                created_at: 1728000000,
+            }),
+        );
+        let s_res_open = serde_json::to_string(&res_pty_open).unwrap();
+        let de_res_open: RpcResponse = serde_json::from_str(&s_res_open).unwrap();
+        assert_eq!(res_pty_open, de_res_open);
+
+        // PTY Input RPC test
+        let req_pty_in = RpcRequest::new(
+            "pty-in-1",
+            RequestPayload::PtyInput(PtyInputRequest {
+                session_id: "test-sess-1".to_string(),
+                data: b"ls -la\n".to_vec(),
+            }),
+        );
+        let s_pty_in = serde_json::to_string(&req_pty_in).unwrap();
+        let de_pty_in: RpcRequest = serde_json::from_str(&s_pty_in).unwrap();
+        assert_eq!(req_pty_in, de_pty_in);
+
+        // PTY Resize RPC test
+        let req_pty_resize = RpcRequest::new(
+            "pty-res-1",
+            RequestPayload::PtyResize(PtyResizeRequest {
+                session_id: "test-sess-1".to_string(),
+                rows: 40,
+                cols: 120,
+            }),
+        );
+        let s_pty_resize = serde_json::to_string(&req_pty_resize).unwrap();
+        let de_pty_resize: RpcRequest = serde_json::from_str(&s_pty_resize).unwrap();
+        assert_eq!(req_pty_resize, de_pty_resize);
     }
 }

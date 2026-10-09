@@ -24,14 +24,17 @@ use panel_proto::{
     PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse, PhpRepoSetupRequest,
     PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
-    QuotaGetRequest, QuotaGetResponse, QuotaScanRequest, QuotaScanResponse, QuotaSetRequest,
-    QuotaSetResponse, RequestPayload, ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream,
-    SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
-    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
-    SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse,
-    SliceResourceMetrics, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
-    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
-    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    PtyCloseRequest, PtyCloseResponse, PtyInputRequest, PtyInputResponse, PtyListRequest,
+    PtyListResponse, PtyOpenRequest, PtyOpenResponse, PtyReadOutputRequest, PtyReadOutputResponse,
+    PtyResizeRequest, PtyResizeResponse, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
+    QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
+    ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
+    SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse,
+    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
+    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SslCertDeployRequest,
+    SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse, UserDeleteRequest,
+    UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest,
+    UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -2083,6 +2086,152 @@ impl AgentClient {
             ResponsePayload::FsSearch(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "FsSearch",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    async fn send_rpc(
+        &self,
+        prefix: &str,
+        payload: RequestPayload,
+    ) -> Result<panel_proto::RpcResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "{}-{}",
+            prefix,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, payload);
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        Ok(res)
+    }
+
+    pub async fn pty_open(&self, req: PtyOpenRequest) -> Result<PtyOpenResponse, AgentClientError> {
+        let res = self
+            .send_rpc("pty-open", RequestPayload::PtyOpen(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PtyOpen(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PtyOpen",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn pty_input(
+        &self,
+        req: PtyInputRequest,
+    ) -> Result<PtyInputResponse, AgentClientError> {
+        let res = self
+            .send_rpc("pty-in", RequestPayload::PtyInput(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PtyInput(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PtyInput",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn pty_read_output(
+        &self,
+        req: PtyReadOutputRequest,
+    ) -> Result<PtyReadOutputResponse, AgentClientError> {
+        let res = self
+            .send_rpc("pty-read", RequestPayload::PtyReadOutput(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PtyReadOutput(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PtyReadOutput",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn pty_resize(
+        &self,
+        req: PtyResizeRequest,
+    ) -> Result<PtyResizeResponse, AgentClientError> {
+        let res = self
+            .send_rpc("pty-res", RequestPayload::PtyResize(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PtyResize(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PtyResize",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn pty_close(
+        &self,
+        req: PtyCloseRequest,
+    ) -> Result<PtyCloseResponse, AgentClientError> {
+        let res = self
+            .send_rpc("pty-close", RequestPayload::PtyClose(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PtyClose(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PtyClose",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn pty_list(&self, req: PtyListRequest) -> Result<PtyListResponse, AgentClientError> {
+        let res = self
+            .send_rpc("pty-list", RequestPayload::PtyList(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PtyList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PtyList",
                 got: format!("{other:?}"),
             }),
         }

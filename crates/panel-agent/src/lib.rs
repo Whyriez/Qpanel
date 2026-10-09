@@ -4,6 +4,7 @@ pub mod audit;
 pub mod fs_manager;
 pub mod hardening;
 pub mod php;
+pub mod pty;
 pub mod quota;
 pub mod resource;
 pub mod slice;
@@ -73,6 +74,21 @@ pub struct AgentServer {
     hardening_manager: Arc<hardening::HardeningManager>,
     webserver_manager: Arc<webserver::NginxManager>,
     fs_manager: Arc<fs_manager::FsManager>,
+    pty_manager: Arc<pty::PtySessionManager>,
+}
+
+fn create_default_pty_manager() -> Arc<pty::PtySessionManager> {
+    #[cfg(unix)]
+    let backend: Arc<dyn pty::PtyBackend> = Arc::new(pty::UnixPtyBackend::new());
+    #[cfg(not(unix))]
+    let backend: Arc<dyn pty::PtyBackend> = Arc::new(pty::MockPtyBackend::new());
+
+    let mgr = Arc::new(pty::PtySessionManager::new(
+        pty::PtyManagerConfig::default(),
+        backend,
+    ));
+    std::mem::drop(mgr.start_idle_reaper(std::time::Duration::from_secs(30)));
+    mgr
 }
 
 impl AgentServer {
@@ -97,6 +113,7 @@ impl AgentServer {
         let fs_manager = Arc::new(fs_manager::FsManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let pty_manager = create_default_pty_manager();
         Self {
             config,
             runner,
@@ -107,6 +124,7 @@ impl AgentServer {
             hardening_manager,
             webserver_manager,
             fs_manager,
+            pty_manager,
         }
     }
 
@@ -131,6 +149,7 @@ impl AgentServer {
         let fs_manager = Arc::new(fs_manager::FsManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let pty_manager = create_default_pty_manager();
         Self {
             config,
             runner,
@@ -141,6 +160,7 @@ impl AgentServer {
             hardening_manager,
             webserver_manager,
             fs_manager,
+            pty_manager,
         }
     }
 
@@ -159,6 +179,7 @@ impl AgentServer {
         let fs_manager = Arc::new(fs_manager::FsManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let pty_manager = create_default_pty_manager();
         Self {
             config,
             runner,
@@ -169,6 +190,7 @@ impl AgentServer {
             hardening_manager,
             webserver_manager,
             fs_manager,
+            pty_manager,
         }
     }
 
@@ -185,6 +207,7 @@ impl AgentServer {
         let fs_manager = Arc::new(fs_manager::FsManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let pty_manager = create_default_pty_manager();
         Self {
             config,
             runner,
@@ -195,6 +218,7 @@ impl AgentServer {
             hardening_manager,
             webserver_manager,
             fs_manager,
+            pty_manager,
         }
     }
 
@@ -206,6 +230,15 @@ impl AgentServer {
     pub fn with_quota_manager(mut self, quota_manager: Arc<quota::QuotaManager>) -> Self {
         self.quota_manager = quota_manager;
         self
+    }
+
+    pub fn with_pty_manager(mut self, pty_manager: Arc<pty::PtySessionManager>) -> Self {
+        self.pty_manager = pty_manager;
+        self
+    }
+
+    pub fn pty_manager(&self) -> &Arc<pty::PtySessionManager> {
+        &self.pty_manager
     }
 
     pub fn config(&self) -> &AgentConfig {
@@ -553,6 +586,20 @@ impl AgentServer {
                     "fs.search".to_string(),
                     format!("{}:{}:{}", d.username, d.path, d.query),
                 ),
+                RequestPayload::PtyOpen(d) => (
+                    "pty.open".to_string(),
+                    format!("{}:{:?}", d.username, d.cwd),
+                ),
+                RequestPayload::PtyInput(d) => ("pty.input".to_string(), d.session_id.clone()),
+                RequestPayload::PtyReadOutput(d) => {
+                    ("pty.read_output".to_string(), d.session_id.clone())
+                }
+                RequestPayload::PtyResize(d) => (
+                    "pty.resize".to_string(),
+                    format!("{}:{}x{}", d.session_id, d.rows, d.cols),
+                ),
+                RequestPayload::PtyClose(d) => ("pty.close".to_string(), d.session_id.clone()),
+                RequestPayload::PtyList(d) => ("pty.list".to_string(), format!("{:?}", d.username)),
             };
 
             let response = match req.payload {
@@ -981,6 +1028,34 @@ impl AgentServer {
                 }
                 RequestPayload::FsSearch(data) => match self.fs_manager.search(data).await {
                     Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::FsSearch(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::PtyOpen(data) => match self.pty_manager.open_session(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PtyOpen(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::PtyInput(data) => match self.pty_manager.write_input(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PtyInput(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::PtyReadOutput(data) => {
+                    match self.pty_manager.read_output(data).await {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PtyReadOutput(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PtyResize(data) => match self.pty_manager.resize(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PtyResize(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::PtyClose(data) => match self.pty_manager.close(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PtyClose(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::PtyList(data) => match self.pty_manager.list_sessions(data).await {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PtyList(res)),
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
             };
