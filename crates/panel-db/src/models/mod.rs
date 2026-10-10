@@ -1,6 +1,7 @@
 pub mod api_token;
 pub mod audit_log;
 pub mod certificate;
+pub mod cron;
 pub mod domain;
 pub mod job;
 pub mod plan;
@@ -17,6 +18,7 @@ pub use certificate::{
     AcmeAccount, Certificate, CertificateIssuer, CertificateStatus, CreateAcmeAccount,
     CreateCertificate, UpdateCertificate,
 };
+pub use cron::{CreateCronJob, CreateCronRun, CronJob, CronRun, UpdateCronJob};
 pub use domain::{CreateDomain, Domain, DomainStatus, RedirectMode, UpdateDomain};
 pub use job::{CreateJob, Job};
 pub use plan::{CreatePlan, Plan, UpdatePlan};

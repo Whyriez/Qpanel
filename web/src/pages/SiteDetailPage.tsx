@@ -25,6 +25,7 @@ import {
   Folder,
   Key,
   Network,
+  Clock,
 } from 'lucide-react';
 import { FileManager } from '../components/files/FileManager';
 import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
@@ -36,6 +37,7 @@ import { PythonSettingsCard } from '../components/sites/PythonSettingsCard';
 import { ProxySettingsCard } from '../components/sites/ProxySettingsCard';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { SiteEnvironmentTab } from '../components/sites/SiteEnvironmentTab';
+import { SiteCronTab } from '../components/sites/SiteCronTab';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
@@ -74,7 +76,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'environment' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'environment' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'cron' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -806,6 +808,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         )}
 
         <button
+          onClick={() => setActiveTab('cron')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'cron'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <Clock className="w-4 h-4" />
+          {t('sites.tabs.cron', 'Cron')}
+        </button>
+
+        <button
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'settings'
@@ -1489,6 +1503,13 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             }}
           />
         </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5e: CRON JOBS (SYSTEMD TIMERS)                                    */}
+      {/* ===================================================================== */}
+      {activeTab === 'cron' && (
+        <SiteCronTab siteId={site.id} />
       )}
 
       {/* ===================================================================== */}

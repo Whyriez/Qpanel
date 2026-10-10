@@ -135,6 +135,10 @@ pub enum RequestPayload {
     SiteEnvEncrypt(SiteEnvEncryptRequest),
     SiteEnvDecrypt(SiteEnvDecryptRequest),
     SiteEnvApply(SiteEnvApplyRequest),
+    CronJobApply(CronJobApplyRequest),
+    CronJobRemove(CronJobRemoveRequest),
+    CronJobRunNow(CronJobRunNowRequest),
+    CronJobLogsRead(CronJobLogsReadRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -331,6 +335,10 @@ pub enum ResponsePayload {
     SiteEnvEncrypted(SiteEnvEncryptResponse),
     SiteEnvDecrypted(SiteEnvDecryptResponse),
     SiteEnvApplied(SiteEnvApplyResponse),
+    CronJobApplied(CronJobApplyResponse),
+    CronJobRemoved(CronJobRemoveResponse),
+    CronJobRunNow(CronJobRunNowResponse),
+    CronJobLogsRead(CronJobLogsReadResponse),
     Error(String),
 }
 
@@ -1798,6 +1806,87 @@ pub struct SiteEnvApplyResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobApplyRequest {
+    pub site_id: String,
+    pub job_id: i64,
+    pub name: String,
+    pub username: String,
+    pub uid: u32,
+    pub command: String,
+    pub schedule: String,
+    pub systemd_calendar: String,
+    pub work_dir: Option<String>,
+    pub timeout_secs: u64,
+    pub enabled: bool,
+    pub unit_dir: Option<String>,
+    pub env_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobApplyResponse {
+    pub site_id: String,
+    pub job_id: i64,
+    pub service_name: String,
+    pub timer_name: String,
+    pub enabled: bool,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobRemoveRequest {
+    pub site_id: String,
+    pub job_id: i64,
+    pub unit_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobRemoveResponse {
+    pub site_id: String,
+    pub job_id: i64,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobRunNowRequest {
+    pub site_id: String,
+    pub job_id: i64,
+    pub username: String,
+    pub uid: u32,
+    pub command: String,
+    pub work_dir: Option<String>,
+    pub timeout_secs: u64,
+    pub env_file_path: Option<String>,
+    pub unit_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobRunNowResponse {
+    pub site_id: String,
+    pub job_id: i64,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobLogsReadRequest {
+    pub site_id: String,
+    pub job_id: i64,
+    pub lines: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CronJobLogsReadResponse {
+    pub site_id: String,
+    pub job_id: i64,
+    pub logs: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -2736,5 +2825,78 @@ mod tests {
         let s_env_app = serde_json::to_string(&req_env_app).unwrap();
         let de_env_app: RpcRequest = serde_json::from_str(&s_env_app).unwrap();
         assert_eq!(req_env_app, de_env_app);
+
+        // P8-T2 Cron payloads roundtrip tests
+        let req_cron_apply = RpcRequest::new(
+            "cron-app-1",
+            RequestPayload::CronJobApply(CronJobApplyRequest {
+                site_id: "site-1".to_string(),
+                job_id: 42,
+                name: "Backup DB".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                command: "php artisan schedule:run".to_string(),
+                schedule: "*/15 * * * *".to_string(),
+                systemd_calendar: "*-*-* *:00/15:00".to_string(),
+                work_dir: Some("/home/p_alice/sites/app".to_string()),
+                timeout_secs: 1800,
+                enabled: true,
+                unit_dir: None,
+                env_file_path: None,
+            }),
+        );
+        let s_cron_apply = serde_json::to_string(&req_cron_apply).unwrap();
+        let de_cron_apply: RpcRequest = serde_json::from_str(&s_cron_apply).unwrap();
+        assert_eq!(req_cron_apply, de_cron_apply);
+
+        let res_cron_apply = RpcResponse::ok(
+            "cron-app-1",
+            ResponsePayload::CronJobApplied(CronJobApplyResponse {
+                site_id: "site-1".to_string(),
+                job_id: 42,
+                service_name: "site-site-1-cron-42.service".to_string(),
+                timer_name: "site-site-1-cron-42.timer".to_string(),
+                enabled: true,
+                success: true,
+                message: "Cron timer enabled".to_string(),
+            }),
+        );
+        let s_res_cron_app = serde_json::to_string(&res_cron_apply).unwrap();
+        let de_res_cron_app: RpcResponse = serde_json::from_str(&s_res_cron_app).unwrap();
+        assert_eq!(res_cron_apply, de_res_cron_app);
+
+        let req_cron_run = RpcRequest::new(
+            "cron-run-1",
+            RequestPayload::CronJobRunNow(CronJobRunNowRequest {
+                site_id: "site-1".to_string(),
+                job_id: 42,
+                username: "p_alice".to_string(),
+                uid: 10001,
+                command: "php artisan schedule:run".to_string(),
+                work_dir: None,
+                timeout_secs: 300,
+                env_file_path: None,
+                unit_dir: None,
+            }),
+        );
+        let s_cron_run = serde_json::to_string(&req_cron_run).unwrap();
+        let de_cron_run: RpcRequest = serde_json::from_str(&s_cron_run).unwrap();
+        assert_eq!(req_cron_run, de_cron_run);
+
+        let res_cron_run = RpcResponse::ok(
+            "cron-run-1",
+            ResponsePayload::CronJobRunNow(CronJobRunNowResponse {
+                site_id: "site-1".to_string(),
+                job_id: 42,
+                exit_code: 0,
+                stdout: "Running scheduled tasks... Done".to_string(),
+                stderr: String::new(),
+                duration_ms: 1250,
+                success: true,
+            }),
+        );
+        let s_res_cron_run = serde_json::to_string(&res_cron_run).unwrap();
+        let de_res_cron_run: RpcResponse = serde_json::from_str(&s_res_cron_run).unwrap();
+        assert_eq!(res_cron_run, de_res_cron_run);
     }
 }

@@ -3,6 +3,7 @@ pub mod agent_client;
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod cron;
 pub mod env_vars;
 pub mod files;
 pub mod jobs;
@@ -255,6 +256,33 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/env/restart",
             post(env_vars::restart_site_env_handler),
+        )
+        // Cron jobs management endpoints (Phase 8 - P8-T2)
+        .route(
+            "/api/v1/sites/{id}/cron",
+            get(cron::list_site_cron_handler).post(cron::create_site_cron_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/cron/validate",
+            post(cron::validate_cron_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/cron/{job_id}",
+            get(cron::get_site_cron_handler)
+                .put(cron::update_site_cron_handler)
+                .delete(cron::delete_site_cron_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/cron/{job_id}/run",
+            post(cron::run_site_cron_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/cron/{job_id}/runs",
+            get(cron::get_site_cron_runs_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/cron/{job_id}/logs",
+            get(cron::get_site_cron_logs_handler),
         )
         // Node.js site management endpoints
         .route(

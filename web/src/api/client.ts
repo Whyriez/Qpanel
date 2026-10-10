@@ -1258,4 +1258,107 @@ export async function restartSiteForEnv(
   );
 }
 
+// Cron Job Management API (Phase 8 - P8-T2)
+export async function fetchSiteCronJobs(
+  siteId: number
+): Promise<import('../types/api').CronJobListResponse> {
+  return request<import('../types/api').CronJobListResponse>(
+    `/api/v1/sites/${siteId}/cron`
+  );
+}
+
+export async function createSiteCronJob(
+  siteId: number,
+  req: import('../types/api').CreateCronJobRequest
+): Promise<import('../types/api').CronJob> {
+  return request<import('../types/api').CronJob>(
+    `/api/v1/sites/${siteId}/cron`,
+    {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }
+  );
+}
+
+export async function getSiteCronJob(
+  siteId: number,
+  jobId: number
+): Promise<import('../types/api').CronJob> {
+  return request<import('../types/api').CronJob>(
+    `/api/v1/sites/${siteId}/cron/${jobId}`
+  );
+}
+
+export async function updateSiteCronJob(
+  siteId: number,
+  jobId: number,
+  req: import('../types/api').UpdateCronJobRequest
+): Promise<import('../types/api').CronJob> {
+  return request<import('../types/api').CronJob>(
+    `/api/v1/sites/${siteId}/cron/${jobId}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    }
+  );
+}
+
+export async function deleteSiteCronJob(
+  siteId: number,
+  jobId: number
+): Promise<{ message: string }> {
+  return request<{ message: string }>(
+    `/api/v1/sites/${siteId}/cron/${jobId}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function runSiteCronJob(
+  siteId: number,
+  jobId: number
+): Promise<import('../types/api').CronRun> {
+  return request<import('../types/api').CronRun>(
+    `/api/v1/sites/${siteId}/cron/${jobId}/run`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+export async function fetchSiteCronRuns(
+  siteId: number,
+  jobId: number,
+  limit?: number
+): Promise<import('../types/api').CronRun[]> {
+  const q = limit ? `?limit=${limit}` : '';
+  return request<import('../types/api').CronRun[]>(
+    `/api/v1/sites/${siteId}/cron/${jobId}/runs${q}`
+  );
+}
+
+export async function fetchSiteCronLogs(
+  siteId: number,
+  jobId: number,
+  lines?: number
+): Promise<{ logs: string[] }> {
+  const q = lines ? `?lines=${lines}` : '';
+  return request<{ logs: string[] }>(
+    `/api/v1/sites/${siteId}/cron/${jobId}/logs${q}`
+  );
+}
+
+export async function validateCronExpression(
+  expression: string
+): Promise<import('../types/api').ValidateCronResponse> {
+  return request<import('../types/api').ValidateCronResponse>(
+    `/api/v1/sites/0/cron/validate`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ expression }),
+    }
+  );
+}
+
 

@@ -911,3 +911,75 @@ export interface SiteEnvActionResponse {
   restart_required: boolean;
 }
 
+// Cron Jobs Types (Phase 8 - P8-T2)
+export interface CronJob {
+  id: number;
+  site_id: number;
+  name: string;
+  command: string;
+  schedule: string;
+  systemd_calendar: string;
+  human_description: string;
+  human_description_en: string;
+  description?: string | null;
+  work_dir?: string | null;
+  timeout_secs: number;
+  enabled: boolean;
+  status: 'idle' | 'running' | 'success' | 'failed' | string;
+  last_run_at?: number | null;
+  last_duration_ms?: number | null;
+  last_exit_code?: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CronQuota {
+  used: number;
+  limit: number;
+}
+
+export interface CronJobListResponse {
+  jobs: CronJob[];
+  quota: CronQuota;
+}
+
+export interface CreateCronJobRequest {
+  name: string;
+  command: string;
+  schedule: string;
+  description?: string;
+  work_dir?: string;
+  timeout_secs?: number;
+  enabled?: boolean;
+}
+
+export interface UpdateCronJobRequest {
+  name?: string;
+  command?: string;
+  schedule?: string;
+  description?: string;
+  work_dir?: string;
+  timeout_secs?: number;
+  enabled?: boolean;
+}
+
+export interface CronRun {
+  id: number;
+  cron_job_id: number;
+  status: 'running' | 'success' | 'failed' | string;
+  exit_code?: number | null;
+  stdout?: string | null;
+  stderr?: string | null;
+  duration_ms?: number | null;
+  started_at: number;
+  finished_at?: number | null;
+}
+
+export interface ValidateCronResponse {
+  valid: boolean;
+  systemd_calendar?: string | null;
+  human_id?: string | null;
+  human_en?: string | null;
+  error?: string | null;
+}
+

@@ -2,7 +2,9 @@
 
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
-    AcmeChallengeDeployedResponse, FsActionResponse, FsArchiveCompressRequest,
+    AcmeChallengeDeployedResponse, CronJobApplyRequest, CronJobApplyResponse,
+    CronJobLogsReadRequest, CronJobLogsReadResponse, CronJobRemoveRequest, CronJobRemoveResponse,
+    CronJobRunNowRequest, CronJobRunNowResponse, FsActionResponse, FsArchiveCompressRequest,
     FsArchiveCompressResponse, FsArchiveExtractRequest, FsArchiveExtractResponse,
     FsChmodRecursiveRequest, FsChmodRecursiveResponse, FsChmodRequest, FsChmodResponse,
     FsChownRequest, FsChownResponse, FsCopyRequest, FsDeleteRequest, FsListRequest, FsListResponse,
@@ -2956,6 +2958,126 @@ impl AgentClient {
             ResponsePayload::SiteEnvApplied(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SiteEnvApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_cron_job(
+        &self,
+        req: CronJobApplyRequest,
+    ) -> Result<CronJobApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "cron-app-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::CronJobApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::CronJobApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "CronJobApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_cron_job(
+        &self,
+        req: CronJobRemoveRequest,
+    ) -> Result<CronJobRemoveResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "cron-rem-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::CronJobRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::CronJobRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "CronJobRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn run_now_cron_job(
+        &self,
+        req: CronJobRunNowRequest,
+    ) -> Result<CronJobRunNowResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "cron-run-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::CronJobRunNow(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::CronJobRunNow(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "CronJobRunNow",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn read_cron_job_logs(
+        &self,
+        req: CronJobLogsReadRequest,
+    ) -> Result<CronJobLogsReadResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "cron-logs-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::CronJobLogsRead(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::CronJobLogsRead(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "CronJobLogsRead",
                 got: format!("{other:?}"),
             }),
         }

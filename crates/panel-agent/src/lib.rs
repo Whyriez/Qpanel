@@ -1,6 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod cron;
 pub mod crypto;
 pub mod fs_manager;
 pub mod hardening;
@@ -710,6 +711,22 @@ impl AgentServer {
                 RequestPayload::SiteEnvApply(d) => {
                     ("site.env_apply".to_string(), d.site_id.clone())
                 }
+                RequestPayload::CronJobApply(d) => (
+                    "cron.job_apply".to_string(),
+                    format!("{}:{}", d.site_id, d.job_id),
+                ),
+                RequestPayload::CronJobRemove(d) => (
+                    "cron.job_remove".to_string(),
+                    format!("{}:{}", d.site_id, d.job_id),
+                ),
+                RequestPayload::CronJobRunNow(d) => (
+                    "cron.job_run_now".to_string(),
+                    format!("{}:{}", d.site_id, d.job_id),
+                ),
+                RequestPayload::CronJobLogsRead(d) => (
+                    "cron.job_logs_read".to_string(),
+                    format!("{}:{}", d.site_id, d.job_id),
+                ),
             };
 
             let response = match req.payload {
@@ -1396,6 +1413,38 @@ impl AgentServer {
                                     .to_string(),
                             }),
                         ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::CronJobApply(data) => {
+                    match cron::apply_cron_job(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::CronJobApplied(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::CronJobRemove(data) => {
+                    match cron::remove_cron_job(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::CronJobRemoved(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::CronJobRunNow(data) => {
+                    match cron::run_now_cron_job(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::CronJobRunNow(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::CronJobLogsRead(data) => {
+                    match cron::read_cron_job_logs(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::CronJobLogsRead(res))
+                        }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }
