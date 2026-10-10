@@ -31,8 +31,9 @@ use panel_proto::{
     ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
     SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse,
     SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
-    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SshKeysSyncRequest,
-    SshKeysSyncResponse, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
+    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SshDropinApplyRequest,
+    SshDropinApplyResponse, SshKeysSyncRequest, SshKeysSyncResponse, SshPolicyApplyRequest,
+    SshPolicyApplyResponse, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
     UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
     UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
@@ -2259,6 +2260,58 @@ impl AgentClient {
             ResponsePayload::SshKeysSync(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SshKeysSync",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_ssh_policy(
+        &self,
+        linux_username: &str,
+        uid: u32,
+        policy: &str,
+    ) -> Result<SshPolicyApplyResponse, AgentClientError> {
+        let req = SshPolicyApplyRequest {
+            linux_username: linux_username.to_string(),
+            uid,
+            policy: policy.to_string(),
+        };
+        let res = self
+            .send_rpc("ssh-policy-apply", RequestPayload::SshPolicyApply(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SshPolicyApply(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SshPolicyApply",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_ssh_dropin(
+        &self,
+        custom_content: Option<String>,
+    ) -> Result<SshDropinApplyResponse, AgentClientError> {
+        let req = SshDropinApplyRequest { custom_content };
+        let res = self
+            .send_rpc("ssh-dropin-apply", RequestPayload::SshDropinApply(req))
+            .await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SshDropinApply(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SshDropinApply",
                 got: format!("{other:?}"),
             }),
         }

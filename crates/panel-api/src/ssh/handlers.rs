@@ -1,10 +1,12 @@
 //! Handlers for SSH public key management.
 
 use super::{
-    CreateSshKeyRequest, SshKeyQuery, SshKeyResponse, ValidateSshKeyRequest, ValidateSshKeyResponse,
+    CreateSshKeyRequest, SshDropinApplyRequestDto, SshDropinApplyResponseDto, SshKeyQuery,
+    SshKeyResponse, ValidateSshKeyRequest, ValidateSshKeyResponse,
 };
 use crate::AppState;
 use crate::auth::AuthenticatedUser;
+use crate::auth::middleware::{RequireAdmin, RequireAdminCsrf};
 use axum::{
     Json,
     extract::{Path, Query, State},
@@ -390,5 +392,75 @@ pub async fn validate_ssh_key_handler(
             bit_length: None,
             error: Some(e.to_string()),
         })),
+    }
+}
+
+/// `POST /api/v1/ssh/dropin/apply`: Apply and validate OpenSSH drop-in configuration (admin only).
+#[utoipa::path(
+    post,
+    path = "/api/v1/ssh/dropin/apply",
+    request_body = SshDropinApplyRequestDto,
+    responses(
+        (status = 200, description = "Drop-in configuration validated and applied", body = SshDropinApplyResponseDto),
+        (status = 400, description = "sshd -t syntax validation failed"),
+        (status = 403, description = "Forbidden - Admin only")
+    ),
+    tag = "ssh"
+)]
+pub async fn apply_ssh_dropin_handler(
+    State(state): State<AppState>,
+    admin: RequireAdmin,
+    _csrf: RequireAdminCsrf,
+    headers: HeaderMap,
+    Json(req): Json<SshDropinApplyRequestDto>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let client_ip = crate::audit::extract_client_ip(&headers);
+
+    match state
+        .agent_client
+        .apply_ssh_dropin(req.custom_content)
+        .await
+    {
+        Ok(res) => {
+            state.audit_writer.log_async(
+                Some(admin.0.id),
+                &admin.0.username,
+                "ssh.dropin_apply",
+                &res.path,
+                "success",
+                client_ip,
+                Some(
+                    serde_json::json!({
+                        "validated": res.validated,
+                        "reloaded": res.reloaded
+                    })
+                    .to_string(),
+                ),
+            );
+
+            Ok(Json(SshDropinApplyResponseDto {
+                success: res.success,
+                path: res.path,
+                validated: res.validated,
+                reloaded: res.reloaded,
+                message: res.message,
+            }))
+        }
+        Err(e) => {
+            state.audit_writer.log_async(
+                Some(admin.0.id),
+                &admin.0.username,
+                "ssh.dropin_apply",
+                "/etc/ssh/sshd_config.d/50-panel.conf",
+                "failure",
+                client_ip,
+                Some(serde_json::json!({ "error": e.to_string() }).to_string()),
+            );
+
+            Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            ))
+        }
     }
 }

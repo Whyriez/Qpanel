@@ -26,32 +26,15 @@ const DEFAULT_COLS: u16 = 80;
 const DEFAULT_ROWS: u16 = 24;
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 900; // 15 minutes
 
-/// Create and spawn a new PTY terminal session.
-#[utoipa::path(
-    post,
-    path = "/api/v1/terminal/sessions",
-    request_body = CreateTerminalSessionRequest,
-    responses(
-        (status = 201, description = "Terminal session initiated", body = TerminalSessionResponse),
-        (status = 400, description = "Invalid dimensions or working directory"),
-        (status = 403, description = "Forbidden: Access denied to target tenant"),
-        (status = 429, description = "Tenant plan maximum terminal session quota exceeded")
-    ),
-    tag = "terminal"
-)]
-pub async fn create_session_handler(
-    State(state): State<AppState>,
-    user: AuthenticatedUser,
-    headers: HeaderMap,
-    Json(payload): Json<CreateTerminalSessionRequest>,
-) -> Result<(StatusCode, Json<TerminalSessionResponse>), (StatusCode, Json<serde_json::Value>)> {
+async fn resolve_terminal_user(
+    state: &AppState,
+    user: &AuthenticatedUser,
+    target_tenant: Option<&str>,
+) -> Result<(i64, String, u32, u32, usize), (StatusCode, Json<serde_json::Value>)> {
     let user_repo = SqliteUserRepository::new(state.pool.clone());
     let plan_repo = SqlitePlanRepository::new(state.pool.clone());
 
-    // 1. Resolve target tenant username, uid, and gid
-    let (target_user_id, linux_username, uid, gid, max_sessions) = if let Some(req_t) =
-        payload.tenant.as_deref()
-    {
+    if let Some(req_t) = target_tenant {
         if req_t != user.username && !user.is_admin() {
             return Err((
                 StatusCode::FORBIDDEN,
@@ -98,9 +81,8 @@ pub async fn create_session_handler(
         let target_uid = target_user.linux_uid.unwrap_or(10000 + target_user.id) as u32;
         let target_gid = target_uid;
 
-        (target_user.id, uname, target_uid, target_gid, max_terms)
+        Ok((target_user.id, uname, target_uid, target_gid, max_terms))
     } else {
-        // Current user
         let current_db_user = user_repo
             .find_by_id(user.id)
             .await
@@ -123,8 +105,30 @@ pub async fn create_session_handler(
             None
         };
 
+        let effective_policy = current_db_user
+            .shell_policy
+            .as_deref()
+            .or_else(|| plan.as_ref().map(|p| p.shell_policy.as_str()))
+            .unwrap_or("none");
+
+        if !user.is_admin() && effective_policy != "full" {
+            warn!(
+                "User {} attempted terminal access with non-full shell policy: {}",
+                user.username, effective_policy
+            );
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": format!(
+                        "Kebijakan shell akun Anda adalah '{}'. Akses terminal interaktif tidak diizinkan.",
+                        effective_policy
+                    )
+                })),
+            ));
+        }
+
         let max_terms = if user.is_admin() {
-            10 // Admin default generous quota
+            10
         } else {
             plan.map(|p| p.max_terminal_sessions as usize).unwrap_or(2)
         };
@@ -143,8 +147,32 @@ pub async fn create_session_handler(
         let current_uid = current_db_user.linux_uid.unwrap_or(10000 + user.id) as u32;
         let current_gid = current_uid;
 
-        (user.id, uname, current_uid, current_gid, max_terms)
-    };
+        Ok((user.id, uname, current_uid, current_gid, max_terms))
+    }
+}
+
+/// Create and spawn a new PTY terminal session.
+#[utoipa::path(
+    post,
+    path = "/api/v1/terminal/sessions",
+    request_body = CreateTerminalSessionRequest,
+    responses(
+        (status = 201, description = "Terminal session initiated", body = TerminalSessionResponse),
+        (status = 400, description = "Invalid dimensions or working directory"),
+        (status = 403, description = "Forbidden: Access denied to target tenant"),
+        (status = 429, description = "Tenant plan maximum terminal session quota exceeded")
+    ),
+    tag = "terminal"
+)]
+pub async fn create_session_handler(
+    State(state): State<AppState>,
+    user: AuthenticatedUser,
+    headers: HeaderMap,
+    Json(payload): Json<CreateTerminalSessionRequest>,
+) -> Result<(StatusCode, Json<TerminalSessionResponse>), (StatusCode, Json<serde_json::Value>)> {
+    // 1. Resolve target tenant username, uid, and gid
+    let (target_user_id, linux_username, uid, gid, max_sessions) =
+        resolve_terminal_user(&state, &user, payload.tenant.as_deref()).await?;
 
     // 2. Validate tenant plan concurrent session quota
     let active_count = state

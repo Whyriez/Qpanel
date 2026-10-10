@@ -34,6 +34,7 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "php-fpm8.2",
     "php-fpm8.3",
     "php-fpm8.4",
+    "sshd",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.

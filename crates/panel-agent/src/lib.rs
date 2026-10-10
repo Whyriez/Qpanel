@@ -630,6 +630,14 @@ impl AgentServer {
                 RequestPayload::SshKeysSync(d) => {
                     ("ssh.sync_keys".to_string(), d.linux_username.clone())
                 }
+                RequestPayload::SshPolicyApply(d) => (
+                    "ssh.policy_apply".to_string(),
+                    format!("{}:{}", d.linux_username, d.policy),
+                ),
+                RequestPayload::SshDropinApply(_) => (
+                    "ssh.dropin_apply".to_string(),
+                    "/etc/ssh/sshd_config.d/50-panel.conf".to_string(),
+                ),
             };
 
             let response = match req.payload {
@@ -1095,6 +1103,22 @@ impl AgentServer {
                     Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::SshKeysSync(res)),
                     Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                 },
+                RequestPayload::SshPolicyApply(data) => {
+                    match self.ssh_manager.apply_user_shell_policy(&data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SshPolicyApply(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SshDropinApply(data) => {
+                    match self.ssh_manager.apply_sshd_dropin(&data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SshDropinApply(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
             };
 
             let audit_record = audit::AgentAuditRecord::new(

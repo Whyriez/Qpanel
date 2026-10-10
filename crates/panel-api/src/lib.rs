@@ -123,6 +123,11 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/auth/stop-impersonating",
             post(tenants::stop_impersonating_handler),
         )
+        .route(
+            "/api/v1/tenants/{id}/shell-policy",
+            get(tenants::get_tenant_shell_policy_handler)
+                .put(tenants::update_tenant_shell_policy_handler),
+        )
         // Hardening & Prerequisites endpoints
         .route(
             "/api/v1/system/hardening",
@@ -338,6 +343,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/ssh-keys/validate",
             post(ssh::validate_ssh_key_handler),
+        )
+        .route(
+            "/api/v1/ssh/dropin/apply",
+            post(ssh::apply_ssh_dropin_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

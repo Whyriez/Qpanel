@@ -196,6 +196,7 @@ export interface TenantListItem {
   linux_username: string | null;
   plan_id: number | null;
   plan_name: string | null;
+  shell_policy?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -555,5 +556,27 @@ export interface ValidateSshKeyResponse {
   error?: string | null;
 }
 
+export interface TenantShellPolicyResponse {
+  user_id: number;
+  username: string;
+  shell_policy: string | null;
+  effective_policy: string;
+  inherited_from_plan: boolean;
+  plan_policy: string | null;
+}
 
+export interface UpdateTenantShellPolicyRequest {
+  shell_policy: string | null;
+}
 
+export interface SshDropinApplyRequest {
+  custom_content?: string | null;
+}
+
+export interface SshDropinApplyResponse {
+  success: boolean;
+  path: string;
+  validated: boolean;
+  reloaded: boolean;
+  message: string;
+}

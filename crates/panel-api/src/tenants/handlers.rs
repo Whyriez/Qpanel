@@ -13,6 +13,7 @@ use panel_db::repositories::{SqlitePlanRepository, SqliteSessionRepository, Sqli
 use panel_proto::{HardeningApplyRequest, SliceResourceMetrics};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::warn;
 use utoipa::ToSchema;
 
 use crate::agent_client::{plan_to_quota_set_request, plan_to_slice_apply_request};
@@ -38,6 +39,7 @@ pub struct TenantListItem {
     pub linux_username: Option<String>,
     pub plan_id: Option<i64>,
     pub plan_name: Option<String>,
+    pub shell_policy: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -206,6 +208,7 @@ pub async fn list_tenants_handler(
                 linux_username: u.linux_username,
                 plan_id: u.plan_id,
                 plan_name,
+                shell_policy: u.shell_policy,
                 created_at: u.created_at,
                 updated_at: u.updated_at,
             }
@@ -376,6 +379,7 @@ pub async fn create_tenant_handler(
         linux_username: created_user.linux_username,
         plan_id: created_user.plan_id,
         plan_name: Some(plan.name.clone()),
+        shell_policy: created_user.shell_policy,
         created_at: created_user.created_at,
         updated_at: created_user.updated_at,
     };
@@ -451,6 +455,7 @@ pub async fn get_tenant_handler(
         linux_username: user.linux_username,
         plan_id: user.plan_id,
         plan_name: plan.as_ref().map(|p| p.name.clone()),
+        shell_policy: user.shell_policy,
         created_at: user.created_at,
         updated_at: user.updated_at,
     };
@@ -1080,4 +1085,211 @@ pub async fn apply_hardening_handler(
         )
             .into_response(),
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TenantShellPolicyResponse {
+    pub user_id: i64,
+    pub username: String,
+    pub shell_policy: Option<String>,
+    pub effective_policy: String,
+    pub inherited_from_plan: bool,
+    pub plan_policy: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateTenantShellPolicyRequest {
+    /// Desired shell policy ("none", "sftp", "full"), or null to inherit from plan.
+    pub shell_policy: Option<String>,
+}
+
+/// GET /api/v1/tenants/{id}/shell-policy - Get tenant's current and effective shell policy
+#[utoipa::path(
+    get,
+    path = "/api/v1/tenants/{id}/shell-policy",
+    responses(
+        (status = 200, description = "Tenant shell policy", body = TenantShellPolicyResponse),
+        (status = 404, description = "Tenant not found"),
+        (status = 403, description = "Forbidden")
+    ),
+    tag = "tenants"
+)]
+pub async fn get_tenant_shell_policy_handler(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    if !auth.0.is_admin() && auth.0.id != id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "Forbidden" })),
+        )
+            .into_response();
+    }
+
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let user = match user_repo.find_by_id(id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Tenant not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+    let plan = if let Some(pid) = user.plan_id {
+        plan_repo.find_by_id(pid).await.ok().flatten()
+    } else {
+        None
+    };
+
+    let plan_policy = plan.as_ref().map(|p| p.shell_policy.clone());
+    let inherited = user.shell_policy.is_none();
+    let effective = user
+        .shell_policy
+        .as_deref()
+        .or(plan_policy.as_deref())
+        .unwrap_or("none")
+        .to_string();
+
+    (
+        StatusCode::OK,
+        Json(TenantShellPolicyResponse {
+            user_id: user.id,
+            username: user.username,
+            shell_policy: user.shell_policy,
+            effective_policy: effective,
+            inherited_from_plan: inherited,
+            plan_policy,
+        }),
+    )
+        .into_response()
+}
+
+/// PUT /api/v1/tenants/{id}/shell-policy - Update tenant's shell policy override (admin only)
+#[utoipa::path(
+    put,
+    path = "/api/v1/tenants/{id}/shell-policy",
+    request_body = UpdateTenantShellPolicyRequest,
+    responses(
+        (status = 200, description = "Tenant shell policy updated", body = TenantShellPolicyResponse),
+        (status = 400, description = "Validation error"),
+        (status = 404, description = "Tenant not found"),
+        (status = 403, description = "Forbidden - Admin only")
+    ),
+    tag = "tenants"
+)]
+pub async fn update_tenant_shell_policy_handler(
+    State(state): State<AppState>,
+    admin: RequireAdmin,
+    _csrf: RequireAdminCsrf,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateTenantShellPolicyRequest>,
+) -> impl IntoResponse {
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let user = match user_repo.find_by_id(id).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Tenant not found" })),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    if let Some(ref pol) = payload.shell_policy
+        && let Err(e) = panel_core::ShellPolicy::parse(pol)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = user_repo
+        .update_shell_policy(id, payload.shell_policy.as_deref())
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response();
+    }
+
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+    let plan = if let Some(pid) = user.plan_id {
+        plan_repo.find_by_id(pid).await.ok().flatten()
+    } else {
+        None
+    };
+
+    let plan_policy = plan.as_ref().map(|p| p.shell_policy.clone());
+    let inherited = payload.shell_policy.is_none();
+    let effective = payload
+        .shell_policy
+        .as_deref()
+        .or(plan_policy.as_deref())
+        .unwrap_or("none")
+        .to_string();
+
+    // Propagate to agent if linux user exists
+    if let (Some(uid), Some(uname)) = (user.linux_uid, &user.linux_username)
+        && let Err(e) = state
+            .agent_client
+            .apply_ssh_policy(uname, uid as u32, &effective)
+            .await
+    {
+        warn!("Failed to apply shell policy to agent for {uname}: {e}");
+    }
+
+    state.audit_writer.log_async(
+        Some(admin.0.id),
+        &admin.0.username,
+        "tenant.shell_policy_update",
+        &user.username,
+        "success",
+        None,
+        Some(
+            serde_json::json!({
+                "user_id": user.id,
+                "shell_policy": payload.shell_policy,
+                "effective_policy": effective,
+                "inherited": inherited,
+            })
+            .to_string(),
+        ),
+    );
+
+    (
+        StatusCode::OK,
+        Json(TenantShellPolicyResponse {
+            user_id: user.id,
+            username: user.username,
+            shell_policy: payload.shell_policy,
+            effective_policy: effective,
+            inherited_from_plan: inherited,
+            plan_policy,
+        }),
+    )
+        .into_response()
 }

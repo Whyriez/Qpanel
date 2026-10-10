@@ -14,6 +14,7 @@ pub struct User {
     pub linux_username: Option<String>,
     pub linux_uid: Option<i64>,
     pub plan_id: Option<i64>,
+    pub shell_policy: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }

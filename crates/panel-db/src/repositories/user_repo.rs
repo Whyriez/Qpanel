@@ -63,7 +63,8 @@ impl SqliteUserRepository {
             r#"
             SELECT
                 id, username, password_hash, role, email, totp_secret,
-                totp_enabled, status, linux_username, linux_uid, plan_id, created_at, updated_at
+                totp_enabled, status, linux_username, linux_uid, plan_id,
+                shell_policy, created_at, updated_at
             FROM users
             WHERE id = ?
             "#,
@@ -80,7 +81,8 @@ impl SqliteUserRepository {
             r#"
             SELECT
                 id, username, password_hash, role, email, totp_secret,
-                totp_enabled, status, linux_username, linux_uid, plan_id, created_at, updated_at
+                totp_enabled, status, linux_username, linux_uid, plan_id,
+                shell_policy, created_at, updated_at
             FROM users
             WHERE username = ?
             "#,
@@ -100,7 +102,8 @@ impl SqliteUserRepository {
             r#"
             SELECT
                 id, username, password_hash, role, email, totp_secret,
-                totp_enabled, status, linux_username, linux_uid, plan_id, created_at, updated_at
+                totp_enabled, status, linux_username, linux_uid, plan_id,
+                shell_policy, created_at, updated_at
             FROM users
             WHERE linux_username = ?
             "#,
@@ -183,7 +186,8 @@ impl SqliteUserRepository {
             r#"
             SELECT
                 id, username, password_hash, role, email, totp_secret,
-                totp_enabled, status, linux_username, linux_uid, plan_id, created_at, updated_at
+                totp_enabled, status, linux_username, linux_uid, plan_id,
+                shell_policy, created_at, updated_at
             FROM users
             ORDER BY id ASC
             "#,
@@ -192,6 +196,29 @@ impl SqliteUserRepository {
         .await?;
 
         Ok(users)
+    }
+
+    pub async fn update_shell_policy(
+        &self,
+        id: i64,
+        shell_policy: Option<&str>,
+    ) -> Result<(), DbError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let res = sqlx::query("UPDATE users SET shell_policy = ?, updated_at = ? WHERE id = ?")
+            .bind(shell_policy)
+            .bind(now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        if res.rows_affected() == 0 {
+            return Err(DbError::NotFound(format!("User with id {} not found", id)));
+        }
+        Ok(())
     }
 
     pub async fn delete(&self, id: i64) -> Result<(), DbError> {

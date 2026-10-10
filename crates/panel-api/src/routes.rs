@@ -98,6 +98,9 @@ use panel_db::pool::DbPool;
         crate::ssh::handlers::create_ssh_key_handler,
         crate::ssh::handlers::delete_ssh_key_handler,
         crate::ssh::handlers::validate_ssh_key_handler,
+        crate::ssh::handlers::apply_ssh_dropin_handler,
+        crate::tenants::handlers::get_tenant_shell_policy_handler,
+        crate::tenants::handlers::update_tenant_shell_policy_handler,
     ),
     components(
         schemas(
@@ -194,6 +197,10 @@ use panel_db::pool::DbPool;
             crate::ssh::CreateSshKeyRequest,
             crate::ssh::ValidateSshKeyRequest,
             crate::ssh::ValidateSshKeyResponse,
+            crate::ssh::SshDropinApplyRequestDto,
+            crate::ssh::SshDropinApplyResponseDto,
+            crate::tenants::TenantShellPolicyResponse,
+            crate::tenants::UpdateTenantShellPolicyRequest,
         )
     ),
     tags(
@@ -207,7 +214,8 @@ use panel_db::pool::DbPool;
         (name = "runtime", description = "Runtime and PHP version management"),
         (name = "files", description = "File manager operations and trash management"),
         (name = "terminal", description = "Web terminal and PTY session endpoints"),
-        (name = "ssh", description = "SSH public key management and validation")
+        (name = "ssh", description = "SSH public key management and validation"),
+        (name = "tenants", description = "Tenant lifecycle and resource management")
     ),
     info(
         title = "Nusa Panel API",

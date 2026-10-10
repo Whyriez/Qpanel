@@ -59,3 +59,17 @@ pub struct SshKeyQuery {
     pub user_id: Option<i64>,
     pub tenant: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]
+pub struct SshDropinApplyRequestDto {
+    pub custom_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SshDropinApplyResponseDto {
+    pub success: bool,
+    pub path: String,
+    pub validated: bool,
+    pub reloaded: bool,
+    pub message: String,
+}

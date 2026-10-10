@@ -926,5 +926,36 @@ export async function validateSshKey(
   );
 }
 
+// Shell Policy & SSH Drop-in Management (Phase 6 - P6-T6)
+export async function fetchTenantShellPolicy(
+  id: number
+): Promise<import('../types/api').TenantShellPolicyResponse> {
+  return request<import('../types/api').TenantShellPolicyResponse>(
+    `/api/v1/tenants/${id}/shell-policy`
+  );
+}
 
+export async function updateTenantShellPolicy(
+  id: number,
+  shellPolicy: string | null
+): Promise<import('../types/api').TenantShellPolicyResponse> {
+  return request<import('../types/api').TenantShellPolicyResponse>(
+    `/api/v1/tenants/${id}/shell-policy`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ shell_policy: shellPolicy }),
+    }
+  );
+}
 
+export async function applySshDropin(
+  customContent?: string | null
+): Promise<import('../types/api').SshDropinApplyResponse> {
+  return request<import('../types/api').SshDropinApplyResponse>(
+    '/api/v1/ssh/dropin/apply',
+    {
+      method: 'POST',
+      body: JSON.stringify({ custom_content: customContent ?? null }),
+    }
+  );
+}

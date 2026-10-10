@@ -112,6 +112,8 @@ pub enum RequestPayload {
     PtyClose(PtyCloseRequest),
     PtyList(PtyListRequest),
     SshKeysSync(SshKeysSyncRequest),
+    SshPolicyApply(SshPolicyApplyRequest),
+    SshDropinApply(SshDropinApplyRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -285,6 +287,8 @@ pub enum ResponsePayload {
     PtyClose(PtyCloseResponse),
     PtyList(PtyListResponse),
     SshKeysSync(SshKeysSyncResponse),
+    SshPolicyApply(SshPolicyApplyResponse),
+    SshDropinApply(SshDropinApplyResponse),
     Error(String),
 }
 
@@ -1294,6 +1298,35 @@ pub struct SshKeysSyncResponse {
     pub success: bool,
     pub path: String,
     pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SshPolicyApplyRequest {
+    pub linux_username: String,
+    pub uid: u32,
+    pub policy: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SshPolicyApplyResponse {
+    pub success: bool,
+    pub shell: String,
+    pub sftp_group_member: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SshDropinApplyRequest {
+    pub custom_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SshDropinApplyResponse {
+    pub success: bool,
+    pub path: String,
+    pub validated: bool,
+    pub reloaded: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

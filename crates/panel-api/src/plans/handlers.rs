@@ -327,6 +327,13 @@ pub async fn update_plan_handler(
 
                 let quota_req = plan_to_quota_set_request(uid as u32, &uname, &updated_plan);
                 let _ = state.agent_client.set_quota(quota_req).await;
+
+                if tenant.shell_policy.is_none() {
+                    let _ = state
+                        .agent_client
+                        .apply_ssh_policy(&uname, uid as u32, &updated_plan.shell_policy)
+                        .await;
+                }
             }
         }
     }

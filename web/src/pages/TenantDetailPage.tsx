@@ -11,10 +11,13 @@ import {
   RefreshCw,
   AlertTriangle,
   Layers,
+  Terminal,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   TenantDetailResponse,
   TenantResourceUsage,
+  TenantShellPolicyResponse,
 } from '../types/api';
 import {
   fetchTenantDetail,
@@ -23,6 +26,8 @@ import {
   unsuspendTenant,
   deleteTenant,
   impersonateTenant,
+  fetchTenantShellPolicy,
+  updateTenantShellPolicy,
 } from '../api/client';
 import { StatusPill } from '../components/ui/StatusPill';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
@@ -43,6 +48,10 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'resources' | 'plan' | 'danger'>('overview');
+
+  const [shellPolicyData, setShellPolicyData] = useState<TenantShellPolicyResponse | null>(null);
+  const [selectedShellPolicy, setSelectedShellPolicy] = useState<string>('inherit');
+  const [isSavingPolicy, setIsSavingPolicy] = useState(false);
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -74,10 +83,38 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
     }
   }, [tenantId]);
 
+  const loadShellPolicy = useCallback(async () => {
+    try {
+      const pol = await fetchTenantShellPolicy(tenantId);
+      setShellPolicyData(pol);
+      setSelectedShellPolicy(pol.shell_policy ?? 'inherit');
+    } catch (err: unknown) {
+      console.warn('Could not read tenant shell policy:', (err as Error).message);
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     loadTenant();
     loadResources();
-  }, [loadTenant, loadResources]);
+    loadShellPolicy();
+  }, [loadTenant, loadResources, loadShellPolicy]);
+
+  const handleSaveShellPolicy = async () => {
+    setIsSavingPolicy(true);
+    try {
+      const policyToSet = selectedShellPolicy === 'inherit' ? null : selectedShellPolicy;
+      const res = await updateTenantShellPolicy(tenantId, policyToSet);
+      setShellPolicyData(res);
+      setSelectedShellPolicy(res.shell_policy ?? 'inherit');
+      setToastMessage({ text: 'Kebijakan shell tenant berhasil disimpan', type: 'success' });
+      loadTenant();
+    } catch (err: unknown) {
+      const e = err as Error;
+      setToastMessage({ text: e.message || 'Gagal memperbarui kebijakan shell', type: 'error' });
+    } finally {
+      setIsSavingPolicy(false);
+    }
+  };
 
   const handleToggleSuspend = async () => {
     if (!tenantData) return;
@@ -263,81 +300,185 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
 
       {/* Tab: Ringkasan (Overview) */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-3">
-            <h3 className="text-xs font-bold text-[var(--ink)] border-b border-[var(--line)] pb-2 flex items-center gap-2">
-              <User className="w-4 h-4 text-[var(--primary)]" />
-              <span>Identitas & Sistem Akun</span>
-            </h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                <span className="text-[var(--ink-muted)]">Slug Pengguna:</span>
-                <span className="font-mono font-semibold text-[var(--ink)]">{tenant.username}</span>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-3">
+              <h3 className="text-xs font-bold text-[var(--ink)] border-b border-[var(--line)] pb-2 flex items-center gap-2">
+                <User className="w-4 h-4 text-[var(--primary)]" />
+                <span>Identitas & Sistem Akun</span>
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                  <span className="text-[var(--ink-muted)]">Slug Pengguna:</span>
+                  <span className="font-mono font-semibold text-[var(--ink)]">{tenant.username}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                  <span className="text-[var(--ink-muted)]">User Linux Host:</span>
+                  <span className="font-mono font-semibold text-[var(--primary)]">{tenant.linux_username || '—'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                  <span className="text-[var(--ink-muted)]">UID Linux:</span>
+                  <span className="font-mono text-[var(--ink)]">{tenant.linux_uid || '—'}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                  <span className="text-[var(--ink-muted)]">Direktori Home:</span>
+                  <span className="font-mono text-[var(--ink)]">/home/{tenant.linux_username}</span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                  <span className="text-[var(--ink-muted)]">Terdaftar Pada:</span>
+                  <span className="text-[var(--ink)]">
+                    {new Date(tenant.created_at * 1000).toLocaleString('id-ID')}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-[var(--ink-muted)]">Terakhir Diperbarui:</span>
+                  <span className="text-[var(--ink)]">
+                    {new Date(tenant.updated_at * 1000).toLocaleString('id-ID')}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                <span className="text-[var(--ink-muted)]">User Linux Host:</span>
-                <span className="font-mono font-semibold text-[var(--primary)]">{tenant.linux_username || '—'}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                <span className="text-[var(--ink-muted)]">UID Linux:</span>
-                <span className="font-mono text-[var(--ink)]">{tenant.linux_uid || '—'}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                <span className="text-[var(--ink-muted)]">Direktori Home:</span>
-                <span className="font-mono text-[var(--ink)]">/home/{tenant.linux_username}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                <span className="text-[var(--ink-muted)]">Terdaftar Pada:</span>
-                <span className="text-[var(--ink)]">
-                  {new Date(tenant.created_at * 1000).toLocaleString('id-ID')}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-[var(--ink-muted)]">Terakhir Diperbarui:</span>
-                <span className="text-[var(--ink)]">
-                  {new Date(tenant.updated_at * 1000).toLocaleString('id-ID')}
-                </span>
-              </div>
+            </div>
+
+            <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-3">
+              <h3 className="text-xs font-bold text-[var(--ink)] border-b border-[var(--line)] pb-2 flex items-center gap-2">
+                <Layers className="w-4 h-4 text-[var(--primary)]" />
+                <span>Paket Hosting & Batasan ({plan?.name || 'Tanpa Paket'})</span>
+              </h3>
+              {plan ? (
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                    <span className="text-[var(--ink-muted)]">Batas CPU Quota:</span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">{plan.cpu_quota_percent}%</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                    <span className="text-[var(--ink-muted)]">Batas RAM (Memory):</span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">{formatBytes(plan.memory_limit_bytes)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                    <span className="text-[var(--ink-muted)]">Batas Kuota Disk:</span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">{formatBytes(plan.disk_limit_bytes)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                    <span className="text-[var(--ink-muted)]">Batas Proses (TasksMax):</span>
+                    <span className="font-mono text-[var(--ink)]">{plan.tasks_max} proses</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
+                    <span className="text-[var(--ink-muted)]">Shell Policy Paket:</span>
+                    <span className="font-mono text-[var(--primary)]">{plan.shell_policy}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-[var(--ink-muted)]">Maksimal Domain / Web:</span>
+                    <span className="text-[var(--ink)]">{plan.max_sites} situs ({plan.max_domains} domain)</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 text-center text-xs text-[var(--ink-muted)]">
+                  Tenant tidak memiliki paket hosting aktif.
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-3">
-            <h3 className="text-xs font-bold text-[var(--ink)] border-b border-[var(--line)] pb-2 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[var(--primary)]" />
-              <span>Paket Hosting & Batasan ({plan?.name || 'Tanpa Paket'})</span>
-            </h3>
-            {plan ? (
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                  <span className="text-[var(--ink-muted)]">Batas CPU Quota:</span>
-                  <span className="font-mono font-semibold text-[var(--ink)]">{plan.cpu_quota_percent}%</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                  <span className="text-[var(--ink-muted)]">Batas RAM (Memory):</span>
-                  <span className="font-mono font-semibold text-[var(--ink)]">{formatBytes(plan.memory_limit_bytes)}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                  <span className="text-[var(--ink-muted)]">Batas Kuota Disk:</span>
-                  <span className="font-mono font-semibold text-[var(--ink)]">{formatBytes(plan.disk_limit_bytes)}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                  <span className="text-[var(--ink-muted)]">Batas Proses (TasksMax):</span>
-                  <span className="font-mono text-[var(--ink)]">{plan.tasks_max} proses</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-[var(--line)]/50">
-                  <span className="text-[var(--ink-muted)]">Shell Policy:</span>
-                  <span className="font-mono text-[var(--primary)]">{plan.shell_policy}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-[var(--ink-muted)]">Maksimal Domain / Web:</span>
-                  <span className="text-[var(--ink)]">{plan.max_sites} situs ({plan.max_domains} domain)</span>
-                </div>
+          {/* Kartu Kebijakan Shell & Akses Terminal (P6-T6) */}
+          <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[var(--line)] gap-2">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-[var(--primary)]" />
+                <h3 className="text-xs font-bold text-[var(--ink)]">
+                  Kebijakan Shell & Isolasi Akses Terminal
+                </h3>
               </div>
-            ) : (
-              <div className="p-4 text-center text-xs text-[var(--ink-muted)]">
-                Tenant tidak memiliki paket hosting aktif.
+              <div className="flex items-center gap-2">
+                <StatusPill
+                  variant={
+                    (shellPolicyData?.effective_policy ?? plan?.shell_policy ?? 'none') === 'full'
+                      ? 'success'
+                      : (shellPolicyData?.effective_policy ?? plan?.shell_policy ?? 'none') === 'sftp'
+                      ? 'warning'
+                      : 'danger'
+                  }
+                  label={
+                    (shellPolicyData?.effective_policy ?? plan?.shell_policy ?? 'none') === 'full'
+                      ? 'full (Akses Shell & Web Terminal)'
+                      : (shellPolicyData?.effective_policy ?? plan?.shell_policy ?? 'none') === 'sftp'
+                      ? 'sftp (SFTP-Only via internal-sftp)'
+                      : 'none (Tanpa Akses Shell)'
+                  }
+                />
+                <span className="text-[10px] px-2 py-0.5 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface-sunken)] text-[var(--ink-muted)]">
+                  {shellPolicyData?.inherited_from_plan
+                    ? 'Mewarisi dari Paket'
+                    : 'Override Khusus Tenant'}
+                </span>
               </div>
-            )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div className="space-y-2 text-[var(--ink-muted)]">
+                <p>
+                  Aturan shell mengontrol kemampuan akun tenant saat mengakses server melalui protokol SSH maupun Web Terminal:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-[11px]">
+                  <li>
+                    <strong className="text-[var(--ink)]">none:</strong> Pengguna dialihkan ke <code className="font-mono">/usr/sbin/nologin</code>. Akses SSH, SFTP, dan Web Terminal ditutup.
+                  </li>
+                  <li>
+                    <strong className="text-[var(--ink)]">sftp:</strong> Diisolasi via drop-in <code className="font-mono">50-panel.conf</code> ke <code className="font-mono">internal-sftp</code> dengan ChrootDirectory <code className="font-mono">/home</code>. Shell interaktif dan Web Terminal diblokir.
+                  </li>
+                  <li>
+                    <strong className="text-[var(--ink)]">full:</strong> Pengguna mendapatkan <code className="font-mono">/bin/bash</code>, dapat menggunakan Web Terminal dan SSH interaktif dengan isolasi cgroup TasksMax.
+                  </li>
+                </ul>
+              </div>
+
+              {user?.role === 'admin' ? (
+                <div className="p-3 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface-sunken)] space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--ink)]">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[var(--primary)]" />
+                    <span>Kelola Override Kebijakan Shell (Admin)</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] text-[var(--ink-muted)] block">
+                      Pilih Kebijakan Shell untuk Tenant Ini:
+                    </label>
+                    <select
+                      value={selectedShellPolicy}
+                      onChange={(e) => setSelectedShellPolicy(e.target.value)}
+                      className="w-full text-xs px-2.5 py-1.5 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-hidden focus:ring-1 focus:ring-[var(--primary)]"
+                    >
+                      <option value="inherit">
+                        Mewarisi dari Paket ({plan?.shell_policy || 'full'})
+                      </option>
+                      <option value="none">none (Kunci total akses terminal & SFTP)</option>
+                      <option value="sftp">sftp (Hanya SFTP chroot, tanpa terminal)</option>
+                      <option value="full">full (Akses shell interaktif & web terminal)</option>
+                    </select>
+                  </div>
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={handleSaveShellPolicy}
+                      disabled={isSavingPolicy}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-sm)] bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 cursor-pointer shadow-xs flex items-center gap-1.5"
+                    >
+                      {isSavingPolicy ? (
+                        <>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <span>Menerapkan...</span>
+                        </>
+                      ) : (
+                        <span>Simpan Kebijakan Shell</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface-sunken)] flex items-center">
+                  <span className="text-[11px] text-[var(--ink-muted)]">
+                    Hubungi administrator hosting jika Anda memerlukan izin perubahan kebijakan shell akun.
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
