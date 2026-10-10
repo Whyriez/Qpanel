@@ -132,6 +132,9 @@ pub enum RequestPayload {
     PythonSiteStatus(PythonSiteStatusRequest),
     PythonSiteJob(PythonSiteJobRequest),
     ProxyUpstreamProbe(ProxyUpstreamProbeRequest),
+    SiteEnvEncrypt(SiteEnvEncryptRequest),
+    SiteEnvDecrypt(SiteEnvDecryptRequest),
+    SiteEnvApply(SiteEnvApplyRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -325,6 +328,9 @@ pub enum ResponsePayload {
     PythonSiteStatus(PythonSiteStatusResponse),
     PythonSiteJob(PythonSiteJobResponse),
     ProxyUpstreamProbed(ProxyUpstreamProbeResponse),
+    SiteEnvEncrypted(SiteEnvEncryptResponse),
+    SiteEnvDecrypted(SiteEnvDecryptResponse),
+    SiteEnvApplied(SiteEnvApplyResponse),
     Error(String),
 }
 
@@ -1752,6 +1758,46 @@ pub struct ProxyUpstreamProbeResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteEnvEncryptRequest {
+    pub site_id: String,
+    pub env_vars: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteEnvEncryptResponse {
+    pub site_id: String,
+    pub encrypted_vars: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteEnvDecryptRequest {
+    pub site_id: String,
+    pub encrypted_vars: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteEnvDecryptResponse {
+    pub site_id: String,
+    pub env_vars: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteEnvApplyRequest {
+    pub site_id: String,
+    pub username: String,
+    pub env_file_path: Option<String>,
+    pub encrypted_vars: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteEnvApplyResponse {
+    pub site_id: String,
+    pub env_file_path: String,
+    pub success: bool,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -2649,5 +2695,46 @@ mod tests {
         let s_res_probe = serde_json::to_string(&res_probe).unwrap();
         let de_res_probe: RpcResponse = serde_json::from_str(&s_res_probe).unwrap();
         assert_eq!(res_probe, de_res_probe);
+
+        // P8-T1 SiteEnv payloads roundtrip test
+        let mut env_map = std::collections::BTreeMap::new();
+        env_map.insert(
+            "DATABASE_URL".to_string(),
+            "postgres://user:pass@localhost:5432/app".to_string(),
+        );
+        let req_env_enc = RpcRequest::new(
+            "env-enc-1",
+            RequestPayload::SiteEnvEncrypt(SiteEnvEncryptRequest {
+                site_id: "site-1".to_string(),
+                env_vars: env_map.clone(),
+            }),
+        );
+        let s_env_enc = serde_json::to_string(&req_env_enc).unwrap();
+        let de_env_enc: RpcRequest = serde_json::from_str(&s_env_enc).unwrap();
+        assert_eq!(req_env_enc, de_env_enc);
+
+        let res_env_enc = RpcResponse::ok(
+            "env-enc-1",
+            ResponsePayload::SiteEnvEncrypted(SiteEnvEncryptResponse {
+                site_id: "site-1".to_string(),
+                encrypted_vars: env_map.clone(),
+            }),
+        );
+        let s_res_env_enc = serde_json::to_string(&res_env_enc).unwrap();
+        let de_res_env_enc: RpcResponse = serde_json::from_str(&s_res_env_enc).unwrap();
+        assert_eq!(res_env_enc, de_res_env_enc);
+
+        let req_env_app = RpcRequest::new(
+            "env-app-1",
+            RequestPayload::SiteEnvApply(SiteEnvApplyRequest {
+                site_id: "site-1".to_string(),
+                username: "u1001".to_string(),
+                env_file_path: Some("/etc/panel/env/site-1.env".to_string()),
+                encrypted_vars: env_map,
+            }),
+        );
+        let s_env_app = serde_json::to_string(&req_env_app).unwrap();
+        let de_env_app: RpcRequest = serde_json::from_str(&s_env_app).unwrap();
+        assert_eq!(req_env_app, de_env_app);
     }
 }

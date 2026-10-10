@@ -35,6 +35,7 @@ import { PythonStatusCard } from '../components/sites/PythonStatusCard';
 import { PythonSettingsCard } from '../components/sites/PythonSettingsCard';
 import { ProxySettingsCard } from '../components/sites/ProxySettingsCard';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
+import { SiteEnvironmentTab } from '../components/sites/SiteEnvironmentTab';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
@@ -73,7 +74,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'environment' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -710,6 +711,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         </button>
 
         <button
+          onClick={() => setActiveTab('environment')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'environment'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <Key className="w-4 h-4" />
+          {t('sites.tabs.environment', 'Environment')}
+        </button>
+
+        <button
           onClick={() => setActiveTab('ssl')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'ssl'
@@ -1204,6 +1217,15 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             initialPath={site.docroot.startsWith('/') ? site.docroot.substring(1) : site.docroot}
             title={`Berkas Situs: ${site.primary_domain}`}
           />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB: ENVIRONMENT VARIABLES (TERENKRIPSI)                              */}
+      {/* ===================================================================== */}
+      {activeTab === 'environment' && (
+        <div className="pt-2">
+          <SiteEnvironmentTab siteId={site.id} onSiteRestarted={loadSiteData} />
         </div>
       )}
 

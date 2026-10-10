@@ -883,3 +883,31 @@ export interface ProcessListResponse {
   total_memory_bytes: number;
 }
 
+// Environment Variables Types (Phase 8 - P8-T1)
+export interface EnvVariableItem {
+  key: string;
+  value: string;
+  is_masked: boolean;
+}
+
+export interface SiteEnvResponse {
+  site_id: number;
+  variables: EnvVariableItem[];
+  restart_required: boolean;
+}
+
+export interface UpdateSiteEnvRequest {
+  variables: Record<string, string>;
+}
+
+export interface ImportDotEnvRequest {
+  content: string;
+  merge?: boolean;
+}
+
+export interface SiteEnvActionResponse {
+  success: boolean;
+  message: string;
+  restart_required: boolean;
+}
+

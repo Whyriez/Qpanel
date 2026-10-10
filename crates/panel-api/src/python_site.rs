@@ -444,15 +444,42 @@ pub async fn action_python_site_handler(
     };
 
     match state.agent_client.action_python_site(act_req).await {
-        Ok(res) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": res.success,
-                "action": res.action,
-                "message": res.message
-            })),
-        )
-            .into_response(),
+        Ok(res) => {
+            if action_type == PythonSiteActionType::Restart {
+                let mut settings_map: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_str(&site.settings_json).unwrap_or_default();
+                if settings_map.get("env_restart_required") == Some(&serde_json::json!(true)) {
+                    settings_map
+                        .insert("env_restart_required".to_string(), serde_json::json!(false));
+                    let updated_json = serde_json::to_string(&settings_map).unwrap_or_default();
+                    let repo = panel_db::repositories::site_repo::SqliteSiteRepository::new(
+                        state.pool.clone(),
+                    );
+                    let _ = repo
+                        .update(
+                            site.id,
+                            &panel_db::models::UpdateSite {
+                                kind: None,
+                                docroot: None,
+                                runtime: site.runtime.clone(),
+                                version: site.version.clone(),
+                                status: None,
+                                settings_json: Some(updated_json),
+                            },
+                        )
+                        .await;
+                }
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": res.success,
+                    "action": res.action,
+                    "message": res.message
+                })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("Gagal menjalankan aksi proses: {}", e) })),

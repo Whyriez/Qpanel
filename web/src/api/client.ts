@@ -1210,4 +1210,52 @@ export async function fetchProcesses(): Promise<import('../types/api').ProcessLi
   return request<import('../types/api').ProcessListResponse>('/api/v1/processes');
 }
 
+// Environment Variables API (Phase 8 - P8-T1)
+export async function fetchSiteEnv(
+  siteId: number,
+  reveal = false
+): Promise<import('../types/api').SiteEnvResponse> {
+  const url = reveal
+    ? `/api/v1/sites/${siteId}/env?reveal=true`
+    : `/api/v1/sites/${siteId}/env`;
+  return request<import('../types/api').SiteEnvResponse>(url);
+}
+
+export async function updateSiteEnv(
+  siteId: number,
+  req: import('../types/api').UpdateSiteEnvRequest
+): Promise<import('../types/api').SiteEnvActionResponse> {
+  return request<import('../types/api').SiteEnvActionResponse>(
+    `/api/v1/sites/${siteId}/env`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    }
+  );
+}
+
+export async function importSiteDotEnv(
+  siteId: number,
+  req: import('../types/api').ImportDotEnvRequest
+): Promise<import('../types/api').SiteEnvActionResponse> {
+  return request<import('../types/api').SiteEnvActionResponse>(
+    `/api/v1/sites/${siteId}/env/import`,
+    {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }
+  );
+}
+
+export async function restartSiteForEnv(
+  siteId: number
+): Promise<import('../types/api').SiteEnvActionResponse> {
+  return request<import('../types/api').SiteEnvActionResponse>(
+    `/api/v1/sites/${siteId}/env/restart`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
 

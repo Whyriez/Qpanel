@@ -84,7 +84,7 @@
 
 ## Phase 8 — Kelengkapan detail project
 
-- [ ] P8-T1 Environment variables terenkripsi
+- [x] P8-T1 Environment variables terenkripsi: enkripsi/dekripsi AEAD XChaCha20-Poly1305 terlokalisasi murni di agent daemon (`panel-agent::crypto`) dengan kunci rahasia `/etc/panel/secret.key` (mode 0600 root), penulisan berkas `/etc/panel/env/site-<id>.env` (mode 0600 root) terbaca oleh systemd sebelum drop privilege, penyimpanan database zero-plaintext (hanya memuat ciphertext `enc:v1:<base64>`), proteksi audit log tanpa kebocoran plaintext rahasia, antarmuka mask default (`••••••••`) dengan toggle reveal per-variabel dan reveal global, parser format berkas `.env` komprehensif (komentar `#`, spasi, kutip tunggal/ganda, karakter escape `\n` `\"`, multi-line, awalan `export `) dengan opsi merge/replace, pelacakan siklus hidup penanda "perlu restart" (Restart Required banner) yang otomatis dibersihkan saat proses aplikasi dimulai ulang (`/api/v1/sites/{id}/env/restart`, `node/action`, `python/action`), integrasi tab `Environment` di `SiteDetailPage`, serta dukungan i18n dwibahasa (ID/EN) — test: panel-agent::crypto (6 tests), panel-proto (10 tests), panel-api::env_vars (4 unit tests), env_vars_test (integration test end-to-end), web vitest (72 tests, SiteEnvironmentTab.test), ADR-0052
 - [ ] P8-T2 Cron job (systemd timers)
 - [ ] P8-T3 Aturan situs (redirect/headers/basic auth/CORS)
 - [ ] P8-T4 Git deploy & webhook

@@ -38,14 +38,15 @@ use panel_proto::{
     PythonSiteStatusRequest, PythonSiteStatusResponse, QuotaGetRequest, QuotaGetResponse,
     QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload,
     ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse,
-    SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest,
-    SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse,
-    SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics,
-    SshDropinApplyRequest, SshDropinApplyResponse, SshKeysSyncRequest, SshKeysSyncResponse,
-    SshPolicyApplyRequest, SshPolicyApplyResponse, SslCertDeployRequest, SslCertDeployedResponse,
-    UserCreateRequest, UserCreatedResponse, UserDeleteRequest, UserDeletedResponse,
-    UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse,
-    VersionInfo,
+    SiteApplyRequest, SiteEnvApplyRequest, SiteEnvApplyResponse, SiteEnvDecryptRequest,
+    SiteEnvDecryptResponse, SiteEnvEncryptRequest, SiteEnvEncryptResponse, SiteLogsReadRequest,
+    SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest,
+    SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest,
+    SliceRemovedResponse, SliceResourceMetrics, SshDropinApplyRequest, SshDropinApplyResponse,
+    SshKeysSyncRequest, SshKeysSyncResponse, SshPolicyApplyRequest, SshPolicyApplyResponse,
+    SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse,
+    UserDeleteRequest, UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse,
+    UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -2865,6 +2866,96 @@ impl AgentClient {
             ResponsePayload::ProxyUpstreamProbed(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "ProxyUpstreamProbed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn encrypt_site_env(
+        &self,
+        req: SiteEnvEncryptRequest,
+    ) -> Result<SiteEnvEncryptResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-env-enc-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteEnvEncrypt(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteEnvEncrypted(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteEnvEncrypted",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn decrypt_site_env(
+        &self,
+        req: SiteEnvDecryptRequest,
+    ) -> Result<SiteEnvDecryptResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-env-dec-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteEnvDecrypt(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteEnvDecrypted(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteEnvDecrypted",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_site_env(
+        &self,
+        req: SiteEnvApplyRequest,
+    ) -> Result<SiteEnvApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-env-app-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteEnvApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteEnvApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteEnvApplied",
                 got: format!("{other:?}"),
             }),
         }

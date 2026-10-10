@@ -349,6 +349,31 @@ pub async fn action_node_site_handler(
 
         match state.agent_client.action_node_site(action_req).await {
             Ok(res) => {
+                if action_str == "restart" {
+                    let mut settings_map: serde_json::Map<String, serde_json::Value> =
+                        serde_json::from_str(&site.settings_json).unwrap_or_default();
+                    if settings_map.get("env_restart_required") == Some(&serde_json::json!(true)) {
+                        settings_map
+                            .insert("env_restart_required".to_string(), serde_json::json!(false));
+                        let updated_json = serde_json::to_string(&settings_map).unwrap_or_default();
+                        let repo = panel_db::repositories::site_repo::SqliteSiteRepository::new(
+                            state.pool.clone(),
+                        );
+                        let _ = repo
+                            .update(
+                                site.id,
+                                &panel_db::models::UpdateSite {
+                                    kind: None,
+                                    docroot: None,
+                                    runtime: site.runtime.clone(),
+                                    version: site.version.clone(),
+                                    status: None,
+                                    settings_json: Some(updated_json),
+                                },
+                            )
+                            .await;
+                    }
+                }
                 state.audit_writer.log_async(
                     Some(auth_user.id),
                     &auth_user.username,

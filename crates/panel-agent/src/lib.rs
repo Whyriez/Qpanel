@@ -1,6 +1,7 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod crypto;
 pub mod fs_manager;
 pub mod hardening;
 pub mod node;
@@ -700,6 +701,15 @@ impl AgentServer {
                 RequestPayload::ProxyUpstreamProbe(d) => {
                     ("proxy.upstream_probe".to_string(), d.upstream_url.clone())
                 }
+                RequestPayload::SiteEnvEncrypt(d) => {
+                    ("site.env_encrypt".to_string(), d.site_id.clone())
+                }
+                RequestPayload::SiteEnvDecrypt(d) => {
+                    ("site.env_decrypt".to_string(), d.site_id.clone())
+                }
+                RequestPayload::SiteEnvApply(d) => {
+                    ("site.env_apply".to_string(), d.site_id.clone())
+                }
             };
 
             let response = match req.payload {
@@ -1328,6 +1338,66 @@ impl AgentServer {
                 RequestPayload::ProxyUpstreamProbe(data) => {
                     let res = proxy::probe_upstream(&data).await;
                     RpcResponse::ok(&req.request_id, ResponsePayload::ProxyUpstreamProbed(res))
+                }
+                RequestPayload::SiteEnvEncrypt(data) => {
+                    match crypto::get_or_create_master_key(self.runner.as_ref(), None) {
+                        Ok(master_key) => {
+                            match crypto::encrypt_env_vars(&master_key, &data.env_vars) {
+                                Ok(encrypted_vars) => RpcResponse::ok(
+                                    &req.request_id,
+                                    ResponsePayload::SiteEnvEncrypted(
+                                        panel_proto::SiteEnvEncryptResponse {
+                                            site_id: data.site_id,
+                                            encrypted_vars,
+                                        },
+                                    ),
+                                ),
+                                Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                            }
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteEnvDecrypt(data) => {
+                    match crypto::get_or_create_master_key(self.runner.as_ref(), None) {
+                        Ok(master_key) => {
+                            match crypto::decrypt_env_vars(&master_key, &data.encrypted_vars) {
+                                Ok(env_vars) => RpcResponse::ok(
+                                    &req.request_id,
+                                    ResponsePayload::SiteEnvDecrypted(
+                                        panel_proto::SiteEnvDecryptResponse {
+                                            site_id: data.site_id,
+                                            env_vars,
+                                        },
+                                    ),
+                                ),
+                                Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                            }
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteEnvApply(data) => {
+                    match crypto::apply_site_env_file(
+                        self.runner.as_ref(),
+                        &data.site_id,
+                        &data.username,
+                        data.env_file_path.as_deref(),
+                        &data.encrypted_vars,
+                        None,
+                    ) {
+                        Ok(path) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SiteEnvApplied(panel_proto::SiteEnvApplyResponse {
+                                site_id: data.site_id,
+                                env_file_path: path,
+                                success: true,
+                                message: "Variabel lingkungan terenkripsi berhasil dipasang"
+                                    .to_string(),
+                            }),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
                 }
             };
 

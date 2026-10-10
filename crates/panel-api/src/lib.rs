@@ -3,6 +3,7 @@ pub mod agent_client;
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod env_vars;
 pub mod files;
 pub mod jobs;
 pub mod logs;
@@ -241,6 +242,19 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/php/logs",
             get(php::get_site_php_logs_handler),
+        )
+        // Environment variables management endpoints (Phase 8 - P8-T1)
+        .route(
+            "/api/v1/sites/{id}/env",
+            get(env_vars::get_site_env_handler).put(env_vars::update_site_env_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/env/import",
+            post(env_vars::import_site_env_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/env/restart",
+            post(env_vars::restart_site_env_handler),
         )
         // Node.js site management endpoints
         .route(
