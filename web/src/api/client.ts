@@ -46,6 +46,9 @@ import {
   UpdateSitePhpSettingsInput,
   SitePhpStatusResponse,
   SitePhpLogsResponse,
+  SiteRulesConfig,
+  HashPasswordResponse,
+  ValidateSnippetResponse,
 } from '../types/api';
 import type { FsListResponse, TrashListResponse } from '../types/files';
 
@@ -1357,6 +1360,48 @@ export async function validateCronExpression(
     {
       method: 'POST',
       body: JSON.stringify({ expression }),
+    }
+  );
+}
+
+// Site Rules API (Phase 8 - P8-T3)
+
+export async function fetchSiteRules(siteId: number): Promise<SiteRulesConfig> {
+  return request<SiteRulesConfig>(`/api/v1/sites/${siteId}/rules`);
+}
+
+export async function updateSiteRules(
+  siteId: number,
+  rules: SiteRulesConfig
+): Promise<SiteRulesConfig> {
+  return request<SiteRulesConfig>(`/api/v1/sites/${siteId}/rules`, {
+    method: 'PUT',
+    body: JSON.stringify(rules),
+  });
+}
+
+export async function hashBasicAuthPassword(
+  siteId: number,
+  password: string
+): Promise<HashPasswordResponse> {
+  return request<HashPasswordResponse>(
+    `/api/v1/sites/${siteId}/rules/hash-password`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }
+  );
+}
+
+export async function validateNginxSnippet(
+  siteId: number,
+  content: string
+): Promise<ValidateSnippetResponse> {
+  return request<ValidateSnippetResponse>(
+    `/api/v1/sites/${siteId}/rules/validate-snippet`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
     }
   );
 }

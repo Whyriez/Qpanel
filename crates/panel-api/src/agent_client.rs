@@ -41,14 +41,16 @@ use panel_proto::{
     QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload,
     ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse,
     SiteApplyRequest, SiteEnvApplyRequest, SiteEnvApplyResponse, SiteEnvDecryptRequest,
-    SiteEnvDecryptResponse, SiteEnvEncryptRequest, SiteEnvEncryptResponse, SiteLogsReadRequest,
-    SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest,
-    SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest,
-    SliceRemovedResponse, SliceResourceMetrics, SshDropinApplyRequest, SshDropinApplyResponse,
-    SshKeysSyncRequest, SshKeysSyncResponse, SshPolicyApplyRequest, SshPolicyApplyResponse,
-    SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest, UserCreatedResponse,
-    UserDeleteRequest, UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse,
-    UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    SiteEnvDecryptResponse, SiteEnvEncryptRequest, SiteEnvEncryptResponse,
+    SiteHtpasswdDeployRequest, SiteHtpasswdDeployedResponse, SiteHtpasswdRemoveRequest,
+    SiteHtpasswdRemovedResponse, SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest,
+    SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse,
+    SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics,
+    SshDropinApplyRequest, SshDropinApplyResponse, SshKeysSyncRequest, SshKeysSyncResponse,
+    SshPolicyApplyRequest, SshPolicyApplyResponse, SslCertDeployRequest, SslCertDeployedResponse,
+    UserCreateRequest, UserCreatedResponse, UserDeleteRequest, UserDeletedResponse,
+    UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse,
+    VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -673,6 +675,68 @@ impl AgentClient {
             ResponsePayload::SiteRemoved(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SiteRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn deploy_site_htpasswd(
+        &self,
+        req: SiteHtpasswdDeployRequest,
+    ) -> Result<SiteHtpasswdDeployedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-htpasswd-deploy-{}-{}",
+            req.site_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteHtpasswdDeploy(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteHtpasswdDeployed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteHtpasswdDeployed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_site_htpasswd(
+        &self,
+        req: SiteHtpasswdRemoveRequest,
+    ) -> Result<SiteHtpasswdRemovedResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "site-htpasswd-remove-{}-{}",
+            req.site_id,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteHtpasswdRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteHtpasswdRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteHtpasswdRemoved",
                 got: format!("{other:?}"),
             }),
         }

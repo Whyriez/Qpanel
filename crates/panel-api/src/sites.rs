@@ -327,6 +327,7 @@ struct PythonVhostRenderArgs<'a> {
     ssl_cert: Option<String>,
     ssl_key: Option<String>,
     force_https: bool,
+    site_rules_block: Option<String>,
 }
 
 fn render_python_vhost_for_site(
@@ -404,6 +405,7 @@ fn render_python_vhost_for_site(
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
         proxy_buffering: None,
+        site_rules_block: args.site_rules_block,
     };
 
     renderer.render_python(&python_ctx).map_err(|e| {
@@ -465,6 +467,28 @@ pub async fn recompile_and_apply_site_vhost(
     let is_python = site.kind == "python" || site.runtime.as_deref() == Some("python");
     let is_proxy = site.kind == "proxy" || site.runtime.as_deref() == Some("proxy");
 
+    let site_rules_block = if let Some(rules_val) = settings.get("site_rules") {
+        if let Ok(rules) =
+            serde_json::from_value::<panel_core::site_rules::SiteRulesConfig>(rules_val.clone())
+        {
+            let htpasswd_path = format!("/etc/panel/nginx/auth/site_{}.htpasswd", site.id);
+            let block = panel_webserver::rules::generate_site_rules_nginx_block(
+                &rules,
+                &format!("site_{}", site.id),
+                Some(&htpasswd_path),
+            );
+            if block.trim().is_empty() {
+                None
+            } else {
+                Some(block)
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let rendered = if is_php {
         let preset_str = settings
             .get("preset")
@@ -520,6 +544,7 @@ pub async fn recompile_and_apply_site_vhost(
             custom_entry_file,
             upload_max_size,
             fastcgi_cache,
+            site_rules_block: site_rules_block.clone(),
         };
 
         renderer.render_php(&php_vhost_ctx).map_err(|e| {
@@ -574,6 +599,7 @@ pub async fn recompile_and_apply_site_vhost(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             proxy_buffering: None,
+            site_rules_block: site_rules_block.clone(),
         };
 
         renderer.render_nodejs(&nodejs_ctx).map_err(|e| {
@@ -596,6 +622,7 @@ pub async fn recompile_and_apply_site_vhost(
                 ssl_cert,
                 ssl_key,
                 force_https,
+                site_rules_block: site_rules_block.clone(),
             },
         )?
     } else if is_proxy {
@@ -670,6 +697,7 @@ pub async fn recompile_and_apply_site_vhost(
             custom_request_headers,
             proxy_ssl_server_name,
             allow_external_upstream: true,
+            site_rules_block: site_rules_block.clone(),
         };
 
         renderer.render_proxy(&proxy_ctx).map_err(|e| {
@@ -698,6 +726,7 @@ pub async fn recompile_and_apply_site_vhost(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             custom_headers: vec![],
+            site_rules_block: site_rules_block.clone(),
         };
 
         renderer.render_static(&vhost_ctx).map_err(|e| {

@@ -109,6 +109,7 @@ async fn test_site_atomic_apply_and_rollback_over_ipc() {
         ocsp_stapling: false,
         custom_headers: vec![],
         redirects: vec![],
+        site_rules_block: None,
     };
 
     let valid_conf = renderer.render_static(&site_ctx).expect("render static");

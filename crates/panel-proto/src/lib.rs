@@ -60,6 +60,8 @@ pub enum RequestPayload {
     NginxBaselineApply(NginxBaselineApplyRequest),
     SiteApply(SiteApplyRequest),
     SiteRemove(SiteRemoveRequest),
+    SiteHtpasswdDeploy(SiteHtpasswdDeployRequest),
+    SiteHtpasswdRemove(SiteHtpasswdRemoveRequest),
     SiteProvision(SiteProvisionRequest),
     AcmeChallengeDeploy(AcmeChallengeDeployRequest),
     AcmeChallengeCleanup(AcmeChallengeCleanupRequest),
@@ -266,6 +268,8 @@ pub enum ResponsePayload {
     NginxBaselineApplied(NginxBaselineAppliedResponse),
     SiteApplied(SiteAppliedResponse),
     SiteRemoved(SiteRemovedResponse),
+    SiteHtpasswdDeployed(SiteHtpasswdDeployedResponse),
+    SiteHtpasswdRemoved(SiteHtpasswdRemovedResponse),
     SiteProvisioned(SiteProvisionResponse),
     AcmeChallengeDeployed(AcmeChallengeDeployedResponse),
     AcmeChallengeCleaned(AcmeChallengeCleanedResponse),
@@ -986,6 +990,31 @@ pub struct SiteRemoveRequest {
 pub struct SiteRemovedResponse {
     pub site_id: String,
     pub reloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteHtpasswdDeployRequest {
+    pub site_id: String,
+    pub htpasswd_content: String,
+    pub auth_base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteHtpasswdDeployedResponse {
+    pub site_id: String,
+    pub htpasswd_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteHtpasswdRemoveRequest {
+    pub site_id: String,
+    pub auth_base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteHtpasswdRemovedResponse {
+    pub site_id: String,
+    pub removed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

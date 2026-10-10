@@ -5,9 +5,10 @@ use crate::system::SystemRunner;
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
     AcmeChallengeDeployedResponse, NginxBaselineAppliedResponse, NginxBaselineApplyRequest,
-    SiteAppliedResponse, SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse,
-    SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse,
-    SslCertDeployRequest, SslCertDeployedResponse,
+    SiteAppliedResponse, SiteApplyRequest, SiteHtpasswdDeployRequest, SiteHtpasswdDeployedResponse,
+    SiteHtpasswdRemoveRequest, SiteHtpasswdRemovedResponse, SiteLogsReadRequest,
+    SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest,
+    SiteRemovedResponse, SslCertDeployRequest, SslCertDeployedResponse,
 };
 use panel_webserver::baseline::NginxBaselineConfig;
 use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
@@ -429,6 +430,88 @@ impl NginxManager {
             domain: domain.as_unicode().to_string(),
             cert_path: cert_path.to_string_lossy().to_string(),
             key_path: key_path.to_string_lossy().to_string(),
+        })
+    }
+
+    /// Deploys an htpasswd basic authentication file with strict 0640 permissions.
+    pub fn deploy_site_htpasswd(
+        &self,
+        req: SiteHtpasswdDeployRequest,
+    ) -> Result<SiteHtpasswdDeployedResponse, AgentError> {
+        if req.site_id.is_empty()
+            || !req
+                .site_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(AgentError::SecurityViolation(format!(
+                "Invalid site_id for htpasswd: '{}'",
+                req.site_id
+            )));
+        }
+
+        let auth_base_dir = req
+            .auth_base_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx/auth"));
+
+        // Directory 0750
+        self.runner.create_dir_all(&auth_base_dir, 0o750, 0, 0)?;
+
+        let htpasswd_filename = format!("site_{}.htpasswd", req.site_id);
+        let htpasswd_path = auth_base_dir.join(&htpasswd_filename);
+
+        // Mode 0640 as required by PRD
+        self.runner
+            .write_file(&htpasswd_path, req.htpasswd_content.as_bytes(), 0o640)?;
+
+        info!("Site htpasswd file deployed at {}", htpasswd_path.display());
+
+        Ok(SiteHtpasswdDeployedResponse {
+            site_id: req.site_id,
+            htpasswd_path: htpasswd_path.to_string_lossy().to_string(),
+        })
+    }
+
+    /// Removes an htpasswd basic authentication file for a site.
+    pub fn remove_site_htpasswd(
+        &self,
+        req: SiteHtpasswdRemoveRequest,
+    ) -> Result<SiteHtpasswdRemovedResponse, AgentError> {
+        if req.site_id.is_empty()
+            || !req
+                .site_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(AgentError::SecurityViolation(format!(
+                "Invalid site_id for htpasswd removal: '{}'",
+                req.site_id
+            )));
+        }
+
+        let auth_base_dir = req
+            .auth_base_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx/auth"));
+
+        let htpasswd_filename = format!("site_{}.htpasswd", req.site_id);
+        let htpasswd_path = auth_base_dir.join(&htpasswd_filename);
+
+        let removed = if self.runner.path_exists(&htpasswd_path) {
+            self.runner.remove_file(&htpasswd_path)?;
+            true
+        } else {
+            false
+        };
+
+        info!("Site htpasswd file removed for site {}", req.site_id);
+
+        Ok(SiteHtpasswdRemovedResponse {
+            site_id: req.site_id,
+            removed,
         })
     }
 

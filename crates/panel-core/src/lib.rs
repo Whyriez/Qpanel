@@ -8,6 +8,7 @@ pub mod cron;
 pub mod domain;
 pub mod php;
 pub mod rbac;
+pub mod site_rules;
 pub mod ssh;
 pub mod tenant;
 pub mod totp;

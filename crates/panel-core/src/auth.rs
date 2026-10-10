@@ -38,6 +38,17 @@ pub fn hash_token(token: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Hashes a plaintext password using bcrypt for Nginx HTTP Basic Auth htpasswd files.
+pub fn hash_basic_auth_password(password: &str) -> Result<String, CoreError> {
+    if password.is_empty() {
+        return Err(CoreError::Validation(
+            "Password must not be empty".to_string(),
+        ));
+    }
+    bcrypt::hash(password, 10)
+        .map_err(|e| CoreError::Validation(format!("Failed to hash bcrypt password: {}", e)))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {

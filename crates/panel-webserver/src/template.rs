@@ -62,6 +62,11 @@ server {
     {% endfor %}
     {% endif %}
 
+    {% if site_rules_block %}
+    # Site Rules
+    {{ site_rules_block | safe }}
+    {% endif %}
+
     # Static assets caching
     location ~* \.(?:css|js|jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc|woff|woff2|ttf|eot)$ {
         expires 30d;
@@ -169,6 +174,11 @@ server {
     {% for header in custom_headers %}
     add_header {{ header.name }} "{{ header.value }}" always;
     {% endfor %}
+    {% endif %}
+
+    {% if site_rules_block %}
+    # Site Rules
+    {{ site_rules_block | safe }}
     {% endif %}
 
     {% if preset == "wordpress" %}
@@ -368,6 +378,11 @@ server {
     {% endfor %}
     {% endif %}
 
+    {% if site_rules_block %}
+    # Site Rules
+    {{ site_rules_block | safe }}
+    {% endif %}
+
     {% if static_assets_enabled and docroot %}
     # Static assets caching pass-through
     location ~* \.(?:css|js|jpg|jpeg|gif|png|ico|cur|gz|svg|svgz|mp4|ogg|ogv|webm|htc|woff|woff2|ttf|eot)$ {
@@ -504,6 +519,11 @@ server {
     {% for header in custom_headers %}
     add_header {{ header.name }} "{{ header.value }}" always;
     {% endfor %}
+    {% endif %}
+
+    {% if site_rules_block %}
+    # Site Rules
+    {{ site_rules_block | safe }}
     {% endif %}
 
     {% if static_url and static_dir %}
@@ -650,6 +670,11 @@ server {
     {% endfor %}
     {% endif %}
 
+    {% if site_rules_block %}
+    # Site Rules
+    {{ site_rules_block | safe }}
+    {% endif %}
+
     # Primary reverse proxy location
     location / {
         proxy_pass {{ upstream_url }};
@@ -756,6 +781,8 @@ pub struct StaticVhostContext {
     pub force_https: bool,
     pub ocsp_stapling: bool,
     pub custom_headers: Vec<HeaderConfig>,
+    #[serde(default)]
+    pub site_rules_block: Option<String>,
 }
 
 /// Presets for PHP web applications.
@@ -858,6 +885,8 @@ pub struct PhpVhostContext {
     pub custom_entry_file: Option<String>,
     pub upload_max_size: Option<String>,
     pub fastcgi_cache: Option<FastCgiCacheConfig>,
+    #[serde(default)]
+    pub site_rules_block: Option<String>,
 }
 
 /// Context for rendering a Node.js reverse proxy virtual host.
@@ -883,6 +912,8 @@ pub struct NodejsVhostContext {
     pub proxy_send_timeout: Option<String>,
     pub proxy_read_timeout: Option<String>,
     pub proxy_buffering: Option<String>,
+    #[serde(default)]
+    pub site_rules_block: Option<String>,
 }
 
 /// Context for rendering a Python (WSGI/ASGI via Unix domain socket) virtual host.
@@ -910,6 +941,8 @@ pub struct PythonVhostContext {
     pub proxy_send_timeout: Option<String>,
     pub proxy_read_timeout: Option<String>,
     pub proxy_buffering: Option<String>,
+    #[serde(default)]
+    pub site_rules_block: Option<String>,
 }
 
 /// Context for rendering a standalone Reverse Proxy virtual host.
@@ -939,6 +972,8 @@ pub struct ReverseProxyVhostContext {
     pub custom_request_headers: Vec<HeaderConfig>,
     pub proxy_ssl_server_name: bool,
     pub allow_external_upstream: bool,
+    #[serde(default)]
+    pub site_rules_block: Option<String>,
 }
 
 pub struct NginxTemplateRenderer {
@@ -2101,6 +2136,7 @@ mod tests {
             ocsp_stapling: false,
             custom_headers: vec![],
             redirects: vec![],
+            site_rules_block: None,
         };
 
         let conf = renderer.render_static(&ctx).expect("render static");
@@ -2134,6 +2170,7 @@ mod tests {
                 name: "X-App-Framework".to_string(),
                 value: "Vite-React".to_string(),
             }],
+            site_rules_block: None,
         };
 
         let conf = renderer.render_static(&ctx).expect("render spa with ssl");
@@ -2181,6 +2218,7 @@ mod tests {
             force_https: true,
             ocsp_stapling: false,
             custom_headers: vec![],
+            site_rules_block: None,
         };
 
         let conf = renderer.render_static(&ctx).expect("render with redirects");
@@ -2223,6 +2261,7 @@ mod tests {
                 force_https: false,
                 ocsp_stapling: false,
                 custom_headers: vec![],
+                site_rules_block: None,
             };
 
             let err = renderer.render_static(&ctx);
@@ -2261,6 +2300,7 @@ mod tests {
                 force_https: false,
                 ocsp_stapling: false,
                 custom_headers: vec![],
+                site_rules_block: None,
             };
 
             let err = renderer.render_static(&ctx);
@@ -2307,6 +2347,7 @@ mod tests {
                 force_https: false,
                 ocsp_stapling: false,
                 custom_headers: vec![],
+                site_rules_block: None,
             };
 
             let err = renderer.render_static(&ctx);
@@ -2342,6 +2383,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: Some("64M".to_string()),
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let conf = renderer.render_php(&ctx).expect("render generic php");
@@ -2382,6 +2424,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: Some("128M".to_string()),
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let conf = renderer.render_php(&ctx).expect("render wordpress");
@@ -2420,6 +2463,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: Some("32M".to_string()),
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let conf = renderer.render_php(&ctx).expect("render laravel");
@@ -2452,6 +2496,7 @@ mod tests {
             custom_entry_file: Some("app.php".to_string()),
             upload_max_size: None,
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let conf = renderer.render_php(&ctx).expect("render custom");
@@ -2488,6 +2533,7 @@ mod tests {
                 use_stale: true,
                 custom_bypass_cookies: vec!["my_auth_token".to_string()],
             }),
+            site_rules_block: None,
         };
 
         let conf = renderer
@@ -2530,6 +2576,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: None,
             fastcgi_cache: None,
+            site_rules_block: None,
         };
         assert!(renderer.render_php(&bad_socket_ctx).is_err());
 
@@ -2583,6 +2630,7 @@ mod tests {
             proxy_send_timeout: Some("30s".to_string()),
             proxy_read_timeout: Some("120s".to_string()),
             proxy_buffering: Some("off".to_string()),
+            site_rules_block: None,
         };
 
         let conf = renderer.render_nodejs(&ctx).expect("render nodejs vhost");
@@ -2622,6 +2670,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: None,
             proxy_buffering: None,
+            site_rules_block: None,
         };
 
         // 1. SSRF Cloud Metadata IP rejected
@@ -2682,6 +2731,7 @@ mod tests {
             proxy_send_timeout: Some("30s".to_string()),
             proxy_read_timeout: Some("120s".to_string()),
             proxy_buffering: Some("off".to_string()),
+            site_rules_block: None,
         };
 
         let conf = renderer.render_python(&ctx).expect("render python vhost");
@@ -2725,6 +2775,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: None,
             proxy_buffering: None,
+            site_rules_block: None,
         };
 
         // 1. Relative socket path rejected
@@ -2793,6 +2844,7 @@ mod tests {
             }],
             proxy_ssl_server_name: false,
             allow_external_upstream: false,
+            site_rules_block: None,
         };
 
         let conf = renderer.render_proxy(&ctx).expect("render proxy vhost");
@@ -2836,6 +2888,7 @@ mod tests {
             custom_request_headers: vec![],
             proxy_ssl_server_name: true,
             allow_external_upstream: true,
+            site_rules_block: None,
         };
 
         let conf = renderer
@@ -2905,5 +2958,65 @@ mod tests {
             validate_reverse_proxy_upstream_url("http://127.0.0.1:3000; deny all;", false).is_err()
         );
         assert!(validate_reverse_proxy_upstream_url("http://127.0.0.1:3000{evil}", false).is_err());
+    }
+
+    #[test]
+    fn test_site_rules_block_rendering_across_vhost_types() {
+        let renderer = NginxTemplateRenderer::new();
+        let custom_rules =
+            "# === Custom Site Rules ===\nadd_header X-Custom-Test \"123\" always;\n";
+
+        // Static
+        let static_ctx = StaticVhostContext {
+            site_id: "site_rules_1".to_string(),
+            primary_domain: "rules.test".to_string(),
+            alias_domains: vec![],
+            redirects: vec![],
+            docroot: "/home/p_alice/public".to_string(),
+            log_dir: "/var/log/panel/user/site".to_string(),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            index_files: None,
+            spa_fallback: false,
+            has_ssl: false,
+            ssl_cert: None,
+            ssl_key: None,
+            force_https: false,
+            ocsp_stapling: false,
+            custom_headers: vec![],
+            site_rules_block: Some(custom_rules.to_string()),
+        };
+        let conf = renderer
+            .render_static(&static_ctx)
+            .expect("render static with rules");
+        assert!(conf.contains("add_header X-Custom-Test \"123\" always;"));
+
+        // PHP
+        let php_ctx = PhpVhostContext {
+            site_id: "site_rules_2".to_string(),
+            primary_domain: "phprules.test".to_string(),
+            alias_domains: vec![],
+            redirects: vec![],
+            docroot: "/home/p_alice/public".to_string(),
+            log_dir: "/var/log/panel/user/site".to_string(),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            index_files: None,
+            has_ssl: false,
+            ssl_cert: None,
+            ssl_key: None,
+            force_https: false,
+            ocsp_stapling: false,
+            custom_headers: vec![],
+            php_version: "8.3".to_string(),
+            fpm_socket: "/run/panel/php/sock.sock".to_string(),
+            preset: PhpPreset::Generic,
+            custom_entry_file: None,
+            upload_max_size: None,
+            fastcgi_cache: None,
+            site_rules_block: Some(custom_rules.to_string()),
+        };
+        let php_conf = renderer
+            .render_php(&php_ctx)
+            .expect("render php with rules");
+        assert!(php_conf.contains("add_header X-Custom-Test \"123\" always;"));
     }
 }

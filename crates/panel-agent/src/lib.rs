@@ -453,6 +453,12 @@ impl AgentServer {
                 RequestPayload::SiteRemove(d) => {
                     ("nginx.site_remove".to_string(), d.site_id.clone())
                 }
+                RequestPayload::SiteHtpasswdDeploy(d) => {
+                    ("nginx.htpasswd_deploy".to_string(), d.site_id.clone())
+                }
+                RequestPayload::SiteHtpasswdRemove(d) => {
+                    ("nginx.htpasswd_remove".to_string(), d.site_id.clone())
+                }
                 RequestPayload::SiteProvision(d) => {
                     ("nginx.site_provision".to_string(), d.username.clone())
                 }
@@ -821,6 +827,24 @@ impl AgentServer {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::SiteRemoved(res))
                         }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteHtpasswdDeploy(data) => {
+                    match self.webserver_manager.deploy_site_htpasswd(data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SiteHtpasswdDeployed(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteHtpasswdRemove(data) => {
+                    match self.webserver_manager.remove_site_htpasswd(data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SiteHtpasswdRemoved(res),
+                        ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }

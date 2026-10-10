@@ -16,6 +16,7 @@ pub mod processes;
 pub mod proxy_site;
 pub mod python_site;
 pub mod routes;
+pub mod site_rules;
 pub mod sites;
 pub mod ssh;
 pub mod ssl;
@@ -283,6 +284,19 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/cron/{job_id}/logs",
             get(cron::get_site_cron_logs_handler),
+        )
+        // Site rules management endpoints (Phase 8 - P8-T3)
+        .route(
+            "/api/v1/sites/{id}/rules",
+            get(site_rules::get_site_rules_handler).put(site_rules::update_site_rules_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/rules/hash-password",
+            post(site_rules::hash_basic_auth_password_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/rules/validate-snippet",
+            post(site_rules::validate_snippet_handler),
         )
         // Node.js site management endpoints
         .route(

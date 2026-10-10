@@ -38,7 +38,9 @@ import { ProxySettingsCard } from '../components/sites/ProxySettingsCard';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { SiteEnvironmentTab } from '../components/sites/SiteEnvironmentTab';
 import { SiteCronTab } from '../components/sites/SiteCronTab';
+import { SiteRulesTab } from '../components/sites/SiteRulesTab';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
+import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import {
   Site,
@@ -76,10 +78,11 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'environment' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'cron' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'environment' | 'ssl' | 'rules' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'cron' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
   const [site, setSite] = useState<Site | null>(null);
@@ -737,6 +740,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {cert && (
             <span className="w-2 h-2 rounded-full bg-[var(--success)] inline-block" />
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('rules')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'rules'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <Sliders className="w-4 h-4" />
+          {t('sites.tabs.rules', 'Aturan')}
         </button>
 
         <button
@@ -1510,6 +1525,17 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       {/* ===================================================================== */}
       {activeTab === 'cron' && (
         <SiteCronTab siteId={site.id} />
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5f: ATURAN SITUS & KEAMANAN (P8-T3)                               */}
+      {/* ===================================================================== */}
+      {activeTab === 'rules' && (
+        <SiteRulesTab
+          site={site}
+          userRole={user?.role}
+          onSiteUpdated={loadSiteData}
+        />
       )}
 
       {/* ===================================================================== */}

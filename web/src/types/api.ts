@@ -983,3 +983,120 @@ export interface ValidateCronResponse {
   error?: string | null;
 }
 
+// Site Rules (Phase 8 - P8-T3)
+export type RedirectMatchType = 'exact' | 'prefix' | 'regex';
+
+export interface StructuredRedirect {
+  source_path: string;
+  target_url: string;
+  status_code: number;
+  match_type: RedirectMatchType;
+  preserve_query: boolean;
+}
+
+export interface CustomHeader {
+  name: string;
+  value: string;
+  always: boolean;
+}
+
+export interface SecurityHeadersConfig {
+  hsts_enabled: boolean;
+  hsts_max_age_seconds: number;
+  hsts_subdomains: boolean;
+  hsts_preload: boolean;
+  frame_options: string;
+  content_type_options_nosniff: boolean;
+  referrer_policy: string;
+  permissions_policy?: string | null;
+  content_security_policy?: string | null;
+}
+
+export type CorsPreset = 'disabled' | 'allow_all' | 'same_origin' | 'custom';
+
+export interface CorsConfig {
+  preset: CorsPreset;
+  custom_origins: string[];
+  allow_credentials: boolean;
+  allowed_methods: string[];
+  allowed_headers: string[];
+  max_age_seconds?: number | null;
+}
+
+export type HotlinkAction = 'deny' | 'redirect';
+
+export interface HotlinkConfig {
+  enabled: boolean;
+  allowed_domains: string[];
+  file_extensions: string[];
+  allow_empty_referer: boolean;
+  action: HotlinkAction;
+  redirect_url?: string | null;
+}
+
+export interface BasicAuthUser {
+  username: string;
+  password_hash: string;
+}
+
+export interface BasicAuthConfig {
+  enabled: boolean;
+  path: string;
+  realm: string;
+  users: BasicAuthUser[];
+}
+
+export type IpAction = 'allow' | 'deny';
+
+export interface IpAccessRule {
+  ip_or_cidr: string;
+  action: IpAction;
+  description?: string | null;
+}
+
+export interface IpAccessConfig {
+  default_action: IpAction;
+  path?: string | null;
+  rules: IpAccessRule[];
+}
+
+export interface MaintenanceConfig {
+  enabled: boolean;
+  bypass_ips: string[];
+  retry_after_seconds?: number | null;
+  custom_message?: string | null;
+}
+
+export interface CustomErrorPage {
+  status_code: number;
+  target_path: string;
+}
+
+export interface NginxSnippetConfig {
+  enabled: boolean;
+  content: string;
+}
+
+export interface SiteRulesConfig {
+  redirects: StructuredRedirect[];
+  custom_headers: CustomHeader[];
+  security_headers: SecurityHeadersConfig;
+  cors: CorsConfig;
+  hotlink: HotlinkConfig;
+  basic_auth: BasicAuthConfig;
+  ip_access: IpAccessConfig;
+  maintenance: MaintenanceConfig;
+  custom_error_pages: CustomErrorPage[];
+  nginx_snippet: NginxSnippetConfig;
+}
+
+export interface HashPasswordResponse {
+  hash: string;
+}
+
+export interface ValidateSnippetResponse {
+  valid: boolean;
+  message?: string | null;
+  error?: string | null;
+}
+
