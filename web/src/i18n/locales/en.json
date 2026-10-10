@@ -164,6 +164,7 @@
       "domains": "Domains & Aliases",
       "ssl": "SSL Certificates",
       "logs": "Server Logs",
+      "proxy": "Reverse Proxy",
       "settings": "Settings"
     },
     "wizard": {
@@ -184,6 +185,8 @@
       "nodeDesc": "Standalone Node.js application with sandboxed systemd unit, dedicated local port, and reverse proxy",
       "pythonTitle": "Python Application (uv + venv)",
       "pythonDesc": "WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket & tenant slice isolation",
+      "proxyTitle": "Reverse Proxy (Nginx)",
+      "proxyDesc": "Proxy to backend server (HTTP/HTTPS/Unix socket) with SSRF protection",
       "domainLabel": "Primary Domain",
       "domainHelp": "Supports internationalized domain names (IDN / Punycode automatically)",
       "spaFallbackLabel": "Enable SPA Fallback",

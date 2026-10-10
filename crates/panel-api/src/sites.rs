@@ -16,8 +16,9 @@ use panel_db::repositories::{
 };
 use panel_proto::{SiteApplyRequest, SiteProvisionRequest, SiteRemoveRequest};
 use panel_webserver::template::{
-    DomainRedirectConfig, FastCgiCacheConfig, NginxTemplateRenderer, NodejsVhostContext, PhpPreset,
-    PhpVhostContext, PythonVhostContext, StaticVhostContext, render_placeholder_html,
+    DomainRedirectConfig, FastCgiCacheConfig, HeaderConfig, NginxTemplateRenderer,
+    NodejsVhostContext, PhpPreset, PhpVhostContext, PythonVhostContext, ReverseProxyVhostContext,
+    StaticVhostContext, render_placeholder_html,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -54,6 +55,15 @@ pub struct CreateStaticSiteRequest {
     pub static_dir: Option<String>,
     pub media_url: Option<String>,
     pub media_dir: Option<String>,
+    pub upstream_url: Option<String>,
+    pub preserve_host: Option<bool>,
+    pub websocket_support: Option<bool>,
+    pub proxy_connect_timeout: Option<String>,
+    pub proxy_send_timeout: Option<String>,
+    pub proxy_read_timeout: Option<String>,
+    pub proxy_buffering: Option<bool>,
+    pub custom_request_headers: Option<Vec<crate::proxy_site::ProxyHeaderConfig>>,
+    pub custom_response_headers: Option<Vec<crate::proxy_site::ProxyHeaderConfig>>,
 }
 
 pub type CreateSiteRequest = CreateStaticSiteRequest;
@@ -453,6 +463,7 @@ pub async fn recompile_and_apply_site_vhost(
     let is_php = site.kind == "php" || site.runtime.as_deref() == Some("php");
     let is_nodejs = site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs");
     let is_python = site.kind == "python" || site.runtime.as_deref() == Some("python");
+    let is_proxy = site.kind == "proxy" || site.runtime.as_deref() == Some("proxy");
 
     let rendered = if is_php {
         let preset_str = settings
@@ -587,6 +598,86 @@ pub async fn recompile_and_apply_site_vhost(
                 force_https,
             },
         )?
+    } else if is_proxy {
+        let upstream_url = settings
+            .get("upstream_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("http://127.0.0.1:8080")
+            .to_string();
+        let preserve_host = settings
+            .get("preserve_host")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let websocket_support = settings
+            .get("websocket_support")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let proxy_connect_timeout = settings
+            .get("proxy_connect_timeout")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let proxy_send_timeout = settings
+            .get("proxy_send_timeout")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let proxy_read_timeout = settings
+            .get("proxy_read_timeout")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let proxy_buffering = settings.get("proxy_buffering").and_then(|v| v.as_bool());
+        let proxy_buffering_str = proxy_buffering.map(|b| {
+            if b {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            }
+        });
+        let custom_request_headers: Vec<HeaderConfig> = settings
+            .get("custom_request_headers")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let custom_headers: Vec<HeaderConfig> = settings
+            .get("custom_response_headers")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let proxy_ssl_server_name = upstream_url.starts_with("https://");
+
+        let proxy_ctx = ReverseProxyVhostContext {
+            site_id: format!("site_{}", site.id),
+            primary_domain: primary_domain.to_string(),
+            alias_domains,
+            redirects,
+            log_dir: format!("/var/log/panel/{linux_uname}/{primary_domain}"),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            has_ssl,
+            ssl_cert,
+            ssl_key,
+            force_https,
+            ocsp_stapling: settings
+                .get("ocsp_stapling")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            upstream_url,
+            preserve_host,
+            custom_host_header: None,
+            websocket_support,
+            upload_max_size: None,
+            proxy_connect_timeout,
+            proxy_send_timeout,
+            proxy_read_timeout,
+            proxy_buffering: proxy_buffering_str,
+            custom_headers,
+            custom_request_headers,
+            proxy_ssl_server_name,
+            allow_external_upstream: true,
+        };
+
+        renderer.render_proxy(&proxy_ctx).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Proxy vhost render failed: {e}"),
+            )
+        })?
     } else {
         let vhost_ctx = StaticVhostContext {
             site_id: format!("site_{}", site.id),
@@ -914,6 +1005,7 @@ pub async fn create_static_site_handler(
     let is_php = payload.kind.as_deref() == Some("php");
     let is_nodejs = payload.kind.as_deref() == Some("nodejs");
     let is_python = payload.kind.as_deref() == Some("python");
+    let is_proxy = payload.kind.as_deref() == Some("proxy");
     let preset_str = payload.preset.as_deref().unwrap_or("generic");
     let preset = PhpPreset::parse(preset_str).unwrap_or(PhpPreset::Generic);
 
@@ -1062,6 +1154,68 @@ pub async fn create_static_site_handler(
                 serde_json::json!(format!("{}/static", app_dir)),
             );
         }
+    } else if is_proxy {
+        let upstream = payload
+            .upstream_url
+            .clone()
+            .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+
+        let allow_external = crate::proxy_site::check_user_allow_external_upstream(
+            &state.pool,
+            target_user.id,
+            auth_user.is_admin(),
+        )
+        .await;
+
+        if let Err(e) = panel_webserver::template::validate_reverse_proxy_upstream_url(
+            &upstream,
+            allow_external,
+        ) {
+            let err_str = e.to_string();
+            let status = if err_str.contains("not permit") {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            return (status, Json(serde_json::json!({ "error": err_str }))).into_response();
+        }
+
+        let preserve_host = payload.preserve_host.unwrap_or(true);
+        let websocket_support = payload.websocket_support.unwrap_or(true);
+
+        settings_map.insert("upstream_url".to_string(), serde_json::json!(upstream));
+        settings_map.insert(
+            "preserve_host".to_string(),
+            serde_json::json!(preserve_host),
+        );
+        settings_map.insert(
+            "websocket_support".to_string(),
+            serde_json::json!(websocket_support),
+        );
+        if let Some(t) = &payload.proxy_connect_timeout {
+            settings_map.insert("proxy_connect_timeout".to_string(), serde_json::json!(t));
+        }
+        if let Some(t) = &payload.proxy_send_timeout {
+            settings_map.insert("proxy_send_timeout".to_string(), serde_json::json!(t));
+        }
+        if let Some(t) = &payload.proxy_read_timeout {
+            settings_map.insert("proxy_read_timeout".to_string(), serde_json::json!(t));
+        }
+        if let Some(b) = payload.proxy_buffering {
+            settings_map.insert("proxy_buffering".to_string(), serde_json::json!(b));
+        }
+        if let Some(req_headers) = &payload.custom_request_headers {
+            settings_map.insert(
+                "custom_request_headers".to_string(),
+                serde_json::json!(req_headers),
+            );
+        }
+        if let Some(resp_headers) = &payload.custom_response_headers {
+            settings_map.insert(
+                "custom_response_headers".to_string(),
+                serde_json::json!(resp_headers),
+            );
+        }
     }
     let settings = serde_json::Value::Object(settings_map);
 
@@ -1074,6 +1228,8 @@ pub async fn create_static_site_handler(
             "nodejs".to_string()
         } else if is_python {
             "python".to_string()
+        } else if is_proxy {
+            "proxy".to_string()
         } else {
             "static".to_string()
         },
@@ -1084,6 +1240,8 @@ pub async fn create_static_site_handler(
             Some("nodejs".to_string())
         } else if is_python {
             Some("python".to_string())
+        } else if is_proxy {
+            Some("proxy".to_string())
         } else {
             Some("none".to_string())
         },

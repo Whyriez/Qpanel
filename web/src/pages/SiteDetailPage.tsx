@@ -24,6 +24,7 @@ import {
   Sliders,
   Folder,
   Key,
+  Network,
 } from 'lucide-react';
 import { FileManager } from '../components/files/FileManager';
 import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
@@ -32,6 +33,7 @@ import { NodeStatusCard } from '../components/sites/NodeStatusCard';
 import { NodeSettingsCard } from '../components/sites/NodeSettingsCard';
 import { PythonStatusCard } from '../components/sites/PythonStatusCard';
 import { PythonSettingsCard } from '../components/sites/PythonSettingsCard';
+import { ProxySettingsCard } from '../components/sites/ProxySettingsCard';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
@@ -70,7 +72,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -775,6 +777,20 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           </button>
         )}
 
+        {(site.kind === 'proxy' || site.runtime === 'proxy') && (
+          <button
+            onClick={() => setActiveTab('proxy')}
+            className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+              activeTab === 'proxy'
+                ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+                : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+            }`}
+          >
+            <Network className="w-4 h-4" />
+            Reverse Proxy
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
@@ -1403,6 +1419,20 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         <div className="space-y-6">
           <PythonStatusCard siteId={site.id} />
           <PythonSettingsCard
+            siteId={site.id}
+            onSaved={() => {
+              loadSiteData();
+            }}
+          />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5d: REVERSE PROXY CONFIGURATION                                   */}
+      {/* ===================================================================== */}
+      {activeTab === 'proxy' && (site.kind === 'proxy' || site.runtime === 'proxy') && (
+        <div className="space-y-6">
+          <ProxySettingsCard
             siteId={site.id}
             onSaved={() => {
               loadSiteData();

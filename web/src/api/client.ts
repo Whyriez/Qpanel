@@ -1173,3 +1173,36 @@ export async function updatePythonSiteSettings(
   );
 }
 
+// Reverse Proxy API (Phase 7 - P7-T4)
+export async function getProxySiteSettings(
+  siteId: number
+): Promise<import('../types/api').ProxySiteSettingsDto> {
+  return request<import('../types/api').ProxySiteSettingsDto>(
+    `/api/v1/sites/${siteId}/proxy/settings`
+  );
+}
+
+export async function updateProxySiteSettings(
+  siteId: number,
+  payload: import('../types/api').UpdateProxySiteSettingsRequest
+): Promise<import('../types/api').ProxySiteSettingsDto> {
+  return request<import('../types/api').ProxySiteSettingsDto>(
+    `/api/v1/sites/${siteId}/proxy/settings`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function probeProxyUpstream(
+  siteId: number,
+  upstreamUrl?: string
+): Promise<import('../types/api').ProxyUpstreamProbeResponse> {
+  const url = upstreamUrl
+    ? `/api/v1/sites/${siteId}/proxy/probe?upstream_url=${encodeURIComponent(upstreamUrl)}`
+    : `/api/v1/sites/${siteId}/proxy/probe`;
+  return request<import('../types/api').ProxyUpstreamProbeResponse>(url);
+}
+
+

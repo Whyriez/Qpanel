@@ -131,6 +131,7 @@ pub enum RequestPayload {
     PythonSiteAction(PythonSiteActionRequest),
     PythonSiteStatus(PythonSiteStatusRequest),
     PythonSiteJob(PythonSiteJobRequest),
+    ProxyUpstreamProbe(ProxyUpstreamProbeRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -323,6 +324,7 @@ pub enum ResponsePayload {
     PythonSiteAction(PythonSiteActionResponse),
     PythonSiteStatus(PythonSiteStatusResponse),
     PythonSiteJob(PythonSiteJobResponse),
+    ProxyUpstreamProbed(ProxyUpstreamProbeResponse),
     Error(String),
 }
 
@@ -1734,6 +1736,20 @@ pub struct PythonSiteJobResponse {
     pub duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProxyUpstreamProbeRequest {
+    pub upstream_url: String,
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProxyUpstreamProbeResponse {
+    pub healthy: bool,
+    pub status_code: Option<u16>,
+    pub latency_ms: u64,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -2606,5 +2622,29 @@ mod tests {
         let s_py_job = serde_json::to_string(&req_py_job).unwrap();
         let de_py_job: RpcRequest = serde_json::from_str(&s_py_job).unwrap();
         assert_eq!(req_py_job, de_py_job);
+
+        let req_probe = RpcRequest::new(
+            "proxy-probe-1",
+            RequestPayload::ProxyUpstreamProbe(ProxyUpstreamProbeRequest {
+                upstream_url: "http://127.0.0.1:8080".to_string(),
+                timeout_ms: Some(2000),
+            }),
+        );
+        let s_probe = serde_json::to_string(&req_probe).unwrap();
+        let de_probe: RpcRequest = serde_json::from_str(&s_probe).unwrap();
+        assert_eq!(req_probe, de_probe);
+
+        let res_probe = RpcResponse::ok(
+            "proxy-probe-1",
+            ResponsePayload::ProxyUpstreamProbed(ProxyUpstreamProbeResponse {
+                healthy: true,
+                status_code: Some(200),
+                latency_ms: 15,
+                message: "Upstream healthy".to_string(),
+            }),
+        );
+        let s_res_probe = serde_json::to_string(&res_probe).unwrap();
+        let de_res_probe: RpcResponse = serde_json::from_str(&s_res_probe).unwrap();
+        assert_eq!(res_probe, de_res_probe);
     }
 }

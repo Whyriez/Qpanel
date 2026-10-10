@@ -6,6 +6,7 @@ pub mod hardening;
 pub mod node;
 pub mod node_site;
 pub mod php;
+pub mod proxy;
 pub mod pty;
 pub mod python_site;
 pub mod quota;
@@ -696,6 +697,9 @@ impl AgentServer {
                     "python.site_job".to_string(),
                     format!("{}:{:?}", d.site_id, d.job_type),
                 ),
+                RequestPayload::ProxyUpstreamProbe(d) => {
+                    ("proxy.upstream_probe".to_string(), d.upstream_url.clone())
+                }
             };
 
             let response = match req.payload {
@@ -1320,6 +1324,10 @@ impl AgentServer {
                         }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
+                }
+                RequestPayload::ProxyUpstreamProbe(data) => {
+                    let res = proxy::probe_upstream(&data).await;
+                    RpcResponse::ok(&req.request_id, ResponsePayload::ProxyUpstreamProbed(res))
                 }
             };
 

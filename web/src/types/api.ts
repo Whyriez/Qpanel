@@ -313,6 +313,7 @@ export interface CreateSiteRequest {
   spa_fallback?: boolean;
   force_https?: boolean;
   docroot?: string;
+  kind?: 'static' | 'php' | 'nodejs' | 'python' | 'proxy' | string;
   runtime?: string;
   version?: string;
   port?: number;
@@ -329,6 +330,15 @@ export interface CreateSiteRequest {
   static_dir?: string;
   media_url?: string;
   media_dir?: string;
+  upstream_url?: string;
+  preserve_host?: boolean;
+  websocket_support?: boolean;
+  proxy_connect_timeout?: string;
+  proxy_send_timeout?: string;
+  proxy_read_timeout?: string;
+  proxy_buffering?: boolean;
+  custom_request_headers?: ProxyHeaderConfig[];
+  custom_response_headers?: ProxyHeaderConfig[];
 }
 
 export interface AddDomainRequest {
@@ -808,5 +818,44 @@ export interface UpdatePythonSiteSettingsRequest {
   media_dir?: string;
   auto_restart?: boolean;
   env_vars?: Record<string, string>;
+}
+
+// Reverse Proxy Types (Phase 7 - P7-T4)
+export interface ProxyHeaderConfig {
+  name: string;
+  value: string;
+}
+
+export interface ProxySiteSettingsDto {
+  site_id: number;
+  upstream_url: string;
+  preserve_host: boolean;
+  websocket_support: boolean;
+  proxy_connect_timeout: string | null;
+  proxy_send_timeout: string | null;
+  proxy_read_timeout: string | null;
+  proxy_buffering: boolean | null;
+  custom_request_headers: ProxyHeaderConfig[];
+  custom_response_headers: ProxyHeaderConfig[];
+  allow_external_upstream: boolean;
+}
+
+export interface UpdateProxySiteSettingsRequest {
+  upstream_url?: string;
+  preserve_host?: boolean;
+  websocket_support?: boolean;
+  proxy_connect_timeout?: string;
+  proxy_send_timeout?: string;
+  proxy_read_timeout?: string;
+  proxy_buffering?: boolean;
+  custom_request_headers?: ProxyHeaderConfig[];
+  custom_response_headers?: ProxyHeaderConfig[];
+}
+
+export interface ProxyUpstreamProbeResponse {
+  healthy: boolean;
+  status_code: number | null;
+  latency_ms: number;
+  message: string;
 }
 

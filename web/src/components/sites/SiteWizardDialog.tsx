@@ -11,6 +11,7 @@ import {
   Server,
   Terminal,
   ShieldCheck,
+  Network,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TenantListItem, Site, CreateSiteRequest } from '../../types/api';
@@ -32,7 +33,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const { user } = useAuth();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [siteType, setSiteType] = useState<'static' | 'php' | 'node' | 'python'>('static');
+  const [siteType, setSiteType] = useState<'static' | 'php' | 'node' | 'python' | 'proxy'>('static');
   const [domain, setDomain] = useState('');
   const [spaFallback, setSpaFallback] = useState(false);
   const [forceHttps, setForceHttps] = useState(true);
@@ -51,6 +52,11 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const [pythonEntrypoint, setPythonEntrypoint] = useState<string>('myproject.wsgi:application');
   const [pythonWorkers, setPythonWorkers] = useState<number>(3);
 
+  // Reverse Proxy specific fields (Phase 7 - P7-T4)
+  const [proxyUpstream, setProxyUpstream] = useState<string>('http://127.0.0.1:3000');
+  const [proxyPreserveHost, setProxyPreserveHost] = useState<boolean>(true);
+  const [proxyWebsocket, setProxyWebsocket] = useState<boolean>(true);
+
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,6 +67,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
       setStep(1);
       setSiteType('static');
       setDomain('');
+      setProxyUpstream('http://127.0.0.1:3000');
+      setProxyPreserveHost(true);
+      setProxyWebsocket(true);
       setSpaFallback(false);
       setForceHttps(true);
       setErrorMessage(null);
@@ -130,6 +139,10 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
       setErrorMessage('Format domain tidak valid (contoh: example.com atau sub.domain.id).');
       return;
     }
+    if (siteType === 'proxy' && !proxyUpstream.trim()) {
+      setErrorMessage('URL target upstream wajib diisi.');
+      return;
+    }
     setErrorMessage(null);
     setStep(3);
   };
@@ -168,6 +181,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
             entrypoint: pythonEntrypoint.trim() || undefined,
             entrypoint_type: pythonEntrypointType,
             workers: pythonWorkers,
+          }
+        : siteType === 'proxy'
+        ? {
+            kind: 'proxy',
+            runtime: 'proxy',
+            upstream_url: proxyUpstream.trim(),
+            preserve_host: proxyPreserveHost,
+            websocket_support: proxyWebsocket,
           }
         : {}),
     };
@@ -270,7 +291,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 {t('sites.wizard.step1Desc')}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {/* Static Site (Active) */}
                 <div
                   onClick={() => setSiteType('static')}
@@ -353,6 +374,29 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </h3>
                   <p className="text-xs text-[var(--ink-muted)]">
                     WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket &amp; isolasi tenant slice.
+                  </p>
+                </div>
+
+                {/* Reverse Proxy (Available in Phase 7 - P7-T4) */}
+                <div
+                  onClick={() => setSiteType('proxy')}
+                  className={`cursor-pointer p-4 rounded-[var(--radius-md)] border transition-all ${
+                    siteType === 'proxy'
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/5 shadow-xs'
+                      : 'border-[var(--line)] bg-[var(--raised)] hover:border-[var(--ink-muted)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Network className="w-5 h-5 text-[var(--primary)]" />
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
+                      Tersedia
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
+                    Reverse Proxy (Nginx)
+                  </h3>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    Proxy ke backend server (HTTP/HTTPS/Unix socket) dengan proteksi SSRF.
                   </p>
                 </div>
               </div>
@@ -527,6 +571,54 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 </div>
               )}
 
+              {/* Reverse Proxy Specific Options (Phase 7 - P7-T4) */}
+              {siteType === 'proxy' && (
+                <div className="pt-2 space-y-3 border-t border-[var(--line)]">
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                      URL Target Upstream <span className="text-[var(--danger)]">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={proxyUpstream}
+                      onChange={(e) => setProxyUpstream(e.target.value)}
+                      placeholder="http://127.0.0.1:3000 atau unix:/run/app.sock"
+                      className="w-full text-xs px-3 py-2 font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                    />
+                    <p className="text-[11px] text-[var(--ink-muted)] mt-1">
+                      Protokol yang didukung: http://, https://, atau unix:/path/ke/socket.sock
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <label className="flex items-center gap-2 p-2.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={proxyPreserveHost}
+                        onChange={(e) => setProxyPreserveHost(e.target.checked)}
+                        className="rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)]"
+                      />
+                      <span className="text-xs text-[var(--ink)]">Preserve Host ($host)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 p-2.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={proxyWebsocket}
+                        onChange={(e) => setProxyWebsocket(e.target.checked)}
+                        className="rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)]"
+                      />
+                      <span className="text-xs text-[var(--ink)]">Dukungan WebSocket</span>
+                    </label>
+                  </div>
+
+                  <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
+                    Proteksi SSRF aktif: Hanya alamat loopback (127.0.0.1, ::1, localhost, unix:) yang diizinkan secara default. Akses IP LAN privat dan cloud metadata diblokir otomatis.
+                  </div>
+                </div>
+              )}
+
               <div className="pt-2 space-y-3 border-t border-[var(--line)]">
                 {siteType === 'static' && (
                   <label className="flex items-start gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer hover:bg-[var(--surface)] transition-colors">
@@ -643,15 +735,25 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 <div className="flex items-center justify-between p-3">
                   <span className="text-[var(--ink-muted)]">{t('sites.wizard.reviewType')}</span>
                   <span className="font-semibold text-[var(--primary)]">
-                    {siteType === 'node'
+                    {siteType === 'proxy'
+                      ? 'Reverse Proxy (Nginx)'
+                      : siteType === 'node'
                       ? `Node.js Application (v${nodeVersion})`
                       : siteType === 'python'
-                      ? `Python Application (${pythonFramework.toUpperCase()} &bull; v${pythonVersion})`
+                      ? `Python Application (${pythonFramework.toUpperCase()} • v${pythonVersion})`
                       : siteType === 'php'
                       ? 'PHP (Multi-Versi)'
                       : 'Situs Statis (HTML/CSS/JS)'}
                   </span>
                 </div>
+                {siteType === 'proxy' && (
+                  <div className="flex items-center justify-between p-3">
+                    <span className="text-[var(--ink-muted)]">Target Upstream:</span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">
+                      {proxyUpstream}
+                    </span>
+                  </div>
+                )}
                 {siteType === 'node' && (
                   <div className="flex items-center justify-between p-3">
                     <span className="text-[var(--ink-muted)]">Entrypoint:</span>

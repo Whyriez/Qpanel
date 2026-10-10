@@ -10,6 +10,7 @@ pub mod node;
 pub mod node_site;
 pub mod php;
 pub mod plans;
+pub mod proxy_site;
 pub mod python_site;
 pub mod routes;
 pub mod sites;
@@ -425,6 +426,16 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/sites/{id}/python/settings",
             get(python_site::get_python_site_settings_handler)
                 .put(python_site::update_python_site_settings_handler),
+        )
+        // Reverse proxy site management (Phase 7 - P7-T4)
+        .route(
+            "/api/v1/sites/{id}/proxy/settings",
+            get(proxy_site::get_proxy_site_settings_handler)
+                .put(proxy_site::update_proxy_site_settings_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/proxy/probe",
+            get(proxy_site::probe_proxy_upstream_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

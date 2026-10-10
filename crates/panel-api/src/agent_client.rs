@@ -28,9 +28,10 @@ use panel_proto::{
     PhpFpmPoolStatusRequest, PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse,
     PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
-    PtyCloseRequest, PtyCloseResponse, PtyInputRequest, PtyInputResponse, PtyListRequest,
-    PtyListResponse, PtyOpenRequest, PtyOpenResponse, PtyReadOutputRequest, PtyReadOutputResponse,
-    PtyResizeRequest, PtyResizeResponse, PythonRuntimeActionResponse, PythonRuntimeInstallRequest,
+    ProxyUpstreamProbeRequest, ProxyUpstreamProbeResponse, PtyCloseRequest, PtyCloseResponse,
+    PtyInputRequest, PtyInputResponse, PtyListRequest, PtyListResponse, PtyOpenRequest,
+    PtyOpenResponse, PtyReadOutputRequest, PtyReadOutputResponse, PtyResizeRequest,
+    PtyResizeResponse, PythonRuntimeActionResponse, PythonRuntimeInstallRequest,
     PythonRuntimeListRequest, PythonRuntimeListResponse, PythonRuntimeRemoveRequest,
     PythonSiteActionRequest, PythonSiteActionResponse, PythonSiteApplyRequest,
     PythonSiteApplyResponse, PythonSiteJobRequest, PythonSiteJobResponse, PythonSiteRemoveRequest,
@@ -2834,6 +2835,36 @@ impl AgentClient {
             ResponsePayload::PythonSiteJob(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "PythonSiteJob",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn probe_proxy_upstream(
+        &self,
+        req: ProxyUpstreamProbeRequest,
+    ) -> Result<ProxyUpstreamProbeResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "proxy-probe-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::ProxyUpstreamProbe(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::ProxyUpstreamProbed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "ProxyUpstreamProbed",
                 got: format!("{other:?}"),
             }),
         }

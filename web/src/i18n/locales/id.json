@@ -164,6 +164,7 @@
       "domains": "Domain & Alias",
       "ssl": "Sertifikat SSL",
       "logs": "Log Server",
+      "proxy": "Reverse Proxy",
       "settings": "Pengaturan"
     },
     "wizard": {
@@ -184,6 +185,8 @@
       "nodeDesc": "Aplikasi Node.js mandiri dengan systemd unit terisolasi, port lokal, dan reverse proxy otomatis",
       "pythonTitle": "Aplikasi Python (uv + venv)",
       "pythonDesc": "WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket & isolasi tenant slice",
+      "proxyTitle": "Reverse Proxy (Nginx)",
+      "proxyDesc": "Proxy ke backend server (HTTP/HTTPS/Unix socket) dengan proteksi SSRF",
       "domainLabel": "Domain Utama",
       "domainHelp": "Mendukung IDN / domain internasional (otomatis dikonversi ke Punycode)",
       "spaFallbackLabel": "Aktifkan Fallback SPA",
