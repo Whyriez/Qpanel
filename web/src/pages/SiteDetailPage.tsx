@@ -34,6 +34,7 @@ import { NodeSettingsCard } from '../components/sites/NodeSettingsCard';
 import { PythonStatusCard } from '../components/sites/PythonStatusCard';
 import { PythonSettingsCard } from '../components/sites/PythonSettingsCard';
 import { ProxySettingsCard } from '../components/sites/ProxySettingsCard';
+import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
@@ -124,7 +125,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const [isSwitchingPhp, setIsSwitchingPhp] = useState(false);
 
   // Logs & WebSocket Live Tail States
-  const [logType, setLogType] = useState<'access' | 'error' | 'php_error' | 'php_slow'>('access');
+  const [logType, setLogType] = useState<'access' | 'error' | 'php_error' | 'php_slow' | 'app'>('access');
   const [logLinesCount, setLogLinesCount] = useState<number>(100);
   const [logQueryFilter, setLogQueryFilter] = useState('');
   const [logLines, setLogLines] = useState<string[]>([]);
@@ -1260,6 +1261,21 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                     </button>
                   </>
                 )}
+                {(site.kind === 'nodejs' ||
+                  site.kind === 'python' ||
+                  site.runtime === 'nodejs' ||
+                  site.runtime === 'python') && (
+                  <button
+                    onClick={() => setLogType('app')}
+                    className={`px-3 py-1 rounded-[var(--radius-sm)] transition-colors ${
+                      logType === 'app'
+                        ? 'bg-[var(--primary)] text-white font-semibold'
+                        : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'
+                    }`}
+                  >
+                    Aplikasi (Stdout/Stderr)
+                  </button>
+                )}
               </div>
 
               {/* Live Tail Toggle */}
@@ -1402,6 +1418,12 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       {/* ===================================================================== */}
       {activeTab === 'node' && (site.kind === 'nodejs' || site.runtime === 'nodejs') && (
         <div className="space-y-6">
+          <UnifiedProcessCard
+            siteId={site.id}
+            runtime="nodejs"
+            domain={site.primary_domain}
+            onRefresh={loadSiteData}
+          />
           <NodeStatusCard siteId={site.id} />
           <NodeSettingsCard
             siteId={site.id}
@@ -1417,6 +1439,12 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       {/* ===================================================================== */}
       {activeTab === 'python' && (site.kind === 'python' || site.runtime === 'python') && (
         <div className="space-y-6">
+          <UnifiedProcessCard
+            siteId={site.id}
+            runtime="python"
+            domain={site.primary_domain}
+            onRefresh={loadSiteData}
+          />
           <PythonStatusCard siteId={site.id} />
           <PythonSettingsCard
             siteId={site.id}

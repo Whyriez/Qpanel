@@ -442,13 +442,20 @@ impl NginxManager {
         let domain = panel_core::domain::DomainName::parse(&req.site_domain)
             .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
 
+        let is_app_log = req.log_type == "app"
+            || req.log_type == "process"
+            || req.log_type == "service"
+            || req.log_type == "node"
+            || req.log_type == "python";
+
         if req.log_type != "access"
             && req.log_type != "error"
             && req.log_type != "php_error"
             && req.log_type != "php_slow"
+            && !is_app_log
         {
             return Err(AgentError::InvalidInput(format!(
-                "Invalid log type '{}'. Expected 'access', 'error', 'php_error', or 'php_slow'",
+                "Invalid log type '{}'. Expected 'access', 'error', 'php_error', 'php_slow', or 'app'",
                 req.log_type
             )));
         }
@@ -492,6 +499,10 @@ impl NginxManager {
                     .unwrap_or(site_php)
                 }
             }
+            "app" | "process" | "service" | "node" | "python" => base_dir
+                .join(username.as_str())
+                .join(domain.as_ascii())
+                .join("app.log"),
             _ => base_dir
                 .join(username.as_str())
                 .join(domain.as_ascii())
@@ -499,6 +510,44 @@ impl NginxManager {
         };
 
         if !self.runner.path_exists(&log_file) {
+            if let (true, Some(sid)) = (is_app_log, req.site_id.as_deref()) {
+                let clean_id = sid.strip_prefix("site_").unwrap_or(sid);
+                let service_name = format!("site-{clean_id}.service");
+                let lines_limit = req.lines.clamp(1, 1000);
+                let lines_str = lines_limit.to_string();
+                if let Ok(output) = self.runner.run_command(
+                    "journalctl",
+                    &[
+                        "-u",
+                        &service_name,
+                        "-n",
+                        &lines_str,
+                        "--no-pager",
+                        "-o",
+                        "cat",
+                    ],
+                ) {
+                    let out_str = String::from_utf8_lossy(&output.stdout);
+                    let query_lower = req.query.as_ref().map(|q| q.to_lowercase());
+                    let matched_lines: Vec<String> = out_str
+                        .lines()
+                        .filter(|l| {
+                            if let Some(ref q) = query_lower {
+                                l.to_lowercase().contains(q)
+                            } else {
+                                true
+                            }
+                        })
+                        .map(|s| s.to_string())
+                        .collect();
+                    let total = matched_lines.len();
+                    return Ok(SiteLogsReadResponse {
+                        lines: matched_lines,
+                        total_matched: total,
+                    });
+                }
+            }
+
             return Ok(SiteLogsReadResponse {
                 lines: Vec::new(),
                 total_matched: 0,
@@ -715,6 +764,7 @@ mod tests {
             lines: 2,
             query: None,
             log_base_dir: Some("/var/log/panel".to_string()),
+            site_id: None,
         };
         let res = manager.read_site_logs(req).expect("read logs");
         assert_eq!(res.lines.len(), 2);
@@ -730,6 +780,7 @@ mod tests {
             lines: 10,
             query: Some("404".to_string()),
             log_base_dir: Some("/var/log/panel".to_string()),
+            site_id: None,
         };
         let res_filter = manager
             .read_site_logs(req_filter)
@@ -746,6 +797,7 @@ mod tests {
             lines: 10,
             query: None,
             log_base_dir: Some("/var/log/panel".to_string()),
+            site_id: None,
         };
         let res_missing = manager
             .read_site_logs(req_missing)
@@ -761,6 +813,7 @@ mod tests {
             lines: 10,
             query: None,
             log_base_dir: Some("/var/log/panel".to_string()),
+            site_id: None,
         };
         assert!(manager.read_site_logs(req_bad_type).is_err());
     }

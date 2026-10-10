@@ -17,6 +17,8 @@ import {
   Layers,
   Search,
   AlertTriangle,
+  Activity,
+  HardDrive,
 } from 'lucide-react';
 import {
   PhpRuntimeListApiResponse,
@@ -24,6 +26,7 @@ import {
   NodeRuntimeListApiResponse,
   NodeVersionItem,
   NodeRuntimeInstallRequest,
+  ProcessListResponse,
 } from '../types/api';
 import {
   fetchPhpVersions,
@@ -34,13 +37,15 @@ import {
   installNodeVersion,
   removeNodeVersion,
   enableNodeCorepack,
+  fetchProcesses,
 } from '../api/client';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 import { PhpExtensionsModal } from '../components/runtime/PhpExtensionsModal';
 import { NodeInstallModal } from '../components/runtime/NodeInstallModal';
+import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { toast } from 'sonner';
 
-type RuntimeTab = 'php' | 'node';
+type RuntimeTab = 'php' | 'node' | 'processes';
 
 export const RuntimePage: React.FC = () => {
   const { t } = useTranslation();
@@ -68,6 +73,16 @@ export const RuntimePage: React.FC = () => {
   const [nodeVersionToRemove, setNodeVersionToRemove] = useState<NodeVersionItem | null>(null);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [preselectedNodeVersion, setPreselectedNodeVersion] = useState<string | undefined>();
+
+  // =========================================================
+  // Process Monitoring State (Phase 7 - P7-T5)
+  // =========================================================
+  const [processData, setProcessData] = useState<ProcessListResponse | null>(null);
+  const [processLoading, setProcessLoading] = useState(true);
+  const [processError, setProcessError] = useState<string | null>(null);
+  const [processSearch, setProcessSearch] = useState('');
+  const [processRuntimeFilter, setProcessRuntimeFilter] = useState<'all' | 'nodejs' | 'python'>('all');
+  const [processStatusFilter, setProcessStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   // =========================================================
   // Data Fetchers
@@ -106,13 +121,32 @@ export const RuntimePage: React.FC = () => {
     }
   }, []);
 
+  const loadProcessData = useCallback(async (quiet = false) => {
+    if (!quiet) setProcessLoading(true);
+    setProcessError(null);
+    try {
+      const res = await fetchProcesses();
+      setProcessData(res);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal memuat daftar proses aplikasi.';
+      setProcessError(msg);
+      if (!quiet) {
+        toast.error('Gagal memuat proses aplikasi', { description: msg });
+      }
+    } finally {
+      if (!quiet) setProcessLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'php') {
       loadPhpData();
-    } else {
+    } else if (activeTab === 'node') {
       loadNodeData();
+    } else if (activeTab === 'processes') {
+      loadProcessData();
     }
-  }, [activeTab, loadPhpData, loadNodeData]);
+  }, [activeTab, loadPhpData, loadNodeData, loadProcessData]);
 
   // =========================================================
   // PHP Handlers
@@ -235,8 +269,30 @@ export const RuntimePage: React.FC = () => {
     );
   }, [nodeData, nodeSearch]);
 
+  const filteredProcesses = useMemo(() => {
+    if (!processData) return [];
+    return processData.processes.filter((p) => {
+      if (processRuntimeFilter !== 'all' && p.runtime !== processRuntimeFilter) {
+        return false;
+      }
+      if (processStatusFilter === 'active' && !p.active) return false;
+      if (processStatusFilter === 'inactive' && p.active) return false;
+      if (processSearch) {
+        const q = processSearch.toLowerCase();
+        return (
+          p.primary_domain.toLowerCase().includes(q) ||
+          p.service_name.toLowerCase().includes(q) ||
+          p.runtime.toLowerCase().includes(q) ||
+          (p.pid && p.pid.toString().includes(q))
+        );
+      }
+      return true;
+    });
+  }, [processData, processRuntimeFilter, processStatusFilter, processSearch]);
+
   const installedNodeCount = nodeData?.installed_count ?? 0;
   const installedPhpCount = phpData?.versions?.filter((v) => v.installed).length ?? 0;
+  const activeProcessCount = processData?.total_active ?? 0;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -244,11 +300,29 @@ export const RuntimePage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[var(--ink)] flex items-center gap-2.5">
-            <Cpu className="w-5 h-5 text-[var(--primary)]" />
-            {activeTab === 'php' ? t('runtime.title') : t('runtime.nodeTitle')}
+            {activeTab === 'php' ? (
+              <>
+                <Cpu className="w-5 h-5 text-[var(--primary)]" />
+                {t('runtime.title')}
+              </>
+            ) : activeTab === 'node' ? (
+              <>
+                <Boxes className="w-5 h-5 text-emerald-500" />
+                {t('runtime.nodeTitle')}
+              </>
+            ) : (
+              <>
+                <Activity className="w-5 h-5 text-blue-500" />
+                Monitoring Proses Aplikasi
+              </>
+            )}
           </h1>
           <p className="text-xs text-[var(--ink-muted)] mt-1">
-            {activeTab === 'php' ? t('runtime.subtitle') : t('runtime.nodeSubtitle')}
+            {activeTab === 'php'
+              ? t('runtime.subtitle')
+              : activeTab === 'node'
+                ? t('runtime.nodeSubtitle')
+                : 'Pantau status langsung, konsumsi memori, CPU, dan aliran log stdout/stderr dari aplikasi yang berjalan.'}
           </p>
         </div>
 
@@ -267,19 +341,37 @@ export const RuntimePage: React.FC = () => {
           )}
 
           <button
-            onClick={() => (activeTab === 'php' ? loadPhpData() : loadNodeData())}
-            disabled={activeTab === 'php' ? phpLoading : nodeLoading}
+            onClick={() => {
+              if (activeTab === 'php') loadPhpData();
+              else if (activeTab === 'node') loadNodeData();
+              else loadProcessData();
+            }}
+            disabled={
+              activeTab === 'php'
+                ? phpLoading
+                : activeTab === 'node'
+                  ? nodeLoading
+                  : processLoading
+            }
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--line)] transition-colors disabled:opacity-50"
           >
             <RefreshCw
-              className={`w-3.5 h-3.5 ${(activeTab === 'php' ? phpLoading : nodeLoading) ? 'animate-spin' : ''}`}
+              className={`w-3.5 h-3.5 ${
+                (activeTab === 'php'
+                  ? phpLoading
+                  : activeTab === 'node'
+                    ? nodeLoading
+                    : processLoading)
+                  ? 'animate-spin'
+                  : ''
+              }`}
             />
             {t('common.refresh')}
           </button>
         </div>
       </div>
 
-      {/* Tabs Switcher: PHP vs Node.js */}
+      {/* Tabs Switcher: PHP vs Node.js vs Processes */}
       <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-fit">
         <button
           onClick={() => setActiveTab('php')}
@@ -320,6 +412,27 @@ export const RuntimePage: React.FC = () => {
             }`}
           >
             {installedNodeCount}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('processes')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
+            activeTab === 'processes'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>Monitoring Proses</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+              activeTab === 'processes'
+                ? 'bg-white/20 text-white'
+                : 'bg-[var(--line)] text-[var(--ink-muted)]'
+            }`}
+          >
+            {activeProcessCount}
           </span>
         </button>
       </div>
@@ -748,6 +861,139 @@ export const RuntimePage: React.FC = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB CONTENT: PROCESS MONITORING (Phase 7 - P7-T5)         */}
+      {/* ========================================================= */}
+      {activeTab === 'processes' && (
+        <div className="space-y-6">
+          {/* Error Banner */}
+          {processError && (
+            <div className="p-4 rounded-[var(--radius-md)] border border-rose-500/20 bg-rose-500/5 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{processError}</span>
+            </div>
+          )}
+
+          {/* Summary Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
+              <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)] mb-1">
+                <Activity className="w-4 h-4 text-blue-500" />
+                <span>Total Proses Terkelola</span>
+              </div>
+              <div className="text-2xl font-bold font-mono text-[var(--ink)]">
+                {processData?.processes.length ?? 0}
+              </div>
+              <span className="text-[11px] text-[var(--ink-muted)] block mt-1">
+                Node.js dan Python yang terkonfigurasi
+              </span>
+            </div>
+
+            <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
+              <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)] mb-1">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <span>Proses Berjalan (Aktif)</span>
+              </div>
+              <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                {processData?.total_active ?? 0}
+              </div>
+              <span className="text-[11px] text-[var(--ink-muted)] block mt-1">
+                Sedang melayani lalu lintas aplikasi
+              </span>
+            </div>
+
+            <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)]">
+              <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)] mb-1">
+                <HardDrive className="w-4 h-4 text-violet-500" />
+                <span>Total Memori (RAM) Terpakai</span>
+              </div>
+              <div className="text-2xl font-bold font-mono text-[var(--ink)]">
+                {processData?.total_memory_bytes
+                  ? (processData.total_memory_bytes / (1024 * 1024)).toFixed(1) + ' MB'
+                  : '0 MB'}
+              </div>
+              <span className="text-[11px] text-[var(--ink-muted)] block mt-1">
+                Berdasarkan metrik cgroup terkini
+              </span>
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" />
+              <input
+                type="text"
+                placeholder="Cari domain, PID, atau service..."
+                value={processSearch}
+                onChange={(e) => setProcessSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={processRuntimeFilter}
+                onChange={(e) =>
+                  setProcessRuntimeFilter(e.target.value as 'all' | 'nodejs' | 'python')
+                }
+                className="py-1.5 px-2.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+              >
+                <option value="all">Semua Runtime</option>
+                <option value="nodejs">Node.js</option>
+                <option value="python">Python</option>
+              </select>
+
+              <select
+                value={processStatusFilter}
+                onChange={(e) =>
+                  setProcessStatusFilter(e.target.value as 'all' | 'active' | 'inactive')
+                }
+                className="py-1.5 px-2.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+              >
+                <option value="all">Semua Status</option>
+                <option value="active">Hanya Aktif</option>
+                <option value="inactive">Hanya Nonaktif</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Process Cards List */}
+          {processLoading && !processData ? (
+            <div className="p-12 text-center text-xs text-[var(--ink-muted)] flex flex-col items-center gap-2 bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)]">
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--primary)]" />
+              <span>Memuat status proses aplikasi...</span>
+            </div>
+          ) : filteredProcesses.length === 0 ? (
+            <div className="p-12 text-center text-xs text-[var(--ink-muted)] bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)]">
+              <p className="font-semibold text-sm text-[var(--ink)] mb-1">
+                Tidak ada proses yang ditemukan
+              </p>
+              <p>
+                {processSearch ||
+                processRuntimeFilter !== 'all' ||
+                processStatusFilter !== 'all'
+                  ? 'Coba sesuaikan kata kunci pencarian atau filter status Anda.'
+                  : 'Belum ada situs Node.js atau Python yang dibuat pada panel ini.'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredProcesses.map((proc) => (
+                <UnifiedProcessCard
+                  key={`${proc.runtime}-${proc.site_id}`}
+                  siteId={proc.site_id}
+                  runtime={proc.runtime as 'nodejs' | 'python'}
+                  domain={proc.primary_domain}
+                  initialProcess={proc}
+                  onRefresh={loadProcessData}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ========================================================= */}

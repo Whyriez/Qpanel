@@ -10,6 +10,7 @@ pub mod node;
 pub mod node_site;
 pub mod php;
 pub mod plans;
+pub mod processes;
 pub mod proxy_site;
 pub mod python_site;
 pub mod routes;
@@ -437,6 +438,8 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/sites/{id}/proxy/probe",
             get(proxy_site::probe_proxy_upstream_handler),
         )
+        // Unified application process management (Phase 7 - P7-T5)
+        .route("/api/v1/processes", get(processes::list_processes_handler))
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

@@ -144,10 +144,11 @@ pub async fn get_site_logs_handler(
         "error" => "error",
         "php_error" | "php-error" => "php_error",
         "php_slow" | "php-slow" => "php_slow",
+        "app" | "service" | "process" | "node" | "python" => "app",
         _ => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                "Invalid log type. Expected 'access', 'error', 'php_error', or 'php_slow'"
+                "Invalid log type. Expected 'access', 'error', 'php_error', 'php_slow', or 'app'"
                     .to_string(),
             ));
         }
@@ -168,6 +169,7 @@ pub async fn get_site_logs_handler(
         lines: lines_limit,
         query: query.q,
         log_base_dir: None,
+        site_id: Some(format!("site_{}", site.id)),
     };
 
     let log_res = state
@@ -233,6 +235,7 @@ pub async fn site_logs_ws_handler(
         "error" => "error",
         "php_error" | "php-error" => "php_error",
         "php_slow" | "php-slow" => "php_slow",
+        "app" | "service" | "process" | "node" | "python" => "app",
         _ => {
             return Err((StatusCode::BAD_REQUEST, "Invalid log type"));
         }
@@ -290,6 +293,7 @@ async fn handle_site_logs_ws(
         lines: backlog_lines,
         query: None,
         log_base_dir: None,
+        site_id: Some(format!("site_{}", site_id)),
     };
 
     let mut last_total = match state.agent_client.read_site_logs(initial_req).await {
@@ -337,6 +341,7 @@ async fn handle_site_logs_ws(
                     lines: 200,
                     query: None,
                     log_base_dir: None,
+                    site_id: Some(format!("site_{}", site_id)),
                 };
 
                 if let Ok(poll_res) = state.agent_client.read_site_logs(poll_req).await {

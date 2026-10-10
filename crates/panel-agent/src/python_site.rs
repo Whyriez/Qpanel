@@ -437,7 +437,7 @@ pub fn status_python_site(
         &[
             "show",
             &service_name,
-            "--property=ActiveState,SubState,MainPID,MemoryCurrent,CPUUsageNSec",
+            "--property=ActiveState,SubState,MainPID,MemoryCurrent,CPUUsageNSec,ActiveEnterTimestampMonotonic",
         ],
     )?;
 
@@ -447,6 +447,7 @@ pub fn status_python_site(
     let mut pid: Option<u32> = None;
     let mut memory_bytes: Option<u64> = None;
     let mut cpu_usage_usec: Option<u64> = None;
+    let mut active_enter_mono_usec: Option<u64> = None;
 
     for line in stdout.lines() {
         if let Some((k, v)) = line.split_once('=') {
@@ -468,12 +469,32 @@ pub fn status_python_site(
                         cpu_usage_usec = Some(c / 1000);
                     }
                 }
+                "ActiveEnterTimestampMonotonic" => {
+                    active_enter_mono_usec = v.parse::<u64>().ok().filter(|&m| m > 0);
+                }
                 _ => {}
             }
         }
     }
 
     let is_active = active_state == "active";
+    let uptime_secs = if is_active {
+        active_enter_mono_usec.map(|mono_usec| {
+            let sys_uptime_secs = std::fs::read_to_string("/proc/uptime")
+                .ok()
+                .and_then(|content| content.split_whitespace().next()?.parse::<f64>().ok());
+            if let Some(sys_uptime_secs) = sys_uptime_secs {
+                let start_secs = mono_usec as f64 / 1_000_000.0;
+                let diff = sys_uptime_secs - start_secs;
+                if diff >= 0.0 {
+                    return diff as u64;
+                }
+            }
+            mono_usec / 1_000_000
+        })
+    } else {
+        None
+    };
 
     // Socket probe verification
     let mut socket_exists = false;
@@ -504,7 +525,7 @@ pub fn status_python_site(
         pid,
         memory_bytes,
         cpu_usage_usec,
-        uptime_secs: None,
+        uptime_secs,
         socket_exists,
         healthy,
         probe_message,

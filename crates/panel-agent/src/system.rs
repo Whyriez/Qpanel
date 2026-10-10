@@ -49,6 +49,7 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "gunicorn",
     "uvicorn",
     "systemd-run",
+    "journalctl",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.

@@ -1205,4 +1205,9 @@ export async function probeProxyUpstream(
   return request<import('../types/api').ProxyUpstreamProbeResponse>(url);
 }
 
+// Unified Process Management API (Phase 7 - P7-T5)
+export async function fetchProcesses(): Promise<import('../types/api').ProcessListResponse> {
+  return request<import('../types/api').ProcessListResponse>('/api/v1/processes');
+}
+
 

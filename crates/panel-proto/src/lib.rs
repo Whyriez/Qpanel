@@ -1039,6 +1039,8 @@ pub struct SiteLogsReadRequest {
     pub lines: usize,
     pub query: Option<String>,
     pub log_base_dir: Option<String>,
+    #[serde(default)]
+    pub site_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2118,6 +2120,7 @@ mod tests {
                 lines: 50,
                 query: Some("404".to_string()),
                 log_base_dir: Some("/var/log/panel".to_string()),
+                site_id: None,
             }),
         );
         let s = serde_json::to_string(&req).expect("serialize SiteLogsRead");

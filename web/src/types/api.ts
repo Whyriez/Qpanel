@@ -859,3 +859,27 @@ export interface ProxyUpstreamProbeResponse {
   message: string;
 }
 
+// Unified Process Management Types (Phase 7 - P7-T5)
+export interface ProcessItemDto {
+  site_id: number;
+  primary_domain: string;
+  runtime: string;
+  version?: string | null;
+  service_name: string;
+  active: boolean;
+  sub_state: string;
+  pid?: number | null;
+  memory_bytes?: number | null;
+  cpu_usage_usec?: number | null;
+  uptime_secs?: number | null;
+  healthy: boolean;
+  port_or_socket?: string | null;
+  probe_message?: string | null;
+}
+
+export interface ProcessListResponse {
+  processes: ProcessItemDto[];
+  total_active: number;
+  total_memory_bytes: number;
+}
+
