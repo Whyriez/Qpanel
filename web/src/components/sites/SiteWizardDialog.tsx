@@ -39,9 +39,10 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const [forceHttps, setForceHttps] = useState(true);
   const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null);
 
-  // Node.js specific fields (Phase 7)
+  // Node.js specific fields (Phase 7 - P7-T2 / P7-T6)
   const [nodeVersion, setNodeVersion] = useState<string>('22.14.0');
-  const [nodeEntrypoint, setNodeEntrypoint] = useState<string>('index.js');
+  const [nodeFramework, setNodeFramework] = useState<string>('express');
+  const [nodeEntrypoint, setNodeEntrypoint] = useState<string>('server.js');
   const [nodeEntrypointType, setNodeEntrypointType] = useState<string>('script');
 
   // Python specific fields (Phase 7 - P7-T3)
@@ -67,6 +68,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
       setStep(1);
       setSiteType('static');
       setDomain('');
+      setNodeFramework('express');
+      setNodeEntrypoint('server.js');
+      setNodeEntrypointType('script');
       setProxyUpstream('http://127.0.0.1:3000');
       setProxyPreserveHost(true);
       setProxyWebsocket(true);
@@ -100,6 +104,20 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
   const tenantSlug = selectedTenant?.linux_username || (selectedTenant ? `p_${selectedTenant.username}` : 'p_<slug>');
   const docrootPreview = `/home/${tenantSlug}/sites/${domain.trim() || '<domain>'}/public`;
+
+  const handleNodeFrameworkChange = (preset: string) => {
+    setNodeFramework(preset);
+    if (preset === 'express') {
+      setNodeEntrypointType('script');
+      setNodeEntrypoint('server.js');
+    } else if (preset === 'nextjs') {
+      setNodeEntrypointType('script');
+      setNodeEntrypoint('server.js');
+    } else {
+      setNodeEntrypointType('script');
+      setNodeEntrypoint('index.js');
+    }
+  };
 
   const handlePythonFrameworkChange = (preset: string) => {
     setPythonFramework(preset);
@@ -167,8 +185,10 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
       force_https: forceHttps,
       ...(siteType === 'node'
         ? {
+            kind: 'nodejs',
             runtime: 'nodejs',
             version: nodeVersion,
+            framework: nodeFramework,
             entrypoint: nodeEntrypoint.trim() || undefined,
             entrypoint_type: nodeEntrypointType,
           }
@@ -431,7 +451,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
               {/* Node.js Specific Options */}
               {siteType === 'node' && (
                 <div className="pt-2 space-y-3 border-t border-[var(--line)]">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
                         Versi Node.js
@@ -449,6 +469,21 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
 
                     <div>
                       <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Preset Framework
+                      </label>
+                      <select
+                        value={nodeFramework}
+                        onChange={(e) => handleNodeFrameworkChange(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="express">Express (REST API / Web)</option>
+                        <option value="nextjs">Next.js (Standalone SSR)</option>
+                        <option value="generic">Generic (Kustom Script/npm)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
                         Tipe Entrypoint
                       </label>
                       <select
@@ -456,7 +491,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                         onChange={(e) => setNodeEntrypointType(e.target.value)}
                         className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                       >
-                        <option value="script">File Script (index.js)</option>
+                        <option value="script">File Script (server.js/app.js)</option>
                         <option value="npm_start">npm start</option>
                         <option value="npm_custom">npm run &lt;custom&gt;</option>
                       </select>
@@ -472,7 +507,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                         type="text"
                         value={nodeEntrypoint}
                         onChange={(e) => setNodeEntrypoint(e.target.value)}
-                        placeholder={nodeEntrypointType === 'script' ? 'index.js atau app.js' : 'start:prod'}
+                        placeholder={nodeEntrypointType === 'script' ? 'server.js atau app.js' : 'start:prod'}
                         className="w-full text-xs px-3 py-2 font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                       />
                     </div>
@@ -738,7 +773,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                     {siteType === 'proxy'
                       ? 'Reverse Proxy (Nginx)'
                       : siteType === 'node'
-                      ? `Node.js Application (v${nodeVersion})`
+                      ? `Node.js (${nodeFramework.toUpperCase()} • v${nodeVersion})`
                       : siteType === 'python'
                       ? `Python Application (${pythonFramework.toUpperCase()} • v${pythonVersion})`
                       : siteType === 'php'

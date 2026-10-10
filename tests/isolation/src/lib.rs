@@ -12,5 +12,6 @@ pub mod cgroup_confinement;
 pub mod cross_fs;
 pub mod php_isolation;
 pub mod proc_hidepid;
+pub mod sample_apps_isolation;
 pub mod suspend_isolation;
 pub mod symlink_escape;

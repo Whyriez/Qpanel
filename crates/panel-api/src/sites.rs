@@ -1085,6 +1085,9 @@ pub async fn create_static_site_handler(
         );
         settings_map.insert("auto_restart".to_string(), serde_json::json!(auto_restart));
         settings_map.insert("env_vars".to_string(), serde_json::json!(env_vars));
+        if let Some(ref fw) = payload.framework {
+            settings_map.insert("framework_preset".to_string(), serde_json::json!(fw));
+        }
     } else if is_python {
         let py_ver = payload
             .python_version
