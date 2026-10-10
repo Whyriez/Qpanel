@@ -118,6 +118,11 @@ pub enum RequestPayload {
     NodeRuntimeInstall(NodeRuntimeInstallRequest),
     NodeRuntimeRemove(NodeRuntimeRemoveRequest),
     NodeRuntimeCorepack(NodeRuntimeCorepackRequest),
+    NodeSiteApply(NodeSiteApplyRequest),
+    NodeSiteRemove(NodeSiteRemoveRequest),
+    NodeSiteAction(NodeSiteActionRequest),
+    NodeSiteStatus(NodeSiteStatusRequest),
+    NodeSiteJob(NodeSiteJobRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -297,6 +302,11 @@ pub enum ResponsePayload {
     NodeRuntimeInstalled(NodeRuntimeActionResponse),
     NodeRuntimeRemoved(NodeRuntimeActionResponse),
     NodeRuntimeCorepack(NodeRuntimeActionResponse),
+    NodeSiteApplied(NodeSiteApplyResponse),
+    NodeSiteRemoved(NodeSiteActionResponse),
+    NodeSiteAction(NodeSiteActionResponse),
+    NodeSiteStatus(NodeSiteStatusResponse),
+    NodeSiteJob(NodeSiteJobResponse),
     Error(String),
 }
 
@@ -1394,6 +1404,133 @@ pub struct NodeRuntimeActionResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum NodeSiteEntrypoint {
+    NodeScript(String),
+    NpmStart,
+    NpmCustom(String),
+}
+
+impl Default for NodeSiteEntrypoint {
+    fn default() -> Self {
+        Self::NodeScript("server.js".to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteApplyRequest {
+    pub site_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub node_version: String,
+    pub app_dir: String,
+    pub port: u16,
+    pub entrypoint: NodeSiteEntrypoint,
+    pub env_vars: std::collections::BTreeMap<String, String>,
+    pub auto_restart: bool,
+    pub env_file_path: Option<String>,
+    pub unit_path: Option<String>,
+    pub base_runtime_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteApplyResponse {
+    pub site_id: String,
+    pub service_name: String,
+    pub unit_path: String,
+    pub env_path: String,
+    pub port: u16,
+    pub active: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteRemoveRequest {
+    pub site_id: String,
+    pub unit_path: Option<String>,
+    pub env_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeSiteActionType {
+    Start,
+    Stop,
+    Restart,
+    Reload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteActionRequest {
+    pub site_id: String,
+    pub action: NodeSiteActionType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteActionResponse {
+    pub site_id: String,
+    pub action: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteStatusRequest {
+    pub site_id: String,
+    pub port: Option<u16>,
+    pub probe_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteStatusResponse {
+    pub site_id: String,
+    pub service_name: String,
+    pub active: bool,
+    pub sub_state: String,
+    pub pid: Option<u32>,
+    pub memory_bytes: Option<u64>,
+    pub cpu_usage_usec: Option<u64>,
+    pub uptime_secs: Option<u64>,
+    pub healthy: bool,
+    pub probe_status_code: Option<u16>,
+    pub probe_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeSiteJobType {
+    NpmInstall,
+    NpmCi,
+    NpmBuild,
+    PnpmInstall,
+    YarnInstall,
+    CustomScript { script_name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteJobRequest {
+    pub site_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub node_version: String,
+    pub app_dir: String,
+    pub job_type: NodeSiteJobType,
+    pub timeout_secs: Option<u64>,
+    pub base_runtime_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeSiteJobResponse {
+    pub site_id: String,
+    pub command: String,
+    pub exit_code: i32,
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -2095,5 +2232,107 @@ mod tests {
         let s_node_res = serde_json::to_string(&res_node_action).unwrap();
         let de_node_res: RpcResponse = serde_json::from_str(&s_node_res).unwrap();
         assert_eq!(res_node_action, de_node_res);
+
+        // Node.js Site RPC tests
+        let mut env_vars = std::collections::BTreeMap::new();
+        env_vars.insert("NODE_ENV".to_string(), "production".to_string());
+        env_vars.insert("DB_HOST".to_string(), "127.0.0.1".to_string());
+
+        let req_site_apply = RpcRequest::new(
+            "node-site-1",
+            RequestPayload::NodeSiteApply(NodeSiteApplyRequest {
+                site_id: "site-42".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                node_version: "22.14.0".to_string(),
+                app_dir: "/home/p_alice/sites/node.test/app".to_string(),
+                port: 20042,
+                entrypoint: NodeSiteEntrypoint::NodeScript("server.js".to_string()),
+                env_vars,
+                auto_restart: true,
+                env_file_path: None,
+                unit_path: None,
+                base_runtime_dir: None,
+            }),
+        );
+        let s_site_apply = serde_json::to_string(&req_site_apply).unwrap();
+        let de_site_apply: RpcRequest = serde_json::from_str(&s_site_apply).unwrap();
+        assert_eq!(req_site_apply, de_site_apply);
+
+        let res_site_apply = RpcResponse::ok(
+            "node-site-1",
+            ResponsePayload::NodeSiteApplied(NodeSiteApplyResponse {
+                site_id: "site-42".to_string(),
+                service_name: "site-site-42.service".to_string(),
+                unit_path: "/etc/systemd/system/site-site-42.service".to_string(),
+                env_path: "/etc/panel/env/site-site-42.env".to_string(),
+                port: 20042,
+                active: true,
+                message: "Service site-site-42.service started".to_string(),
+            }),
+        );
+        let s_res_apply = serde_json::to_string(&res_site_apply).unwrap();
+        let de_res_apply: RpcResponse = serde_json::from_str(&s_res_apply).unwrap();
+        assert_eq!(res_site_apply, de_res_apply);
+
+        let req_site_action = RpcRequest::new(
+            "node-action-1",
+            RequestPayload::NodeSiteAction(NodeSiteActionRequest {
+                site_id: "site-42".to_string(),
+                action: NodeSiteActionType::Restart,
+            }),
+        );
+        let s_site_action = serde_json::to_string(&req_site_action).unwrap();
+        let de_site_action: RpcRequest = serde_json::from_str(&s_site_action).unwrap();
+        assert_eq!(req_site_action, de_site_action);
+
+        let req_site_status = RpcRequest::new(
+            "node-status-1",
+            RequestPayload::NodeSiteStatus(NodeSiteStatusRequest {
+                site_id: "site-42".to_string(),
+                port: Some(20042),
+                probe_path: Some("/health".to_string()),
+            }),
+        );
+        let s_site_status = serde_json::to_string(&req_site_status).unwrap();
+        let de_site_status: RpcRequest = serde_json::from_str(&s_site_status).unwrap();
+        assert_eq!(req_site_status, de_site_status);
+
+        let res_site_status = RpcResponse::ok(
+            "node-status-1",
+            ResponsePayload::NodeSiteStatus(NodeSiteStatusResponse {
+                site_id: "site-42".to_string(),
+                service_name: "site-site-42.service".to_string(),
+                active: true,
+                sub_state: "running".to_string(),
+                pid: Some(12345),
+                memory_bytes: Some(64 * 1024 * 1024),
+                cpu_usage_usec: Some(100_000),
+                uptime_secs: Some(3600),
+                healthy: true,
+                probe_status_code: Some(200),
+                probe_message: Some("OK".to_string()),
+            }),
+        );
+        let s_res_status = serde_json::to_string(&res_site_status).unwrap();
+        let de_res_status: RpcResponse = serde_json::from_str(&s_res_status).unwrap();
+        assert_eq!(res_site_status, de_res_status);
+
+        let req_site_job = RpcRequest::new(
+            "node-job-1",
+            RequestPayload::NodeSiteJob(NodeSiteJobRequest {
+                site_id: "site-42".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                node_version: "22.14.0".to_string(),
+                app_dir: "/home/p_alice/sites/node.test/app".to_string(),
+                job_type: NodeSiteJobType::NpmInstall,
+                timeout_secs: Some(300),
+                base_runtime_dir: None,
+            }),
+        );
+        let s_site_job = serde_json::to_string(&req_site_job).unwrap();
+        let de_site_job: RpcRequest = serde_json::from_str(&s_site_job).unwrap();
+        assert_eq!(req_site_job, de_site_job);
     }
 }

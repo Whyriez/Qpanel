@@ -4,6 +4,7 @@ pub mod audit;
 pub mod fs_manager;
 pub mod hardening;
 pub mod node;
+pub mod node_site;
 pub mod php;
 pub mod pty;
 pub mod quota;
@@ -651,6 +652,23 @@ impl AgentServer {
                 RequestPayload::NodeRuntimeCorepack(d) => {
                     ("node.runtime_corepack".to_string(), d.version.clone())
                 }
+                RequestPayload::NodeSiteApply(d) => {
+                    ("node.site_apply".to_string(), d.site_id.clone())
+                }
+                RequestPayload::NodeSiteRemove(d) => {
+                    ("node.site_remove".to_string(), d.site_id.clone())
+                }
+                RequestPayload::NodeSiteAction(d) => (
+                    format!("node.site_{:?}", d.action).to_lowercase(),
+                    d.site_id.clone(),
+                ),
+                RequestPayload::NodeSiteStatus(d) => {
+                    ("node.site_status".to_string(), d.site_id.clone())
+                }
+                RequestPayload::NodeSiteJob(d) => (
+                    "node.site_job".to_string(),
+                    format!("{}:{:?}", d.site_id, d.job_type),
+                ),
             };
 
             let response = match req.payload {
@@ -1164,6 +1182,46 @@ impl AgentServer {
                             &req.request_id,
                             ResponsePayload::NodeRuntimeCorepack(res),
                         ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeSiteApply(data) => {
+                    match node_site::apply_node_site(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NodeSiteApplied(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeSiteRemove(data) => {
+                    match node_site::remove_node_site(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NodeSiteRemoved(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeSiteAction(data) => {
+                    match node_site::action_node_site(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NodeSiteAction(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeSiteStatus(data) => {
+                    match node_site::status_node_site(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NodeSiteStatus(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeSiteJob(data) => {
+                    match node_site::run_node_site_job(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NodeSiteJob(res))
+                        }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }

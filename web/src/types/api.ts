@@ -313,6 +313,14 @@ export interface CreateSiteRequest {
   spa_fallback?: boolean;
   force_https?: boolean;
   docroot?: string;
+  runtime?: string;
+  version?: string;
+  port?: number;
+  app_dir?: string;
+  entrypoint?: string;
+  entrypoint_type?: string;
+  auto_restart?: boolean;
+  env_vars?: Record<string, string>;
 }
 
 export interface AddDomainRequest {
@@ -646,4 +654,61 @@ export interface NodeRuntimeActionResponse {
   success: boolean;
   path: string;
   message: string;
+}
+
+// Node.js Site & Process Management Types (Phase 7 - P7-T2)
+export interface NodeSiteStatusApiResponse {
+  site_id: string;
+  service_name: string;
+  active: boolean;
+  sub_state: string;
+  pid: number | null;
+  memory_bytes: number | null;
+  cpu_usage_usec: number | null;
+  uptime_secs: number | null;
+  healthy: boolean;
+  port: number;
+  probe_status_code: number | null;
+  probe_message: string | null;
+}
+
+export interface NodeSiteActionApiRequest {
+  action: 'start' | 'stop' | 'restart' | 'redeploy' | string;
+}
+
+export interface NodeSiteJobApiRequest {
+  job_type: 'npm_install' | 'npm_ci' | 'npm_build' | 'pnpm_install' | 'yarn_install' | 'custom' | string;
+  script_name?: string;
+  timeout_secs?: number;
+}
+
+export interface NodeSiteJobApiResponse {
+  site_id: number;
+  command: string;
+  exit_code: number;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+}
+
+export interface NodeSiteSettingsDto {
+  site_id: number;
+  node_version: string;
+  port: number;
+  app_dir: string;
+  entrypoint_type: 'script' | 'npm_start' | 'npm_custom' | string;
+  entrypoint_value: string | null;
+  auto_restart: boolean;
+  env_vars: Record<string, string>;
+}
+
+export interface UpdateNodeSiteSettingsRequest {
+  node_version?: string;
+  port?: number;
+  app_dir?: string;
+  entrypoint_type?: string;
+  entrypoint_value?: string;
+  auto_restart?: boolean;
+  env_vars?: Record<string, string>;
 }

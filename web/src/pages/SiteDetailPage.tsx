@@ -28,6 +28,8 @@ import {
 import { FileManager } from '../components/files/FileManager';
 import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
 import { PhpStatusCard } from '../components/sites/PhpStatusCard';
+import { NodeStatusCard } from '../components/sites/NodeStatusCard';
+import { NodeSettingsCard } from '../components/sites/NodeSettingsCard';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
@@ -66,7 +68,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'node' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -743,6 +745,20 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           </button>
         )}
 
+        {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
+          <button
+            onClick={() => setActiveTab('node')}
+            className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+              activeTab === 'node'
+                ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+                : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+            }`}
+          >
+            <Terminal className="w-4 h-4" />
+            {t('sites.node.tabTitle')}
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
@@ -762,7 +778,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       {activeTab === 'overview' && (
         <div className="space-y-6">
           {/* Quick Metrics Grid */}
-          <div className={`grid grid-cols-1 ${site.kind === 'php' ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4`}>
+          <div className={`grid grid-cols-1 ${site.kind === 'php' || site.kind === 'nodejs' || site.runtime === 'nodejs' ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4`}>
             {/* Docroot Card */}
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
               <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
@@ -842,6 +858,32 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             )}
 
+            {/* Node.js Runtime Card (if site.kind === 'nodejs' || site.runtime === 'nodejs') */}
+            {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
+              <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
+                <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
+                  Runtime Node.js
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-xs text-[var(--ink)] flex items-center gap-1.5">
+                      <Terminal className="w-3.5 h-3.5 text-[var(--primary)]" />
+                      Node.js v{site.version || '22.14.0'}
+                    </div>
+                    <div className="text-[11px] text-[var(--ink-muted)]">
+                      Systemd: site-{site.id}.service
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('node')}
+                    className="px-2.5 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--raised)] text-[var(--ink)] transition-colors"
+                  >
+                    Kelola Layanan
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* SSL Overview Card */}
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
               <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
@@ -875,6 +917,11 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             </div>
           </div>
 
+          {/* Node.js Live Process Status Card on Overview */}
+          {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
+            <NodeStatusCard siteId={site.id} />
+          )}
+
           {/* Details Table */}
           <div className="border border-[var(--line)] rounded-[var(--radius-md)] bg-[var(--surface)] overflow-hidden shadow-xs">
             <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--raised)] font-semibold text-xs text-[var(--ink)]">
@@ -888,7 +935,9 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               <div className="flex items-center justify-between p-3.5">
                 <span className="text-[var(--ink-muted)]">Jenis Runtime:</span>
                 <span className="font-semibold text-[var(--ink)]">
-                  {site.kind === 'php'
+                  {site.kind === 'nodejs' || site.runtime === 'nodejs'
+                    ? `Node.js v${site.version || '22.14.0'} (Reverse Proxy)`
+                    : site.kind === 'php'
                     ? `PHP ${site.version || '8.3'} (Preset: ${site.preset || 'standard'})`
                     : 'Static HTML/SPA'}
                 </span>
@@ -1304,6 +1353,21 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           <PhpSettingsCard
             siteId={site.id}
             phpVersion={site.version || '8.3'}
+            onSaved={() => {
+              loadSiteData();
+            }}
+          />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5b: NODE.JS PROCESS & CONFIGURATION                               */}
+      {/* ===================================================================== */}
+      {activeTab === 'node' && (site.kind === 'nodejs' || site.runtime === 'nodejs') && (
+        <div className="space-y-6">
+          <NodeStatusCard siteId={site.id} />
+          <NodeSettingsCard
+            siteId={site.id}
             onSaved={() => {
               loadSiteData();
             }}

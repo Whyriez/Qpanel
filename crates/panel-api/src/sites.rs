@@ -16,8 +16,8 @@ use panel_db::repositories::{
 };
 use panel_proto::{SiteApplyRequest, SiteProvisionRequest, SiteRemoveRequest};
 use panel_webserver::template::{
-    DomainRedirectConfig, FastCgiCacheConfig, NginxTemplateRenderer, PhpPreset, PhpVhostContext,
-    StaticVhostContext, render_placeholder_html,
+    DomainRedirectConfig, FastCgiCacheConfig, NginxTemplateRenderer, NodejsVhostContext, PhpPreset,
+    PhpVhostContext, StaticVhostContext, render_placeholder_html,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -38,6 +38,13 @@ pub struct CreateStaticSiteRequest {
     pub custom_entry_file: Option<String>,
     pub upload_max_size: Option<String>,
     pub fastcgi_cache: Option<bool>,
+    pub node_version: Option<String>,
+    pub port: Option<u16>,
+    pub app_dir: Option<String>,
+    pub entrypoint_type: Option<String>,
+    pub entrypoint_value: Option<String>,
+    pub auto_restart: Option<bool>,
+    pub env_vars: Option<std::collections::BTreeMap<String, String>>,
 }
 
 pub type CreateSiteRequest = CreateStaticSiteRequest;
@@ -325,6 +332,7 @@ pub async fn recompile_and_apply_site_vhost(
 
     let renderer = NginxTemplateRenderer::new();
     let is_php = site.kind == "php" || site.runtime.as_deref() == Some("php");
+    let is_nodejs = site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs");
 
     let rendered = if is_php {
         let preset_str = settings
@@ -389,6 +397,60 @@ pub async fn recompile_and_apply_site_vhost(
                 format!("PHP vhost render failed: {e}"),
             )
         })?
+    } else if is_nodejs {
+        let port = settings
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16)
+            .unwrap_or(20000);
+        let upstream_url = settings
+            .get("upstream_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("http://127.0.0.1:{}", port));
+
+        let nodejs_ctx = NodejsVhostContext {
+            site_id: format!("site_{}", site.id),
+            primary_domain: primary_domain.to_string(),
+            alias_domains,
+            redirects,
+            docroot: Some(site.docroot.clone()),
+            log_dir: format!("/var/log/panel/{linux_uname}/{primary_domain}"),
+            snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+            has_ssl,
+            ssl_cert,
+            ssl_key,
+            force_https,
+            ocsp_stapling: settings
+                .get("ocsp_stapling")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            custom_headers: vec![],
+            upstream_url,
+            upload_max_size: settings
+                .get("upload_max_size")
+                .or_else(|| settings.get("client_max_body_size"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            static_assets_enabled: false,
+            proxy_connect_timeout: settings
+                .get("proxy_connect_timeout")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            proxy_send_timeout: None,
+            proxy_read_timeout: settings
+                .get("proxy_read_timeout")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            proxy_buffering: None,
+        };
+
+        renderer.render_nodejs(&nodejs_ctx).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Node.js vhost render failed: {e}"),
+            )
+        })?
     } else {
         let vhost_ctx = StaticVhostContext {
             site_id: format!("site_{}", site.id),
@@ -440,7 +502,108 @@ pub async fn recompile_and_apply_site_vhost(
             )
         })?;
 
+    // If Node.js site is active, also ensure systemd unit and env file are applied on host
+    if is_nodejs && site.status == "active" {
+        let node_ver = site
+            .version
+            .clone()
+            .or_else(|| {
+                settings
+                    .get("node_version")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "22.14.0".to_string());
+        let port = settings
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as u16)
+            .unwrap_or(20000);
+        let entrypoint = match settings.get("entrypoint_type").and_then(|v| v.as_str()) {
+            Some("npm_start") => panel_proto::NodeSiteEntrypoint::NpmStart,
+            Some("npm_custom") => {
+                let subcmd = settings
+                    .get("entrypoint_value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("start")
+                    .to_string();
+                panel_proto::NodeSiteEntrypoint::NpmCustom(subcmd)
+            }
+            _ => {
+                let script = settings
+                    .get("entrypoint_value")
+                    .or_else(|| settings.get("entrypoint"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("server.js")
+                    .to_string();
+                panel_proto::NodeSiteEntrypoint::NodeScript(script)
+            }
+        };
+
+        let mut env_vars = std::collections::BTreeMap::new();
+        if let Some(env_obj) = settings.get("env_vars").and_then(|v| v.as_object()) {
+            for (k, v) in env_obj {
+                if let Some(val_str) = v.as_str() {
+                    env_vars.insert(k.clone(), val_str.to_string());
+                }
+            }
+        }
+
+        let auto_restart = settings
+            .get("auto_restart")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let app_dir = settings
+            .get("app_dir")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&site.docroot)
+            .to_string();
+
+        let node_apply_req = panel_proto::NodeSiteApplyRequest {
+            site_id: format!("site_{}", site.id),
+            username: linux_uname.to_string(),
+            uid: user.linux_uid.unwrap_or(user.id) as u32,
+            node_version: node_ver,
+            app_dir,
+            port,
+            entrypoint,
+            env_vars,
+            auto_restart,
+            env_file_path: None,
+            unit_path: None,
+            base_runtime_dir: None,
+        };
+
+        let _ = state.agent_client.apply_node_site(node_apply_req).await;
+    }
+
     Ok(())
+}
+
+/// Helper to recompile and apply a site configuration by fetching user and domains from DB.
+pub async fn apply_site_config(state: &AppState, site: &Site) -> Result<(), (StatusCode, String)> {
+    let domain_repo =
+        panel_db::repositories::domain_repo::SqliteDomainRepository::new(state.pool.clone());
+    let user_repo =
+        panel_db::repositories::user_repo::SqliteUserRepository::new(state.pool.clone());
+
+    let domains = domain_repo
+        .find_by_site_id(site.id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let user = user_repo
+        .find_by_id(site.user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                "Pemilik situs tidak ditemukan".to_string(),
+            )
+        })?;
+
+    recompile_and_apply_site_vhost(state, site, &user, &domains).await
 }
 
 /// Creates a new static site with atomic Nginx vhost apply and docroot provisioning.
@@ -501,12 +664,17 @@ pub async fn create_static_site_handler(
         .as_deref()
         .unwrap_or(target_user.username.as_str());
     let is_php = payload.kind.as_deref() == Some("php");
+    let is_nodejs = payload.kind.as_deref() == Some("nodejs");
     let preset_str = payload.preset.as_deref().unwrap_or("generic");
     let preset = PhpPreset::parse(preset_str).unwrap_or(PhpPreset::Generic);
 
-    let docroot = payload
-        .docroot
-        .unwrap_or_else(|| format!("/home/{linux_uname}/sites/{ascii_domain}/public"));
+    let docroot = payload.docroot.unwrap_or_else(|| {
+        if is_nodejs {
+            format!("/home/{linux_uname}/sites/{ascii_domain}/app")
+        } else {
+            format!("/home/{linux_uname}/sites/{ascii_domain}/public")
+        }
+    });
     let spa_fallback = payload.spa_fallback.unwrap_or(false);
     let force_https = payload.force_https.unwrap_or(false);
     let php_version = payload.php_version.unwrap_or_else(|| "8.3".to_string());
@@ -529,6 +697,53 @@ pub async fn create_static_site_handler(
         if let Some(ref entry) = payload.custom_entry_file {
             settings_map.insert("custom_entry_file".to_string(), serde_json::json!(entry));
         }
+    } else if is_nodejs {
+        let port = match payload.port {
+            Some(p) => p,
+            None => match crate::node_site::allocate_node_site_port(&state.pool).await {
+                Ok(p) => p,
+                Err(e) => {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": e })),
+                    )
+                        .into_response();
+                }
+            },
+        };
+        let node_ver = payload
+            .node_version
+            .clone()
+            .unwrap_or_else(|| "22.14.0".to_string());
+        let app_dir = payload.app_dir.clone().unwrap_or_else(|| docroot.clone());
+        let entrypoint_type = payload
+            .entrypoint_type
+            .clone()
+            .unwrap_or_else(|| "script".to_string());
+        let entrypoint_value = payload
+            .entrypoint_value
+            .clone()
+            .unwrap_or_else(|| "server.js".to_string());
+        let auto_restart = payload.auto_restart.unwrap_or(true);
+        let env_vars = payload.env_vars.clone().unwrap_or_default();
+
+        settings_map.insert("port".to_string(), serde_json::json!(port));
+        settings_map.insert(
+            "upstream_url".to_string(),
+            serde_json::json!(format!("http://127.0.0.1:{}", port)),
+        );
+        settings_map.insert("node_version".to_string(), serde_json::json!(node_ver));
+        settings_map.insert("app_dir".to_string(), serde_json::json!(app_dir));
+        settings_map.insert(
+            "entrypoint_type".to_string(),
+            serde_json::json!(entrypoint_type),
+        );
+        settings_map.insert(
+            "entrypoint_value".to_string(),
+            serde_json::json!(entrypoint_value),
+        );
+        settings_map.insert("auto_restart".to_string(), serde_json::json!(auto_restart));
+        settings_map.insert("env_vars".to_string(), serde_json::json!(env_vars));
     }
     let settings = serde_json::Value::Object(settings_map);
 
@@ -537,17 +752,28 @@ pub async fn create_static_site_handler(
         user_id: target_user.id,
         kind: if is_php {
             "php".to_string()
+        } else if is_nodejs {
+            "nodejs".to_string()
         } else {
             "static".to_string()
         },
         docroot: docroot.clone(),
         runtime: if is_php {
             Some("php".to_string())
+        } else if is_nodejs {
+            Some("nodejs".to_string())
         } else {
             Some("none".to_string())
         },
         version: if is_php {
             Some(php_version.clone())
+        } else if is_nodejs {
+            Some(
+                payload
+                    .node_version
+                    .clone()
+                    .unwrap_or_else(|| "22.14.0".to_string()),
+            )
         } else {
             Some("none".to_string())
         },
@@ -592,6 +818,8 @@ pub async fn create_static_site_handler(
     // 7. Provision host docroot via agent
     let placeholder = if is_php {
         render_php_placeholder(&unicode_domain, &php_version, preset.as_str())
+    } else if is_nodejs {
+        render_nodejs_placeholder(&unicode_domain)
     } else {
         render_placeholder_html(&unicode_domain)
     };
@@ -779,6 +1007,17 @@ pub async fn enable_site_handler(
     };
     let _ = state.agent_client.apply_site(apply_req).await;
 
+    // If Node.js site, start service
+    if updated.kind == "nodejs" || updated.runtime.as_deref() == Some("nodejs") {
+        let _ = state
+            .agent_client
+            .action_node_site(panel_proto::NodeSiteActionRequest {
+                site_id: format!("site_{id}"),
+                action: panel_proto::NodeSiteActionType::Start,
+            })
+            .await;
+    }
+
     state.audit_writer.log_async(
         Some(auth_user.id),
         &auth_user.username,
@@ -848,6 +1087,17 @@ pub async fn disable_site_handler(
     };
     let _ = state.agent_client.apply_site(apply_req).await;
 
+    // If Node.js site, stop service
+    if updated.kind == "nodejs" || updated.runtime.as_deref() == Some("nodejs") {
+        let _ = state
+            .agent_client
+            .action_node_site(panel_proto::NodeSiteActionRequest {
+                site_id: format!("site_{id}"),
+                action: panel_proto::NodeSiteActionType::Stop,
+            })
+            .await;
+    }
+
     state.audit_writer.log_async(
         Some(auth_user.id),
         &auth_user.username,
@@ -905,6 +1155,18 @@ pub async fn delete_site_handler(
                 .remove_php_fpm_pool(uname, ver, format!("site_{id}"), true)
                 .await;
         }
+    }
+
+    // 1c. If Node.js site, remove systemd unit and env file via agent
+    if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
+        let _ = state
+            .agent_client
+            .remove_node_site(panel_proto::NodeSiteRemoveRequest {
+                site_id: format!("site_{id}"),
+                unit_path: None,
+                env_file_path: None,
+            })
+            .await;
     }
 
     // 2. Delete database record (cascading deletes domains)
@@ -1493,6 +1755,43 @@ fn render_php_placeholder(domain: &str, php_version: &str, preset: &str) -> Stri
     </div>
 </body>
 </html>
+"#
+    )
+}
+
+fn render_nodejs_placeholder(domain: &str) -> String {
+    format!(
+        r#"const http = require('http');
+
+const port = process.env.PORT || 3000;
+const server = http.createServer((req, res) => {{
+    res.writeHead(200, {{ 'Content-Type': 'text/html; charset=utf-8' }});
+    res.end(`<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Situs Node.js Aktif - {domain}</title>
+    <style>
+        body {{ font-family: system-ui, sans-serif; background: #0b0f19; color: #f1f5f9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
+        .card {{ background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.1); border-radius: 1rem; padding: 2.5rem; text-align: center; max-width: 32rem; }}
+        .badge {{ display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.85rem; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.875rem; margin-bottom: 1rem; }}
+        h1 {{ font-size: 1.75rem; margin: 0 0 0.5rem 0; }}
+        p {{ color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="badge"><span>●</span> Node.js ${{process.version}} Berjalan</div>
+        <h1>{domain}</h1>
+        <p>Aplikasi Node.js Anda aktif berjalan di Nusa Panel pada port ${{port}}.</p>
+    </div>
+</body>
+</html>`);
+}});
+
+server.listen(port, '127.0.0.1', () => {{
+    console.log(`Server listening on port ${{port}}`);
+}});
 "#
     )
 }

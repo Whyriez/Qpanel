@@ -211,6 +211,11 @@ use panel_db::pool::DbPool;
             crate::node::NodeRuntimeListApiResponse,
             crate::node::NodeRuntimeInstallApiRequest,
             crate::node::NodeRuntimeActionApiResponse,
+            crate::node_site::NodeSiteActionApiRequest,
+            crate::node_site::NodeSiteJobApiRequest,
+            crate::node_site::NodeSiteSettingsDto,
+            crate::node_site::UpdateNodeSiteSettingsRequest,
+            crate::node_site::NodeSiteStatusApiResponse,
         )
     ),
     tags(

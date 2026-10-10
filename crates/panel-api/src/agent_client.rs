@@ -16,15 +16,17 @@ use panel_proto::{
     HardeningApplyResponse, HardeningStatus, NginxBaselineAppliedResponse,
     NginxBaselineApplyRequest, NodeRuntimeActionResponse, NodeRuntimeCorepackRequest,
     NodeRuntimeInstallRequest, NodeRuntimeListRequest, NodeRuntimeListResponse,
-    NodeRuntimeRemoveRequest, PhpExtensionActionResponse, PhpExtensionInstallRequest,
-    PhpExtensionListRequest, PhpExtensionListResponse, PhpExtensionRemoveRequest,
-    PhpExtensionToggleRequest, PhpFpmHealthCheckRequest, PhpFpmHealthCheckResponse,
-    PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse,
-    PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest,
-    PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse,
-    PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse, PhpFpmPoolStatusRequest,
-    PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse, PhpRepoSetupRequest,
-    PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
+    NodeRuntimeRemoveRequest, NodeSiteActionRequest, NodeSiteActionResponse, NodeSiteApplyRequest,
+    NodeSiteApplyResponse, NodeSiteJobRequest, NodeSiteJobResponse, NodeSiteRemoveRequest,
+    NodeSiteStatusRequest, NodeSiteStatusResponse, PhpExtensionActionResponse,
+    PhpExtensionInstallRequest, PhpExtensionListRequest, PhpExtensionListResponse,
+    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpFpmHealthCheckRequest,
+    PhpFpmHealthCheckResponse, PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest,
+    PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest,
+    PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest,
+    PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse,
+    PhpFpmPoolStatusRequest, PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse,
+    PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
     PtyCloseRequest, PtyCloseResponse, PtyInputRequest, PtyInputResponse, PtyListRequest,
     PtyListResponse, PtyOpenRequest, PtyOpenResponse, PtyReadOutputRequest, PtyReadOutputResponse,
@@ -2437,6 +2439,156 @@ impl AgentClient {
             ResponsePayload::NodeRuntimeCorepack(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "NodeRuntimeCorepack",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_node_site(
+        &self,
+        req: NodeSiteApplyRequest,
+    ) -> Result<NodeSiteApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-site-apply-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeSiteApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeSiteApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeSiteApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_node_site(
+        &self,
+        req: NodeSiteRemoveRequest,
+    ) -> Result<NodeSiteActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-site-remove-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeSiteRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeSiteRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeSiteRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn action_node_site(
+        &self,
+        req: NodeSiteActionRequest,
+    ) -> Result<NodeSiteActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-site-action-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeSiteAction(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeSiteAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeSiteAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn status_node_site(
+        &self,
+        req: NodeSiteStatusRequest,
+    ) -> Result<NodeSiteStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-site-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeSiteStatus(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeSiteStatus(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeSiteStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn run_node_site_job(
+        &self,
+        req: NodeSiteJobRequest,
+    ) -> Result<NodeSiteJobResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-site-job-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeSiteJob(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeSiteJob(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeSiteJob",
                 got: format!("{other:?}"),
             }),
         }

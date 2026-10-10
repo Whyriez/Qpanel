@@ -38,6 +38,11 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const [forceHttps, setForceHttps] = useState(true);
   const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null);
 
+  // Node.js specific fields (Phase 7)
+  const [nodeVersion, setNodeVersion] = useState<string>('22.14.0');
+  const [nodeEntrypoint, setNodeEntrypoint] = useState<string>('index.js');
+  const [nodeEntrypointType, setNodeEntrypointType] = useState<string>('script');
+
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -116,8 +121,16 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
     const payload: CreateSiteRequest = {
       domain: domain.trim().toLowerCase(),
       user_id: selectedTenantId || undefined,
-      spa_fallback: spaFallback,
+      spa_fallback: siteType === 'static' ? spaFallback : false,
       force_https: forceHttps,
+      ...(siteType === 'node'
+        ? {
+            runtime: 'nodejs',
+            version: nodeVersion,
+            entrypoint: nodeEntrypoint.trim() || undefined,
+            entrypoint_type: nodeEntrypointType,
+          }
+        : {}),
     };
 
     try {
@@ -258,12 +271,19 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </p>
                 </div>
 
-                {/* Node.js (Phase 7 disabled) */}
-                <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] opacity-60 cursor-not-allowed">
+                {/* Node.js Application (Available in Phase 7) */}
+                <div
+                  onClick={() => setSiteType('node')}
+                  className={`cursor-pointer p-4 rounded-[var(--radius-md)] border transition-all ${
+                    siteType === 'node'
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/5 shadow-xs'
+                      : 'border-[var(--line)] bg-[var(--raised)] hover:border-[var(--ink-muted)]'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-2">
-                    <Terminal className="w-5 h-5 text-[var(--ink-muted)]" />
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink-muted)] font-semibold uppercase">
-                      Fase 7
+                    <Terminal className="w-5 h-5 text-[var(--primary)]" />
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
+                      Tersedia
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
@@ -302,23 +322,81 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 </p>
               </div>
 
-              <div className="pt-2 space-y-3 border-t border-[var(--line)]">
-                <label className="flex items-start gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer hover:bg-[var(--surface)] transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={spaFallback}
-                    onChange={(e) => setSpaFallback(e.target.checked)}
-                    className="mt-0.5 rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-                  />
-                  <div>
-                    <span className="text-xs font-semibold text-[var(--ink)] block">
-                      {t('sites.wizard.spaFallbackLabel')}
-                    </span>
-                    <span className="text-[11px] text-[var(--ink-muted)] block mt-0.5">
-                      {t('sites.wizard.spaFallbackHelp')}
-                    </span>
+              {/* Node.js Specific Options */}
+              {siteType === 'node' && (
+                <div className="pt-2 space-y-3 border-t border-[var(--line)]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Versi Node.js
+                      </label>
+                      <select
+                        value={nodeVersion}
+                        onChange={(e) => setNodeVersion(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="22.14.0">Node.js v22.14.0 (LTS)</option>
+                        <option value="20.18.3">Node.js v20.18.3 (LTS)</option>
+                        <option value="18.20.7">Node.js v18.20.7 (LTS)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Tipe Entrypoint
+                      </label>
+                      <select
+                        value={nodeEntrypointType}
+                        onChange={(e) => setNodeEntrypointType(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="script">File Script (index.js)</option>
+                        <option value="npm_start">npm start</option>
+                        <option value="npm_custom">npm run &lt;custom&gt;</option>
+                      </select>
+                    </div>
                   </div>
-                </label>
+
+                  {nodeEntrypointType !== 'npm_start' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        {nodeEntrypointType === 'script' ? 'Nama File Script' : 'Nama Script npm'}
+                      </label>
+                      <input
+                        type="text"
+                        value={nodeEntrypoint}
+                        onChange={(e) => setNodeEntrypoint(e.target.value)}
+                        placeholder={nodeEntrypointType === 'script' ? 'index.js atau app.js' : 'start:prod'}
+                        className="w-full text-xs px-3 py-2 font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      />
+                    </div>
+                  )}
+
+                  <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
+                    Port lokal akan dialokasikan otomatis secara unik dalam rentang 20000 - 29999 dan diproxy oleh Nginx.
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 space-y-3 border-t border-[var(--line)]">
+                {siteType === 'static' && (
+                  <label className="flex items-start gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer hover:bg-[var(--surface)] transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={spaFallback}
+                      onChange={(e) => setSpaFallback(e.target.checked)}
+                      className="mt-0.5 rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                    />
+                    <div>
+                      <span className="text-xs font-semibold text-[var(--ink)] block">
+                        {t('sites.wizard.spaFallbackLabel')}
+                      </span>
+                      <span className="text-[11px] text-[var(--ink-muted)] block mt-0.5">
+                        {t('sites.wizard.spaFallbackHelp')}
+                      </span>
+                    </div>
+                  </label>
+                )}
 
                 <label className="flex items-start gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer hover:bg-[var(--surface)] transition-colors">
                   <input
@@ -415,8 +493,24 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 </div>
                 <div className="flex items-center justify-between p-3">
                   <span className="text-[var(--ink-muted)]">{t('sites.wizard.reviewType')}</span>
-                  <span className="font-semibold text-[var(--primary)]">Situs Statis (HTML/CSS/JS)</span>
+                  <span className="font-semibold text-[var(--primary)]">
+                    {siteType === 'node'
+                      ? `Node.js Application (v${nodeVersion})`
+                      : siteType === 'php'
+                      ? 'PHP (Multi-Versi)'
+                      : 'Situs Statis (HTML/CSS/JS)'}
+                  </span>
                 </div>
+                {siteType === 'node' && (
+                  <div className="flex items-center justify-between p-3">
+                    <span className="text-[var(--ink-muted)]">Entrypoint:</span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">
+                      {nodeEntrypointType === 'npm_start'
+                        ? 'npm start'
+                        : `${nodeEntrypointType}: ${nodeEntrypoint}`}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between p-3">
                   <span className="text-[var(--ink-muted)]">{t('sites.wizard.reviewTenant')}</span>
                   <span className="font-semibold text-[var(--ink)]">

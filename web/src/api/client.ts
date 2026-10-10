@@ -1027,3 +1027,59 @@ export async function enableNodeCorepack(
     }
   );
 }
+
+// Node.js Site & Process Management Client APIs (Phase 7 - P7-T2)
+export async function getNodeSiteStatus(
+  siteId: number
+): Promise<import('../types/api').NodeSiteStatusApiResponse> {
+  return request<import('../types/api').NodeSiteStatusApiResponse>(
+    `/api/v1/sites/${siteId}/node/status`
+  );
+}
+
+export async function postNodeSiteAction(
+  siteId: number,
+  payload: import('../types/api').NodeSiteActionApiRequest
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/api/v1/sites/${siteId}/node/action`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function runNodeSiteJob(
+  siteId: number,
+  payload: import('../types/api').NodeSiteJobApiRequest
+): Promise<import('../types/api').NodeSiteJobApiResponse> {
+  return request<import('../types/api').NodeSiteJobApiResponse>(
+    `/api/v1/sites/${siteId}/node/job`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getNodeSiteSettings(
+  siteId: number
+): Promise<import('../types/api').NodeSiteSettingsDto> {
+  return request<import('../types/api').NodeSiteSettingsDto>(
+    `/api/v1/sites/${siteId}/node/settings`
+  );
+}
+
+export async function updateNodeSiteSettings(
+  siteId: number,
+  payload: import('../types/api').UpdateNodeSiteSettingsRequest
+): Promise<import('../types/api').NodeSiteSettingsDto> {
+  return request<import('../types/api').NodeSiteSettingsDto>(
+    `/api/v1/sites/${siteId}/node/settings`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }
+  );
+}

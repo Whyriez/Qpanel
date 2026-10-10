@@ -38,6 +38,10 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "curl",
     "node",
     "corepack",
+    "npm",
+    "pnpm",
+    "yarn",
+    "systemd-run",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.

@@ -7,6 +7,7 @@ pub mod files;
 pub mod jobs;
 pub mod logs;
 pub mod node;
+pub mod node_site;
 pub mod php;
 pub mod plans;
 pub mod routes;
@@ -237,6 +238,24 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/php/logs",
             get(php::get_site_php_logs_handler),
+        )
+        // Node.js site management endpoints
+        .route(
+            "/api/v1/sites/{id}/node/status",
+            get(node_site::get_node_site_status_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/node/action",
+            post(node_site::action_node_site_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/node/job",
+            post(node_site::run_node_site_job_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/node/settings",
+            get(node_site::get_node_site_settings_handler)
+                .put(node_site::update_node_site_settings_handler),
         )
         // PHP-FPM Master management endpoints
         .route(
