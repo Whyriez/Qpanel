@@ -35,6 +35,9 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "php-fpm8.3",
     "php-fpm8.4",
     "sshd",
+    "curl",
+    "node",
+    "corepack",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
@@ -416,6 +419,9 @@ impl SystemRunner for MockSystemRunner {
             lock.push(MockAction::RemoveDir {
                 path: path.to_path_buf(),
             });
+        }
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(path);
         }
         Ok(())
     }

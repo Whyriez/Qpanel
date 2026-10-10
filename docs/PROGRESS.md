@@ -75,7 +75,7 @@
 
 ## Phase 7 — Node.js, Python, Reverse proxy
 
-- [ ] P7-T1 Runtime Node.js
+- [x] P7-T1 Runtime Node.js: manajemen multi-versi Node.js terisolasi di `/opt/panel/runtimes/node/<ver>`, sinkronisasi katalog resmi nodejs.org (`index.json`) & fallback offline terkurasi, verifikasi integritas checksum SHA256 terhadap `SHASUMS256.txt` sebelum ekstraksi, proteksi ekstraksi aman anti-path-traversal & symlink escape, aktivasi otomatis shims Corepack (`pnpm` & `yarn`), proteksi penghapusan runtime yang sedang digunakan oleh situs aktif (hard blocked 409 Conflict), endpoint RESTful (`/api/v1/runtimes/node/versions`, `/install`, `/{version}`, `/{version}/corepack`) dengan audit logging, serta antarmuka UI tab ganda di `RuntimePage` & `NodeInstallModal` — test: panel-runtime::node::tests (7 tests), panel-agent::node::tests (2 tests), node_runtime_test (4 integration tests), RuntimePage.test (4 tests), ADR-0046
 - [ ] P7-T2 Site Node.js
 - [ ] P7-T3 Runtime + site Python (uv + venv)
 - [ ] P7-T4 Reverse proxy & guard SSRF

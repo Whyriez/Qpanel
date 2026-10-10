@@ -1649,6 +1649,7 @@ name = "panel-agent"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "flate2",
  "libc",
  "panel-core",
  "panel-fs",
@@ -1657,6 +1658,7 @@ dependencies = [
  "panel-webserver",
  "serde",
  "serde_json",
+ "tar",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1680,6 +1682,7 @@ name = "panel-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "flate2",
  "futures-util",
  "http-body-util",
  "instant-acme",
@@ -1695,6 +1698,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tar",
  "tempfile",
  "thiserror",
  "time",
@@ -1802,9 +1806,15 @@ dependencies = [
 name = "panel-runtime"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "panel-core",
  "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]

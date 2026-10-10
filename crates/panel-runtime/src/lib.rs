@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod fpm;
+pub mod node;
 pub mod php;
 
 pub use error::RuntimeError;
@@ -10,6 +11,13 @@ pub use fpm::{
     DEFAULT_PHP_RUNTIME_BASE, DEFAULT_PING_PATH, DEFAULT_PM_MAX_CHILDREN, DEFAULT_PM_MAX_REQUESTS,
     DEFAULT_PM_PROCESS_IDLE_TIMEOUT_SECS, DEFAULT_REQUEST_SLOWLOG_TIMEOUT_SECS,
     DEFAULT_STATUS_PATH, PhpFpmMasterConfig, PhpFpmPoolConfig, validate_fpm_identifier,
+};
+pub use node::{
+    DEFAULT_NODE_BASE_DIR, DEFAULT_NODE_INDEX_URL, DEFAULT_NODE_MIRROR, NodeInstallOptions,
+    NodeInstalledVersion, NodeLtsStatus, NodeVersionEntry, NodeVersionSummary, compute_sha256,
+    enable_corepack_shims, extract_node_tarball, find_shasum256_in_manifest,
+    get_offline_node_catalog, list_installed_node_versions, normalize_node_version,
+    parse_nodejs_index_json, raw_node_version_tag, verify_sha256,
 };
 pub use php::{
     CURATED_PHP_EXTENSIONS, PhpExtensionDefinition, PhpExtensionInfo, PhpVersion, PhpVersionInfo,

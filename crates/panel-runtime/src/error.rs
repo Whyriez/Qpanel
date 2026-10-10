@@ -26,4 +26,16 @@ pub enum RuntimeError {
 
     #[error("Konfigurasi runtime tidak valid: {0}")]
     InvalidConfig(String),
+
+    #[error("Checksum SHA256 tidak cocok: diharapkan '{expected}', didapatkan '{actual}'")]
+    ChecksumMismatch { expected: String, actual: String },
+
+    #[error("Gagal mengekstrak arsip runtime: {0}")]
+    ExtractionFailed(String),
+
+    #[error("Versi Node.js '{0}' tidak ditemukan")]
+    NodeVersionNotFound(String),
+
+    #[error("Gagal mem-parse data JSON: {0}")]
+    JsonParseFailed(String),
 }

@@ -609,3 +609,41 @@ export interface SshConnectionInfoResponse {
   ssh_config_snippet: string;
   site_domain: string | null;
 }
+
+// Node.js Runtime Types (Phase 7 - P7-T1)
+export interface NodeVersionItem {
+  version: string;
+  raw_version: string;
+  is_installed: boolean;
+  installed_path: string | null;
+  is_lts: boolean;
+  lts_codename: string | null;
+  release_date: string | null;
+  npm_version: string | null;
+  corepack_enabled: boolean;
+  used_by_sites_count: number;
+  used_by_domains: string[];
+  can_delete: boolean;
+}
+
+export interface NodeRuntimeListApiResponse {
+  mirror_url: string;
+  versions: NodeVersionItem[];
+  installed_count: number;
+  is_offline_fallback: boolean;
+}
+
+export interface NodeRuntimeInstallRequest {
+  version: string;
+  mirror_url?: string;
+  offline_tarball_path?: string;
+  offline_checksum?: string;
+  enable_corepack?: boolean;
+}
+
+export interface NodeRuntimeActionResponse {
+  version: string;
+  success: boolean;
+  path: string;
+  message: string;
+}

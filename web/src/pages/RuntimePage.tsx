@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Cpu,
@@ -12,51 +12,111 @@ import {
   Terminal,
   ExternalLink,
   Puzzle,
+  Boxes,
+  Package,
+  Layers,
+  Search,
+  AlertTriangle,
 } from 'lucide-react';
-import { PhpRuntimeListApiResponse, PhpVersionStatusItem } from '../types/api';
+import {
+  PhpRuntimeListApiResponse,
+  PhpVersionStatusItem,
+  NodeRuntimeListApiResponse,
+  NodeVersionItem,
+  NodeRuntimeInstallRequest,
+} from '../types/api';
 import {
   fetchPhpVersions,
   setupPhpRepo,
   installPhpVersion,
   removePhpVersion,
+  fetchNodeVersions,
+  installNodeVersion,
+  removeNodeVersion,
+  enableNodeCorepack,
 } from '../api/client';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 import { PhpExtensionsModal } from '../components/runtime/PhpExtensionsModal';
+import { NodeInstallModal } from '../components/runtime/NodeInstallModal';
 import { toast } from 'sonner';
+
+type RuntimeTab = 'php' | 'node';
 
 export const RuntimePage: React.FC = () => {
   const { t } = useTranslation();
-  const [data, setData] = useState<PhpRuntimeListApiResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<RuntimeTab>('php');
 
-  // Action states
+  // =========================================================
+  // PHP State
+  // =========================================================
+  const [phpData, setPhpData] = useState<PhpRuntimeListApiResponse | null>(null);
+  const [phpLoading, setPhpLoading] = useState(true);
+  const [phpError, setPhpError] = useState<string | null>(null);
   const [settingUpRepo, setSettingUpRepo] = useState(false);
-  const [processingVersion, setProcessingVersion] = useState<string | null>(null);
-  const [versionToRemove, setVersionToRemove] = useState<string | null>(null);
+  const [processingPhpVersion, setProcessingPhpVersion] = useState<string | null>(null);
+  const [phpVersionToRemove, setPhpVersionToRemove] = useState<string | null>(null);
   const [versionForExtensions, setVersionForExtensions] = useState<string | null>(null);
 
-  const loadData = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true);
-    setError(null);
+  // =========================================================
+  // Node.js State
+  // =========================================================
+  const [nodeData, setNodeData] = useState<NodeRuntimeListApiResponse | null>(null);
+  const [nodeLoading, setNodeLoading] = useState(true);
+  const [nodeError, setNodeError] = useState<string | null>(null);
+  const [nodeSearch, setNodeSearch] = useState('');
+  const [processingNodeVersion, setProcessingNodeVersion] = useState<string | null>(null);
+  const [nodeVersionToRemove, setNodeVersionToRemove] = useState<NodeVersionItem | null>(null);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [preselectedNodeVersion, setPreselectedNodeVersion] = useState<string | undefined>();
+
+  // =========================================================
+  // Data Fetchers
+  // =========================================================
+  const loadPhpData = useCallback(async (quiet = false) => {
+    if (!quiet) setPhpLoading(true);
+    setPhpError(null);
     try {
       const res = await fetchPhpVersions();
-      setData(res);
+      setPhpData(res);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memuat status runtime PHP.';
-      setError(msg);
+      setPhpError(msg);
       if (!quiet) {
         toast.error('Gagal memuat status runtime PHP', { description: msg });
       }
     } finally {
-      if (!quiet) setLoading(false);
+      if (!quiet) setPhpLoading(false);
+    }
+  }, []);
+
+  const loadNodeData = useCallback(async (quiet = false) => {
+    if (!quiet) setNodeLoading(true);
+    setNodeError(null);
+    try {
+      const res = await fetchNodeVersions();
+      setNodeData(res);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal memuat daftar runtime Node.js.';
+      setNodeError(msg);
+      if (!quiet) {
+        toast.error('Gagal memuat runtime Node.js', { description: msg });
+      }
+    } finally {
+      if (!quiet) setNodeLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (activeTab === 'php') {
+      loadPhpData();
+    } else {
+      loadNodeData();
+    }
+  }, [activeTab, loadPhpData, loadNodeData]);
 
+  // =========================================================
+  // PHP Handlers
+  // =========================================================
   const handleSetupRepo = async () => {
     setSettingUpRepo(true);
     try {
@@ -64,7 +124,7 @@ export const RuntimePage: React.FC = () => {
       toast.success('Tugas konfigurasi repositori PPA telah dibuat', {
         description: `ID Tugas: ${job.id}. Pembaruan paket sedang berjalan di latar belakang.`,
       });
-      setTimeout(() => loadData(true), 3000);
+      setTimeout(() => loadPhpData(true), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memulai konfigurasi repositori.';
       toast.error('Gagal mengatur repositori Sury PPA', { description: msg });
@@ -73,40 +133,110 @@ export const RuntimePage: React.FC = () => {
     }
   };
 
-  const handleInstall = async (version: string) => {
-    setProcessingVersion(version);
+  const handleInstallPhp = async (version: string) => {
+    setProcessingPhpVersion(version);
     try {
       const job = await installPhpVersion(version);
       toast.success(`Tugas pemasangan PHP ${version} telah dibuat`, {
         description: `ID Tugas: ${job.id}. Paket sedang diunduh dan service OS akan di-mask.`,
       });
-      setTimeout(() => loadData(true), 3000);
+      setTimeout(() => loadPhpData(true), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : `Gagal memasang PHP ${version}.`;
       toast.error(`Gagal memasang PHP ${version}`, { description: msg });
     } finally {
-      setProcessingVersion(null);
+      setProcessingPhpVersion(null);
     }
   };
 
-  const handleConfirmRemove = async () => {
-    if (!versionToRemove) return;
-    const version = versionToRemove;
-    setVersionToRemove(null);
-    setProcessingVersion(version);
+  const handleConfirmRemovePhp = async () => {
+    if (!phpVersionToRemove) return;
+    const version = phpVersionToRemove;
+    setPhpVersionToRemove(null);
+    setProcessingPhpVersion(version);
     try {
       const job = await removePhpVersion(version);
       toast.success(`Tugas penghapusan PHP ${version} telah dibuat`, {
         description: `ID Tugas: ${job.id}. Paket sedang dihapus dari sistem.`,
       });
-      setTimeout(() => loadData(true), 3000);
+      setTimeout(() => loadPhpData(true), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : `Gagal menghapus PHP ${version}.`;
       toast.error(`Gagal menghapus PHP ${version}`, { description: msg });
     } finally {
-      setProcessingVersion(null);
+      setProcessingPhpVersion(null);
     }
   };
+
+  // =========================================================
+  // Node.js Handlers
+  // =========================================================
+  const handleInstallNode = async (payload: NodeRuntimeInstallRequest) => {
+    setProcessingNodeVersion(payload.version);
+    try {
+      const res = await installNodeVersion(payload);
+      toast.success(`Node.js v${payload.version} berhasil dipasang`, {
+        description: res.message || `Terpasang di ${res.path}`,
+      });
+      await loadNodeData(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : `Gagal memasang Node.js v${payload.version}.`;
+      toast.error(`Pemasangan Node.js gagal`, { description: msg });
+      throw err;
+    } finally {
+      setProcessingNodeVersion(null);
+    }
+  };
+
+  const handleConfirmRemoveNode = async () => {
+    if (!nodeVersionToRemove) return;
+    const item = nodeVersionToRemove;
+    setNodeVersionToRemove(null);
+    setProcessingNodeVersion(item.version);
+    try {
+      const res = await removeNodeVersion(item.version);
+      toast.success(`Node.js v${item.version} berhasil dihapus`, {
+        description: res.message,
+      });
+      await loadNodeData(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : `Gagal menghapus Node.js v${item.version}.`;
+      toast.error(`Gagal menghapus Node.js`, { description: msg });
+    } finally {
+      setProcessingNodeVersion(null);
+    }
+  };
+
+  const handleEnableCorepack = async (version: string) => {
+    setProcessingNodeVersion(version);
+    try {
+      const res = await enableNodeCorepack(version);
+      toast.success(`Corepack Node.js v${version} berhasil diaktifkan`, {
+        description: res.message || 'Shims pnpm & yarn siap digunakan',
+      });
+      await loadNodeData(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal mengaktifkan Corepack.';
+      toast.error('Gagal mengaktifkan Corepack', { description: msg });
+    } finally {
+      setProcessingNodeVersion(null);
+    }
+  };
+
+  const filteredNodeVersions = useMemo(() => {
+    if (!nodeData?.versions) return [];
+    if (!nodeSearch.trim()) return nodeData.versions;
+    const q = nodeSearch.toLowerCase();
+    return nodeData.versions.filter(
+      (v) =>
+        v.version.toLowerCase().includes(q) ||
+        (v.lts_codename && v.lts_codename.toLowerCase().includes(q)) ||
+        (v.used_by_domains && v.used_by_domains.some((d) => d.toLowerCase().includes(q)))
+    );
+  }, [nodeData, nodeSearch]);
+
+  const installedNodeCount = nodeData?.installed_count ?? 0;
+  const installedPhpCount = phpData?.versions?.filter((v) => v.installed).length ?? 0;
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -115,217 +245,535 @@ export const RuntimePage: React.FC = () => {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[var(--ink)] flex items-center gap-2.5">
             <Cpu className="w-5 h-5 text-[var(--primary)]" />
-            {t('runtime.title')}
+            {activeTab === 'php' ? t('runtime.title') : t('runtime.nodeTitle')}
           </h1>
           <p className="text-xs text-[var(--ink-muted)] mt-1">
-            {t('runtime.subtitle')}
+            {activeTab === 'php' ? t('runtime.subtitle') : t('runtime.nodeSubtitle')}
           </p>
         </div>
-        <button
-          onClick={() => loadData()}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--line)] transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          {t('common.refresh')}
-        </button>
-      </div>
 
-      {/* Security Architecture Notice */}
-      <div className="p-4 rounded-[var(--radius-md)] border border-emerald-500/20 bg-emerald-500/5 flex items-start gap-3">
-        <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
-        <div className="text-xs space-y-1">
-          <p className="font-semibold text-[var(--ink)]">
-            Isolasi FPM Multi-Tenant & Kebijakan Masking OS
-          </p>
-          <p className="text-[var(--ink-muted)] leading-relaxed">
-            {t('runtime.maskingNote')}
-          </p>
-        </div>
-      </div>
-
-      {/* Sury PPA Status Card */}
-      <div className="p-5 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-[var(--ink-muted)]">
-                {t('runtime.ppaStatus')}:
-              </span>
-              {data?.ppa_configured ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                  <CheckCircle2 className="w-3 h-3" />
-                  {t('runtime.ppaConfigured')}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
-                  <AlertCircle className="w-3 h-3" />
-                  {t('runtime.ppaNotConfigured')}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-[var(--ink-muted)]">
-              {t('runtime.setupRepoDesc')}
-            </p>
-          </div>
+        <div className="flex items-center gap-2">
+          {activeTab === 'node' && (
+            <button
+              onClick={() => {
+                setPreselectedNodeVersion(undefined);
+                setIsInstallModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {t('runtime.installNode')}
+            </button>
+          )}
 
           <button
-            onClick={handleSetupRepo}
-            disabled={settingUpRepo || loading}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+            onClick={() => (activeTab === 'php' ? loadPhpData() : loadNodeData())}
+            disabled={activeTab === 'php' ? phpLoading : nodeLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--line)] transition-colors disabled:opacity-50"
           >
-            {settingUpRepo ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <ExternalLink className="w-3.5 h-3.5" />
-            )}
-            {t('runtime.setupRepo')}
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${(activeTab === 'php' ? phpLoading : nodeLoading) ? 'animate-spin' : ''}`}
+            />
+            {t('common.refresh')}
           </button>
         </div>
       </div>
 
-      {/* Error Banner */}
-      {error && (
-        <div className="p-4 rounded-[var(--radius-md)] border border-rose-500/20 bg-rose-500/5 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* PHP Versions List */}
-      <div className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] overflow-hidden">
-        <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--ink)]">
-            Daftar Versi PHP yang Didukung
-          </h2>
-          <span className="text-xs text-[var(--ink-muted)]">
-            {data?.versions?.filter((v) => v.installed).length || 0} dari{' '}
-            {data?.versions?.length || 6} terpasang
+      {/* Tabs Switcher: PHP vs Node.js */}
+      <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-fit">
+        <button
+          onClick={() => setActiveTab('php')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
+            activeTab === 'php'
+              ? 'bg-[var(--primary)] text-white shadow-sm'
+              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5" />
+          <span>{t('runtime.tabPhp')}</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+              activeTab === 'php'
+                ? 'bg-white/20 text-white'
+                : 'bg-[var(--line)] text-[var(--ink-muted)]'
+            }`}
+          >
+            {installedPhpCount}
           </span>
-        </div>
+        </button>
 
-        <div className="divide-y divide-[var(--line)]">
-          {loading && !data ? (
-            <div className="p-12 text-center text-xs text-[var(--ink-muted)] flex flex-col items-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin text-[var(--primary)]" />
-              <span>Memeriksa binary dan status service PHP di sistem...</span>
-            </div>
-          ) : (
-            data?.versions.map((v: PhpVersionStatusItem) => {
-              const isProcessing = processingVersion === v.version;
-
-              return (
-                <div
-                  key={v.version}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--bg)]/50 transition-colors"
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-[var(--radius-md)] bg-[var(--primary)]/10 text-[var(--primary)] font-bold text-xs flex items-center justify-center">
-                        {v.version}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-[var(--ink)]">
-                            PHP {v.version}
-                          </span>
-                          {v.installed ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                              <CheckCircle2 className="w-2.5 h-2.5" />
-                              {t('runtime.installed')}
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center text-[10px] font-medium text-[var(--ink-muted)] bg-[var(--line)]/50 px-2 py-0.5 rounded-full">
-                              {t('runtime.available')}
-                            </span>
-                          )}
-                          {v.installed && v.service_masked && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full">
-                              <ShieldCheck className="w-2.5 h-2.5" />
-                              {t('runtime.masked')}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-[var(--ink-muted)] flex items-center gap-3 mt-1">
-                          <span>
-                            Service:{' '}
-                            <code className="px-1 py-0.5 rounded bg-[var(--line)] font-mono text-[10px]">
-                              {v.service_name}
-                            </code>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {v.installed && (
-                      <div className="pl-11 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--ink-muted)] font-mono">
-                        <span className="flex items-center gap-1">
-                          <Terminal className="w-3 h-3 text-[var(--primary)]" />
-                          CLI: {v.cli_binary_path}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Cpu className="w-3 h-3 text-emerald-500" />
-                          FPM: {v.fpm_binary_path}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 sm:self-center pl-11 sm:pl-0">
-                    {v.installed ? (
-                      <>
-                        <button
-                          onClick={() => setVersionForExtensions(v.version)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--line)]/40 text-[var(--ink)] transition-colors"
-                        >
-                          <Puzzle className="w-3.5 h-3.5 text-[var(--primary)]" />
-                          {t('runtime.extensions')}
-                        </button>
-
-                        <button
-                          onClick={() => setVersionToRemove(v.version)}
-                          disabled={isProcessing}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
-                        >
-                          {isProcessing ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                          {t('runtime.remove')}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => handleInstall(v.version)}
-                        disabled={isProcessing}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                      >
-                        {isProcessing ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Download className="w-3.5 h-3.5" />
-                        )}
-                        {t('runtime.install')}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+        <button
+          onClick={() => setActiveTab('node')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
+            activeTab === 'node'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
+          }`}
+        >
+          <Boxes className="w-3.5 h-3.5" />
+          <span>{t('runtime.tabNode')}</span>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+              activeTab === 'node'
+                ? 'bg-white/20 text-white'
+                : 'bg-[var(--line)] text-[var(--ink-muted)]'
+            }`}
+          >
+            {installedNodeCount}
+          </span>
+        </button>
       </div>
 
-      {/* Confirmation Modal for Removal */}
+      {/* ========================================================= */}
+      {/* TAB CONTENT: PHP RUNTIMES                                  */}
+      {/* ========================================================= */}
+      {activeTab === 'php' && (
+        <>
+          {/* Security Architecture Notice */}
+          <div className="p-4 rounded-[var(--radius-md)] border border-emerald-500/20 bg-emerald-500/5 flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <p className="font-semibold text-[var(--ink)]">
+                Isolasi FPM Multi-Tenant &amp; Kebijakan Masking OS
+              </p>
+              <p className="text-[var(--ink-muted)] leading-relaxed">
+                {t('runtime.maskingNote')}
+              </p>
+            </div>
+          </div>
+
+          {/* Sury PPA Status Card */}
+          <div className="p-5 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-[var(--ink-muted)]">
+                    {t('runtime.ppaStatus')}:
+                  </span>
+                  {phpData?.ppa_configured ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3 h-3" />
+                      {t('runtime.ppaConfigured')}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                      <AlertCircle className="w-3 h-3" />
+                      {t('runtime.ppaNotConfigured')}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {t('runtime.setupRepoDesc')}
+                </p>
+              </div>
+
+              <button
+                onClick={handleSetupRepo}
+                disabled={settingUpRepo || phpLoading}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+              >
+                {settingUpRepo ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ExternalLink className="w-3.5 h-3.5" />
+                )}
+                {t('runtime.setupRepo')}
+              </button>
+            </div>
+          </div>
+
+          {/* Error Banner */}
+          {phpError && (
+            <div className="p-4 rounded-[var(--radius-md)] border border-rose-500/20 bg-rose-500/5 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{phpError}</span>
+            </div>
+          )}
+
+          {/* PHP Versions List */}
+          <div className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] overflow-hidden">
+            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-[var(--ink)]">
+                Daftar Versi PHP yang Didukung
+              </h2>
+              <span className="text-xs text-[var(--ink-muted)]">
+                {installedPhpCount} dari {phpData?.versions?.length || 6} terpasang
+              </span>
+            </div>
+
+            <div className="divide-y divide-[var(--line)]">
+              {phpLoading && !phpData ? (
+                <div className="p-12 text-center text-xs text-[var(--ink-muted)] flex flex-col items-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-[var(--primary)]" />
+                  <span>Memeriksa binary dan status service PHP di sistem...</span>
+                </div>
+              ) : (
+                phpData?.versions.map((v: PhpVersionStatusItem) => {
+                  const isProcessing = processingPhpVersion === v.version;
+
+                  return (
+                    <div
+                      key={v.version}
+                      className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--bg)]/50 transition-colors"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-[var(--radius-md)] bg-[var(--primary)]/10 text-[var(--primary)] font-bold text-xs flex items-center justify-center">
+                            {v.version}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-[var(--ink)]">
+                                PHP {v.version}
+                              </span>
+                              {v.installed ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  {t('runtime.installed')}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center text-[10px] font-medium text-[var(--ink-muted)] bg-[var(--line)]/50 px-2 py-0.5 rounded-full">
+                                  {t('runtime.available')}
+                                </span>
+                              )}
+                              {v.installed && v.service_masked && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-0.5 rounded-full">
+                                  <ShieldCheck className="w-2.5 h-2.5" />
+                                  {t('runtime.masked')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-[var(--ink-muted)] flex items-center gap-3 mt-1">
+                              <span>
+                                Service:{' '}
+                                <code className="px-1 py-0.5 rounded bg-[var(--line)] font-mono text-[10px]">
+                                  {v.service_name}
+                                </code>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {v.installed && (
+                          <div className="pl-11 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--ink-muted)] font-mono">
+                            <span className="flex items-center gap-1">
+                              <Terminal className="w-3 h-3 text-[var(--primary)]" />
+                              CLI: {v.cli_binary_path}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Cpu className="w-3 h-3 text-emerald-500" />
+                              FPM: {v.fpm_binary_path}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 sm:self-center pl-11 sm:pl-0">
+                        {v.installed ? (
+                          <>
+                            <button
+                              onClick={() => setVersionForExtensions(v.version)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--line)]/40 text-[var(--ink)] transition-colors"
+                            >
+                              <Puzzle className="w-3.5 h-3.5 text-[var(--primary)]" />
+                              {t('runtime.extensions')}
+                            </button>
+
+                            <button
+                              onClick={() => setPhpVersionToRemove(v.version)}
+                              disabled={isProcessing}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                            >
+                              {isProcessing ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                              {t('runtime.remove')}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleInstallPhp(v.version)}
+                            disabled={isProcessing}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                          >
+                            {isProcessing ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5" />
+                            )}
+                            {t('runtime.install')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB CONTENT: NODE.JS RUNTIMES (Phase 7 - P7-T1)            */}
+      {/* ========================================================= */}
+      {activeTab === 'node' && (
+        <>
+          {/* Architecture & Security Notice */}
+          <div className="p-4 rounded-[var(--radius-md)] border border-emerald-500/20 bg-emerald-500/5 flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <p className="font-semibold text-[var(--ink)]">
+                Isolasi Direktori Node.js &amp; Proteksi Integritas SHA256
+              </p>
+              <p className="text-[var(--ink-muted)] leading-relaxed">
+                {t('runtime.nodeNotice')}
+              </p>
+            </div>
+          </div>
+
+          {/* Mirror & Catalog Summary */}
+          <div className="p-4 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-[var(--ink)]">Katalog Rilis Node.js:</span>
+                <span className="font-mono text-[11px] text-[var(--ink-muted)]">
+                  {nodeData?.mirror_url || 'https://nodejs.org/dist'}
+                </span>
+                {nodeData?.is_offline_fallback && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                    <AlertTriangle className="w-2.5 h-2.5" />
+                    Katalog Offline Terkurasi
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-[var(--ink-muted)]">
+                Daftar rilis disinkronkan langsung dari manifest resmi Node.js dengan verifikasi hash SHA256 otomatis saat pemasangan.
+              </p>
+            </div>
+
+            {/* Search filter */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" />
+              <input
+                type="text"
+                placeholder="Cari versi atau nama LTS..."
+                value={nodeSearch}
+                onChange={(e) => setNodeSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+              />
+            </div>
+          </div>
+
+          {/* Error Banner */}
+          {nodeError && (
+            <div className="p-4 rounded-[var(--radius-md)] border border-rose-500/20 bg-rose-500/5 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{nodeError}</span>
+            </div>
+          )}
+
+          {/* Node.js Versions Table */}
+          <div className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] overflow-hidden">
+            <div className="px-5 py-4 border-b border-[var(--line)] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Boxes className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <h2 className="text-sm font-semibold text-[var(--ink)]">
+                  Daftar Versi Node.js
+                </h2>
+              </div>
+              <span className="text-xs text-[var(--ink-muted)]">
+                {installedNodeCount} terpasang di sistem
+              </span>
+            </div>
+
+            <div className="divide-y divide-[var(--line)]">
+              {nodeLoading && !nodeData ? (
+                <div className="p-12 text-center text-xs text-[var(--ink-muted)] flex flex-col items-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                  <span>Memeriksa runtime Node.js dan catalog resmi...</span>
+                </div>
+              ) : filteredNodeVersions.length === 0 ? (
+                <div className="p-10 text-center text-xs text-[var(--ink-muted)]">
+                  Tidak ada versi Node.js yang sesuai dengan pencarian.
+                </div>
+              ) : (
+                filteredNodeVersions.map((v) => {
+                  const isProcessing = processingNodeVersion === v.version;
+
+                  return (
+                    <div
+                      key={v.version}
+                      className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--bg)]/50 transition-colors"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-[var(--radius-md)] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center justify-center font-mono">
+                            v{v.version.split('.')[0]}
+                          </div>
+
+                          <div>
+                            <div className="flex items-center flex-wrap gap-2">
+                              <span className="text-sm font-semibold text-[var(--ink)] font-mono">
+                                Node.js v{v.version}
+                              </span>
+
+                              {v.is_lts && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                                  <ShieldCheck className="w-2.5 h-2.5" />
+                                  LTS {v.lts_codename ? `(${v.lts_codename})` : ''}
+                                </span>
+                              )}
+
+                              {v.is_installed ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  {t('runtime.installed')}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center text-[10px] font-medium text-[var(--ink-muted)] bg-[var(--line)]/50 px-2 py-0.5 rounded-full">
+                                  {t('runtime.available')}
+                                </span>
+                              )}
+
+                              {v.is_installed && v.corepack_enabled && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-700 dark:text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-full">
+                                  <Package className="w-2.5 h-2.5" />
+                                  Corepack (pnpm &amp; yarn)
+                                </span>
+                              )}
+
+                              {v.used_by_sites_count > 0 && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-700 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full">
+                                  <Layers className="w-2.5 h-2.5" />
+                                  Digunakan {v.used_by_sites_count} Situs
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-[11px] text-[var(--ink-muted)] flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 font-mono">
+                              {v.installed_path && (
+                                <span>Path: {v.installed_path}</span>
+                              )}
+                              {v.npm_version && (
+                                <span>npm v{v.npm_version}</span>
+                              )}
+                              {v.release_date && (
+                                <span>Rilis: {v.release_date}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Sites in use list */}
+                        {v.used_by_domains && v.used_by_domains.length > 0 && (
+                          <div className="pl-12 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--ink-muted)]">
+                            <span className="font-medium text-[var(--ink)]">Situs aktif:</span>
+                            {v.used_by_domains.map((dom) => (
+                              <span
+                                key={dom}
+                                className="px-1.5 py-0.5 rounded bg-[var(--line)] font-mono text-[10px] text-[var(--ink)]"
+                              >
+                                {dom}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 sm:self-center pl-12 sm:pl-0 shrink-0">
+                        {v.is_installed ? (
+                          <>
+                            <button
+                              onClick={() => handleEnableCorepack(v.version)}
+                              disabled={isProcessing}
+                              title="Aktifkan atau perbarui wrapper Corepack (pnpm & yarn)"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--card)] hover:bg-[var(--line)]/40 text-[var(--ink)] transition-colors disabled:opacity-50"
+                            >
+                              {isProcessing ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Package className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                              )}
+                              <span>Corepack</span>
+                            </button>
+
+                            <button
+                              onClick={() => setNodeVersionToRemove(v)}
+                              disabled={isProcessing || !v.can_delete}
+                              title={
+                                v.can_delete
+                                  ? `Hapus Node.js v${v.version} dari sistem`
+                                  : `Tidak dapat dihapus karena sedang digunakan oleh ${v.used_by_sites_count} situs`
+                              }
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border transition-colors ${
+                                v.can_delete
+                                  ? 'border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10'
+                                  : 'border-[var(--line)] text-[var(--ink-muted)] opacity-50 cursor-not-allowed bg-[var(--line)]/20'
+                              } disabled:opacity-40`}
+                            >
+                              {isProcessing ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                              <span>Hapus</span>
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setPreselectedNodeVersion(v.version);
+                              setIsInstallModalOpen(true);
+                            }}
+                            disabled={isProcessing}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm"
+                          >
+                            {isProcessing ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5" />
+                            )}
+                            <span>Pasang</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODALS & DIALOGS                                          */}
+      {/* ========================================================= */}
+
+      {/* Confirmation Modal for PHP Removal */}
       <ConfirmDangerDialog
-        isOpen={Boolean(versionToRemove)}
-        onClose={() => setVersionToRemove(null)}
-        onConfirm={handleConfirmRemove}
-        title={`Hapus Runtime PHP ${versionToRemove}?`}
-        description={`Penghapusan akan mencopot paket PHP ${versionToRemove} dari sistem. Tindakan ini hanya dapat dilakukan jika tidak ada situs aktif yang menggunakannya.`}
-        confirmMatchText={`hapus php ${versionToRemove}`}
+        isOpen={Boolean(phpVersionToRemove)}
+        onClose={() => setPhpVersionToRemove(null)}
+        onConfirm={handleConfirmRemovePhp}
+        title={`Hapus Runtime PHP ${phpVersionToRemove}?`}
+        description={`Penghapusan akan mencopot paket PHP ${phpVersionToRemove} dari sistem. Tindakan ini hanya dapat dilakukan jika tidak ada situs aktif yang menggunakannya.`}
+        confirmMatchText={`hapus php ${phpVersionToRemove}`}
         confirmButtonLabel="Hapus Runtime PHP"
+      />
+
+      {/* Confirmation Modal for Node.js Removal */}
+      <ConfirmDangerDialog
+        isOpen={Boolean(nodeVersionToRemove)}
+        onClose={() => setNodeVersionToRemove(null)}
+        onConfirm={handleConfirmRemoveNode}
+        title={`Hapus Runtime Node.js v${nodeVersionToRemove?.version}?`}
+        description={`Penghapusan akan menghapus seluruh file binary dan pustaka Node.js v${nodeVersionToRemove?.version} dari direktori sistem /opt/panel/runtimes/node/${nodeVersionToRemove?.version}. Pastikan tidak ada aplikasi yang memerlukannya.`}
+        confirmMatchText={`hapus node ${nodeVersionToRemove?.version}`}
+        confirmButtonLabel="Hapus Runtime Node.js"
       />
 
       {/* PHP Extensions Management Modal */}
@@ -336,6 +784,18 @@ export const RuntimePage: React.FC = () => {
           onClose={() => setVersionForExtensions(null)}
         />
       )}
+
+      {/* Node.js Installation Modal */}
+      <NodeInstallModal
+        isOpen={isInstallModalOpen}
+        onClose={() => {
+          setIsInstallModalOpen(false);
+          setPreselectedNodeVersion(undefined);
+        }}
+        availableVersions={nodeData?.versions || []}
+        onInstall={handleInstallNode}
+        preselectedVersion={preselectedNodeVersion}
+      />
     </div>
   );
 };

@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod fs_manager;
 pub mod hardening;
+pub mod node;
 pub mod php;
 pub mod pty;
 pub mod quota;
@@ -638,6 +639,18 @@ impl AgentServer {
                     "ssh.dropin_apply".to_string(),
                     "/etc/ssh/sshd_config.d/50-panel.conf".to_string(),
                 ),
+                RequestPayload::NodeRuntimeList(_) => {
+                    ("node.runtime_list".to_string(), "host".to_string())
+                }
+                RequestPayload::NodeRuntimeInstall(d) => {
+                    ("node.runtime_install".to_string(), d.version.clone())
+                }
+                RequestPayload::NodeRuntimeRemove(d) => {
+                    ("node.runtime_remove".to_string(), d.version.clone())
+                }
+                RequestPayload::NodeRuntimeCorepack(d) => {
+                    ("node.runtime_corepack".to_string(), d.version.clone())
+                }
             };
 
             let response = match req.payload {
@@ -1116,6 +1129,41 @@ impl AgentServer {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::SshDropinApply(res))
                         }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeRuntimeList(data) => {
+                    match node::list_node_runtimes(self.runner.as_ref(), data.base_dir.as_deref()) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NodeRuntimeList(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeRuntimeInstall(data) => {
+                    match node::install_node_runtime(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::NodeRuntimeInstalled(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeRuntimeRemove(data) => {
+                    match node::remove_node_runtime(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::NodeRuntimeRemoved(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NodeRuntimeCorepack(data) => {
+                    match node::enable_node_corepack(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::NodeRuntimeCorepack(res),
+                        ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }

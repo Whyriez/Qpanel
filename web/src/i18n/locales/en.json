@@ -276,7 +276,20 @@
     "installExt": "Install Extension",
     "removeExt": "Remove Extension",
     "allCategories": "All Categories",
-    "searchExtensions": "Search extensions..."
+    "searchExtensions": "Search extensions...",
+    "tabPhp": "PHP",
+    "tabNode": "Node.js",
+    "nodeTitle": "Node.js Runtime Manager",
+    "nodeSubtitle": "Manage multi-version Node.js, verify SHA256 integrity checksums, and manage Corepack (pnpm & yarn).",
+    "nodeNotice": "Node.js binaries are cleanly isolated into /opt/panel/runtimes/node/<version> with official SHA256 verification. Versions actively in use by websites are protected from deletion.",
+    "installNode": "Install Node.js Version",
+    "corepack": "Corepack",
+    "corepackActive": "Active (pnpm & yarn)",
+    "corepackInactive": "Inactive",
+    "enableCorepack": "Enable Corepack",
+    "lts": "LTS",
+    "inUseBySites": "Used by {{count}} sites",
+    "cannotDeleteInUse": "Version is actively used by websites and cannot be deleted."
   },
   "terminal": {
     "title": "Web Terminal",

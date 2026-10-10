@@ -276,7 +276,20 @@
     "installExt": "Pasang Ekstensi",
     "removeExt": "Copot Ekstensi",
     "allCategories": "Semua Kategori",
-    "searchExtensions": "Cari ekstensi..."
+    "searchExtensions": "Cari ekstensi...",
+    "tabPhp": "PHP",
+    "tabNode": "Node.js",
+    "nodeTitle": "Manajer Runtime Node.js",
+    "nodeSubtitle": "Kelola multi-versi Node.js, verifikasi checksum integritas SHA256, dan Corepack (pnpm & yarn).",
+    "nodeNotice": "Binary Node.js dipasang terisolasi ke /opt/panel/runtimes/node/<versi> dengan verifikasi hash SHA256 resmi. Versi yang sedang aktif digunakan situs diproteksi dari penghapusan.",
+    "installNode": "Pasang Versi Node.js",
+    "corepack": "Corepack",
+    "corepackActive": "Aktif (pnpm & yarn)",
+    "corepackInactive": "Nonaktif",
+    "enableCorepack": "Aktifkan Corepack",
+    "lts": "LTS",
+    "inUseBySites": "Digunakan {{count}} situs",
+    "cannotDeleteInUse": "Versi sedang digunakan oleh situs aktif dan tidak dapat dihapus."
   },
   "terminal": {
     "title": "Terminal Web",

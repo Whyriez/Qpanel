@@ -14,7 +14,9 @@ use panel_proto::{
     FsUploadGetSessionResponse, FsUploadInitRequest, FsUploadInitResponse, FsWriteAtomicRequest,
     FsWriteAtomicResponse, FsZipDirectoryRequest, FsZipDirectoryResponse, HardeningApplyRequest,
     HardeningApplyResponse, HardeningStatus, NginxBaselineAppliedResponse,
-    NginxBaselineApplyRequest, PhpExtensionActionResponse, PhpExtensionInstallRequest,
+    NginxBaselineApplyRequest, NodeRuntimeActionResponse, NodeRuntimeCorepackRequest,
+    NodeRuntimeInstallRequest, NodeRuntimeListRequest, NodeRuntimeListResponse,
+    NodeRuntimeRemoveRequest, PhpExtensionActionResponse, PhpExtensionInstallRequest,
     PhpExtensionListRequest, PhpExtensionListResponse, PhpExtensionRemoveRequest,
     PhpExtensionToggleRequest, PhpFpmHealthCheckRequest, PhpFpmHealthCheckResponse,
     PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse,
@@ -2312,6 +2314,129 @@ impl AgentClient {
             ResponsePayload::SshDropinApply(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "SshDropinApply",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn list_node_runtimes(
+        &self,
+        base_dir: Option<String>,
+    ) -> Result<NodeRuntimeListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::NodeRuntimeList(NodeRuntimeListRequest { base_dir }),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeRuntimeList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeRuntimeList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn install_node_runtime(
+        &self,
+        req: NodeRuntimeInstallRequest,
+    ) -> Result<NodeRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-install-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeRuntimeInstall(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeRuntimeInstalled(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeRuntimeInstalled",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_node_runtime(
+        &self,
+        req: NodeRuntimeRemoveRequest,
+    ) -> Result<NodeRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-remove-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeRuntimeRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeRuntimeRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeRuntimeRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn enable_node_corepack(
+        &self,
+        req: NodeRuntimeCorepackRequest,
+    ) -> Result<NodeRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "node-cp-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NodeRuntimeCorepack(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NodeRuntimeCorepack(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NodeRuntimeCorepack",
                 got: format!("{other:?}"),
             }),
         }

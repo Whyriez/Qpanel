@@ -6,6 +6,7 @@ pub mod config;
 pub mod files;
 pub mod jobs;
 pub mod logs;
+pub mod node;
 pub mod php;
 pub mod plans;
 pub mod routes;
@@ -352,6 +353,23 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/ssh/connection-info",
             get(ssh::get_ssh_connection_info_handler),
+        )
+        // Node.js Runtime management (Phase 7 - P7-T1)
+        .route(
+            "/api/v1/runtimes/node/versions",
+            get(node::get_node_versions_handler),
+        )
+        .route(
+            "/api/v1/runtimes/node/install",
+            post(node::install_node_version_handler),
+        )
+        .route(
+            "/api/v1/runtimes/node/{version}",
+            axum::routing::delete(node::remove_node_version_handler),
+        )
+        .route(
+            "/api/v1/runtimes/node/{version}/corepack",
+            post(node::enable_node_corepack_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

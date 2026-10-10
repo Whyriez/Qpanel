@@ -102,6 +102,10 @@ use panel_db::pool::DbPool;
         crate::ssh::handlers::get_ssh_connection_info_handler,
         crate::tenants::handlers::get_tenant_shell_policy_handler,
         crate::tenants::handlers::update_tenant_shell_policy_handler,
+        crate::node::get_node_versions_handler,
+        crate::node::install_node_version_handler,
+        crate::node::remove_node_version_handler,
+        crate::node::enable_node_corepack_handler,
     ),
     components(
         schemas(
@@ -203,6 +207,10 @@ use panel_db::pool::DbPool;
             crate::ssh::SshConnectionInfoResponse,
             crate::tenants::TenantShellPolicyResponse,
             crate::tenants::UpdateTenantShellPolicyRequest,
+            crate::node::NodeVersionItemDto,
+            crate::node::NodeRuntimeListApiResponse,
+            crate::node::NodeRuntimeInstallApiRequest,
+            crate::node::NodeRuntimeActionApiResponse,
         )
     ),
     tags(

@@ -976,3 +976,54 @@ export async function fetchSshConnectionInfo(
     `/api/v1/ssh/connection-info${qs}`
   );
 }
+
+// ==========================================
+// Node.js Runtime API (Phase 7 - P7-T1)
+// ==========================================
+
+export async function fetchNodeVersions(
+  mirrorUrl?: string,
+  refresh?: boolean
+): Promise<import('../types/api').NodeRuntimeListApiResponse> {
+  const params = new URLSearchParams();
+  if (mirrorUrl) params.set('mirror_url', mirrorUrl);
+  if (refresh) params.set('refresh', 'true');
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return request<import('../types/api').NodeRuntimeListApiResponse>(
+    `/api/v1/runtimes/node/versions${qs}`
+  );
+}
+
+export async function installNodeVersion(
+  payload: import('../types/api').NodeRuntimeInstallRequest
+): Promise<import('../types/api').NodeRuntimeActionResponse> {
+  return request<import('../types/api').NodeRuntimeActionResponse>(
+    '/api/v1/runtimes/node/install',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function removeNodeVersion(
+  version: string
+): Promise<import('../types/api').NodeRuntimeActionResponse> {
+  return request<import('../types/api').NodeRuntimeActionResponse>(
+    `/api/v1/runtimes/node/${encodeURIComponent(version)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function enableNodeCorepack(
+  version: string
+): Promise<import('../types/api').NodeRuntimeActionResponse> {
+  return request<import('../types/api').NodeRuntimeActionResponse>(
+    `/api/v1/runtimes/node/${encodeURIComponent(version)}/corepack`,
+    {
+      method: 'POST',
+    }
+  );
+}

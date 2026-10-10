@@ -114,6 +114,10 @@ pub enum RequestPayload {
     SshKeysSync(SshKeysSyncRequest),
     SshPolicyApply(SshPolicyApplyRequest),
     SshDropinApply(SshDropinApplyRequest),
+    NodeRuntimeList(NodeRuntimeListRequest),
+    NodeRuntimeInstall(NodeRuntimeInstallRequest),
+    NodeRuntimeRemove(NodeRuntimeRemoveRequest),
+    NodeRuntimeCorepack(NodeRuntimeCorepackRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -289,6 +293,10 @@ pub enum ResponsePayload {
     SshKeysSync(SshKeysSyncResponse),
     SshPolicyApply(SshPolicyApplyResponse),
     SshDropinApply(SshDropinApplyResponse),
+    NodeRuntimeList(NodeRuntimeListResponse),
+    NodeRuntimeInstalled(NodeRuntimeActionResponse),
+    NodeRuntimeRemoved(NodeRuntimeActionResponse),
+    NodeRuntimeCorepack(NodeRuntimeActionResponse),
     Error(String),
 }
 
@@ -1329,6 +1337,63 @@ pub struct SshDropinApplyResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeInstalledVersionDto {
+    pub version: String,
+    pub raw_version: String,
+    pub path: String,
+    pub node_binary: String,
+    pub npm_binary: Option<String>,
+    pub npx_binary: Option<String>,
+    pub corepack_binary: Option<String>,
+    pub pnpm_binary: Option<String>,
+    pub yarn_binary: Option<String>,
+    pub corepack_enabled: bool,
+    pub is_lts: bool,
+    pub lts_codename: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRuntimeListRequest {
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRuntimeListResponse {
+    pub base_dir: String,
+    pub versions: Vec<NodeInstalledVersionDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRuntimeInstallRequest {
+    pub version: String,
+    pub mirror_url: Option<String>,
+    pub offline_tarball_path: Option<String>,
+    pub offline_checksum: Option<String>,
+    pub enable_corepack: bool,
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRuntimeRemoveRequest {
+    pub version: String,
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRuntimeCorepackRequest {
+    pub version: String,
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NodeRuntimeActionResponse {
+    pub version: String,
+    pub success: bool,
+    pub path: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -1991,5 +2056,44 @@ mod tests {
         let s_pty_resize = serde_json::to_string(&req_pty_resize).unwrap();
         let de_pty_resize: RpcRequest = serde_json::from_str(&s_pty_resize).unwrap();
         assert_eq!(req_pty_resize, de_pty_resize);
+
+        // Node.js Runtime RPC tests
+        let req_node_list = RpcRequest::new(
+            "node-list-1",
+            RequestPayload::NodeRuntimeList(NodeRuntimeListRequest {
+                base_dir: Some("/opt/panel/runtimes/node".to_string()),
+            }),
+        );
+        let s_node_list = serde_json::to_string(&req_node_list).unwrap();
+        let de_node_list: RpcRequest = serde_json::from_str(&s_node_list).unwrap();
+        assert_eq!(req_node_list, de_node_list);
+
+        let req_node_install = RpcRequest::new(
+            "node-install-1",
+            RequestPayload::NodeRuntimeInstall(NodeRuntimeInstallRequest {
+                version: "22.14.0".to_string(),
+                mirror_url: Some("https://nodejs.org/dist".to_string()),
+                offline_tarball_path: None,
+                offline_checksum: None,
+                enable_corepack: true,
+                base_dir: None,
+            }),
+        );
+        let s_node_install = serde_json::to_string(&req_node_install).unwrap();
+        let de_node_install: RpcRequest = serde_json::from_str(&s_node_install).unwrap();
+        assert_eq!(req_node_install, de_node_install);
+
+        let res_node_action = RpcResponse::ok(
+            "node-install-1",
+            ResponsePayload::NodeRuntimeInstalled(NodeRuntimeActionResponse {
+                version: "22.14.0".to_string(),
+                success: true,
+                path: "/opt/panel/runtimes/node/22.14.0".to_string(),
+                message: "Node.js v22.14.0 berhasil dipasang".to_string(),
+            }),
+        );
+        let s_node_res = serde_json::to_string(&res_node_action).unwrap();
+        let de_node_res: RpcResponse = serde_json::from_str(&s_node_res).unwrap();
+        assert_eq!(res_node_action, de_node_res);
     }
 }
