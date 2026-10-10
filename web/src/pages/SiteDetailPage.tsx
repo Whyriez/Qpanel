@@ -23,10 +23,12 @@ import {
   Code2,
   Sliders,
   Folder,
+  Key,
 } from 'lucide-react';
 import { FileManager } from '../components/files/FileManager';
 import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
 import { PhpStatusCard } from '../components/sites/PhpStatusCard';
+import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
   Site,
@@ -74,6 +76,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const [sslStatus, setSslStatus] = useState<SslStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [copiedDocroot, setCopiedDocroot] = useState(false);
+  const [isSshModalOpen, setIsSshModalOpen] = useState(false);
 
   // Global toast
   const [toastMessage, setToastMessage] = useState<{
@@ -615,6 +618,17 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         </div>
 
         <div className="flex items-center gap-2">
+          {/* SSH / SFTP Connection */}
+          <button
+            type="button"
+            onClick={() => setIsSshModalOpen(true)}
+            className="px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--raised)] transition-colors flex items-center gap-1.5"
+            title="Koneksi SSH & SFTP ke folder situs"
+          >
+            <Key className="w-3.5 h-3.5 text-blue-500" />
+            <span>SSH / SFTP</span>
+          </button>
+
           {/* External visit site */}
           <a
             href={`${site.force_https ? 'https' : 'http'}://${site.primary_domain}`}
@@ -768,6 +782,14 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                   ) : (
                     <Copy className="w-4 h-4" />
                   )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsSshModalOpen(true)}
+                  className="p-1.5 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--ink-muted)] hover:text-blue-500 transition-colors shrink-0"
+                  title="Salin Perintah SSH / SFTP"
+                >
+                  <Key className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -1725,6 +1747,17 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             </form>
           </div>
         </div>
+      )}
+
+      {/* SSH & SFTP Connection Modal */}
+      {site && (
+        <SshConnectModal
+          isOpen={isSshModalOpen}
+          onClose={() => setIsSshModalOpen(false)}
+          siteId={site.id}
+          siteDomain={site.primary_domain}
+          path={site.docroot}
+        />
       )}
     </div>
   );

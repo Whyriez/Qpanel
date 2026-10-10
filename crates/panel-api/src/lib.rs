@@ -348,6 +348,11 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/ssh/dropin/apply",
             post(ssh::apply_ssh_dropin_handler),
         )
+        // SSH & SFTP Connection Command Info (Phase 6 - P6-T7)
+        .route(
+            "/api/v1/ssh/connection-info",
+            get(ssh::get_ssh_connection_info_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

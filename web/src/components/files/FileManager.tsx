@@ -37,6 +37,7 @@ import {
   AlertTriangle,
   RotateCcw,
   Sparkles,
+  Key,
 } from 'lucide-react';
 import { FsEntry, ViewMode, SortField, SortDirection, TrashedItem, UploadItem, DiskQuotaStatus } from '../../types/files';
 import {
@@ -59,6 +60,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { FilePermissionModal } from './FilePermissionModal';
 import { FileSearchModal } from './FileSearchModal';
 import { TerminalDrawer } from '../terminal/TerminalDrawer';
+import { SshConnectModal } from '../ssh/SshConnectModal';
 
 export interface FileManagerProps {
   initialPath?: string;
@@ -177,6 +179,8 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [isSshModalOpen, setIsSshModalOpen] = useState(false);
+  const [activeSshPath, setActiveSshPath] = useState(currentPath);
 
   // Rubber Band Marquee State
   const fileContainerRef = useRef<HTMLDivElement>(null);
@@ -944,6 +948,22 @@ export const FileManager: React.FC<FileManagerProps> = ({
               <span>Terminal di sini</span>
             </button>
           </div>
+
+          {/* Tombol Salin SSH */}
+          <div className="relative group">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSshPath(currentPath);
+                setIsSshModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface-hover)] hover:bg-[var(--surface-active)] text-[var(--foreground)] transition-colors text-xs font-medium cursor-pointer"
+              title="Salin perintah koneksi SSH & SFTP"
+            >
+              <Key className="h-3.5 w-3.5 text-blue-500" />
+              <span>Salin SSH</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1637,6 +1657,21 @@ export const FileManager: React.FC<FileManagerProps> = ({
                 <span>Ubah Izin (chmod)</span>
               </button>
 
+              {contextMenu.targetEntry.is_dir && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveSshPath(contextMenu.targetEntry!.path);
+                    setIsSshModalOpen(true);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--surface-hover)] text-left"
+                >
+                  <Key className="h-3.5 w-3.5 text-blue-500" />
+                  <span>Salin Perintah SSH</span>
+                </button>
+              )}
+
               {['zip', 'gz', 'tar'].includes(
                 contextMenu.targetEntry.name.split('.').pop()?.toLowerCase() || ''
               ) && (
@@ -1741,6 +1776,19 @@ export const FileManager: React.FC<FileManagerProps> = ({
                   <span>Tempel</span>
                 </button>
               )}
+              <div className="border-t border-[var(--line)] my-1" />
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSshPath(currentPath);
+                  setIsSshModalOpen(true);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--surface-hover)] text-left"
+              >
+                <Key className="h-3.5 w-3.5 text-blue-500" />
+                <span>Salin Perintah SSH</span>
+              </button>
             </>
           )}
         </div>
@@ -2110,6 +2158,12 @@ export const FileManager: React.FC<FileManagerProps> = ({
         isOpen={isTerminalOpen}
         onClose={() => setIsTerminalOpen(false)}
         initialCwd={currentPath}
+      />
+
+      <SshConnectModal
+        isOpen={isSshModalOpen}
+        onClose={() => setIsSshModalOpen(false)}
+        path={activeSshPath || currentPath}
       />
     </div>
   );

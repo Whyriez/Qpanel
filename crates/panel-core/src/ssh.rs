@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::tenant::ShellPolicy;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SshKeyError {
     #[error("SSH key cannot be empty")]
@@ -201,6 +203,129 @@ pub fn parse_ssh_public_key(input: &str) -> Result<ParsedSshKey, SshKeyError> {
     })
 }
 
+/// Parameters for generating SSH and SFTP commands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SshConnectionParams<'a> {
+    pub username: &'a str,
+    pub host: &'a str,
+    pub port: u16,
+    pub folder: Option<&'a str>,
+    pub policy: ShellPolicy,
+}
+
+/// Escape a path for single-quoted shell string `'...'`.
+/// In POSIX shells (bash, zsh, sh), a single quote inside single quotes is represented as `'\''`.
+pub fn escape_shell_single_quote(path: &str) -> String {
+    path.replace('\'', "'\\''")
+}
+
+/// Generate interactive SSH command.
+/// Format: `ssh -t user@host "cd '<folder>' && exec \$SHELL -l"` (or with `-p port` if port != 22).
+/// Returns `None` if policy is `Sftp` or `None`.
+pub fn generate_ssh_command(params: &SshConnectionParams<'_>) -> Option<String> {
+    if params.policy != ShellPolicy::Full {
+        return None;
+    }
+
+    let port_flag = if params.port == 22 || params.port == 0 {
+        String::new()
+    } else {
+        format!("-p {} ", params.port)
+    };
+
+    if let Some(folder) = params.folder.filter(|f| !f.trim().is_empty()) {
+        let escaped = escape_shell_single_quote(folder.trim());
+        Some(format!(
+            "ssh {}-t {}@{} \"cd '{}' && exec \\$SHELL -l\"",
+            port_flag, params.username, params.host, escaped
+        ))
+    } else {
+        Some(format!(
+            "ssh {}{}@{}",
+            port_flag, params.username, params.host
+        ))
+    }
+}
+
+/// Generate SFTP command.
+/// Format: `sftp user@host` or with folder: `sftp user@host:'<folder>'` (or `-P port` if port != 22).
+/// Returns `None` if policy is `None`.
+pub fn generate_sftp_command(params: &SshConnectionParams<'_>) -> Option<String> {
+    if params.policy == ShellPolicy::None {
+        return None;
+    }
+
+    let port_flag = if params.port == 22 || params.port == 0 {
+        String::new()
+    } else {
+        format!("-P {} ", params.port)
+    };
+
+    if let Some(folder) = params.folder.filter(|f| !f.trim().is_empty()) {
+        let escaped = escape_shell_single_quote(folder.trim());
+        Some(format!(
+            "sftp {}{}@{}:'{}'",
+            port_flag, params.username, params.host, escaped
+        ))
+    } else {
+        Some(format!(
+            "sftp {}{}@{}",
+            port_flag, params.username, params.host
+        ))
+    }
+}
+
+/// Generate standard SFTP URI.
+/// Format: `sftp://user@host:port/path`
+pub fn generate_sftp_url(params: &SshConnectionParams<'_>) -> Option<String> {
+    if params.policy == ShellPolicy::None {
+        return None;
+    }
+
+    let port_part = if params.port == 22 || params.port == 0 {
+        String::new()
+    } else {
+        format!(":{}", params.port)
+    };
+
+    let path_part = if let Some(folder) = params.folder.filter(|f| !f.trim().is_empty()) {
+        let trimmed = folder.trim();
+        if trimmed.starts_with('/') {
+            trimmed.to_string()
+        } else {
+            format!("/{}", trimmed)
+        }
+    } else {
+        String::new()
+    };
+
+    Some(format!(
+        "sftp://{}@{}{}{}",
+        params.username, params.host, port_part, path_part
+    ))
+}
+
+/// Generate OpenSSH client `~/.ssh/config` block.
+pub fn generate_ssh_config_snippet(
+    host_alias: &str,
+    host: &str,
+    user: &str,
+    port: u16,
+    identity_file: Option<&str>,
+) -> String {
+    let port_line = if port == 22 || port == 0 {
+        String::new()
+    } else {
+        format!("    Port {}\n", port)
+    };
+    let id_file = identity_file.unwrap_or("~/.ssh/id_ed25519");
+
+    format!(
+        "Host {}\n    HostName {}\n    User {}\n{}    IdentityFile {}\n",
+        host_alias, host, user, port_line, id_file
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -269,5 +394,147 @@ mod tests {
         let corrupted = "ssh-rsa AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl user@host";
         let err = parse_ssh_public_key(corrupted).unwrap_err();
         assert!(matches!(err, SshKeyError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn test_generate_ssh_command_full_policy() {
+        let params = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: Some("/home/p_alice/sites/example.com/public"),
+            policy: ShellPolicy::Full,
+        };
+        let cmd = generate_ssh_command(&params).unwrap();
+        assert_eq!(
+            cmd,
+            "ssh -t p_alice@example.com \"cd '/home/p_alice/sites/example.com/public' && exec \\$SHELL -l\""
+        );
+
+        // Custom port
+        let params_custom = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 2222,
+            folder: Some("/home/p_alice/sites/example.com/public"),
+            policy: ShellPolicy::Full,
+        };
+        let cmd_custom = generate_ssh_command(&params_custom).unwrap();
+        assert_eq!(
+            cmd_custom,
+            "ssh -p 2222 -t p_alice@example.com \"cd '/home/p_alice/sites/example.com/public' && exec \\$SHELL -l\""
+        );
+
+        // No folder
+        let params_no_folder = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: None,
+            policy: ShellPolicy::Full,
+        };
+        assert_eq!(
+            generate_ssh_command(&params_no_folder).unwrap(),
+            "ssh p_alice@example.com"
+        );
+    }
+
+    #[test]
+    fn test_escape_shell_single_quote_in_folder() {
+        let params = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: Some("/home/p_alice/sites/bob's site/public"),
+            policy: ShellPolicy::Full,
+        };
+        let cmd = generate_ssh_command(&params).unwrap();
+        assert_eq!(
+            cmd,
+            "ssh -t p_alice@example.com \"cd '/home/p_alice/sites/bob'\\''s site/public' && exec \\$SHELL -l\""
+        );
+    }
+
+    #[test]
+    fn test_generate_ssh_command_sftp_and_none_policy() {
+        let sftp_params = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: Some("/home/p_alice"),
+            policy: ShellPolicy::Sftp,
+        };
+        assert!(generate_ssh_command(&sftp_params).is_none());
+
+        let none_params = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: Some("/home/p_alice"),
+            policy: ShellPolicy::None,
+        };
+        assert!(generate_ssh_command(&none_params).is_none());
+    }
+
+    #[test]
+    fn test_generate_sftp_command_and_url() {
+        let params = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: Some("/home/p_alice/sites"),
+            policy: ShellPolicy::Sftp,
+        };
+        assert_eq!(
+            generate_sftp_command(&params).unwrap(),
+            "sftp p_alice@example.com:'/home/p_alice/sites'"
+        );
+        assert_eq!(
+            generate_sftp_url(&params).unwrap(),
+            "sftp://p_alice@example.com/home/p_alice/sites"
+        );
+
+        // Custom port
+        let params_custom = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 2200,
+            folder: Some("/home/p_alice"),
+            policy: ShellPolicy::Full,
+        };
+        assert_eq!(
+            generate_sftp_command(&params_custom).unwrap(),
+            "sftp -P 2200 p_alice@example.com:'/home/p_alice'"
+        );
+        assert_eq!(
+            generate_sftp_url(&params_custom).unwrap(),
+            "sftp://p_alice@example.com:2200/home/p_alice"
+        );
+
+        // None policy
+        let params_none = SshConnectionParams {
+            username: "p_alice",
+            host: "example.com",
+            port: 22,
+            folder: None,
+            policy: ShellPolicy::None,
+        };
+        assert!(generate_sftp_command(&params_none).is_none());
+        assert!(generate_sftp_url(&params_none).is_none());
+    }
+
+    #[test]
+    fn test_generate_ssh_config_snippet() {
+        let snippet = generate_ssh_config_snippet(
+            "my-vps",
+            "example.com",
+            "p_alice",
+            2222,
+            Some("~/.ssh/id_custom"),
+        );
+        assert_eq!(
+            snippet,
+            "Host my-vps\n    HostName example.com\n    User p_alice\n    Port 2222\n    IdentityFile ~/.ssh/id_custom\n"
+        );
     }
 }

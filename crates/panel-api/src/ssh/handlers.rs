@@ -1,8 +1,9 @@
 //! Handlers for SSH public key management.
 
 use super::{
-    CreateSshKeyRequest, SshDropinApplyRequestDto, SshDropinApplyResponseDto, SshKeyQuery,
-    SshKeyResponse, ValidateSshKeyRequest, ValidateSshKeyResponse,
+    CreateSshKeyRequest, SshConnectionInfoQuery, SshConnectionInfoResponse,
+    SshDropinApplyRequestDto, SshDropinApplyResponseDto, SshKeyQuery, SshKeyResponse,
+    ValidateSshKeyRequest, ValidateSshKeyResponse,
 };
 use crate::AppState;
 use crate::auth::AuthenticatedUser;
@@ -13,9 +14,16 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
-use panel_core::ssh::parse_ssh_public_key;
+use panel_core::ssh::{
+    SshConnectionParams, generate_sftp_command, generate_sftp_url, generate_ssh_command,
+    generate_ssh_config_snippet, parse_ssh_public_key,
+};
+use panel_core::tenant::ShellPolicy;
 use panel_db::models::CreateSshKey;
-use panel_db::repositories::{SqliteSshKeyRepository, SqliteUserRepository};
+use panel_db::repositories::{
+    SqliteDomainRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteSshKeyRepository,
+    SqliteUserRepository,
+};
 use tracing::{info, warn};
 
 /// `GET /api/v1/ssh-keys`: List SSH public keys for the current user or target tenant (admin only).
@@ -463,4 +471,244 @@ pub async fn apply_ssh_dropin_handler(
             ))
         }
     }
+}
+
+/// `GET /api/v1/ssh/connection-info`: Generate formatted SSH/SFTP commands and connection details.
+#[utoipa::path(
+    get,
+    path = "/api/v1/ssh/connection-info",
+    params(SshConnectionInfoQuery),
+    responses(
+        (status = 200, description = "SSH and SFTP connection commands and details", body = SshConnectionInfoResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden: Cannot access other tenant's details"),
+        (status = 404, description = "Site or tenant not found")
+    ),
+    tag = "ssh"
+)]
+pub async fn get_ssh_connection_info_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    req_headers: HeaderMap,
+    Query(query): Query<SshConnectionInfoQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+    let ssh_repo = SqliteSshKeyRepository::new(state.pool.clone());
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let domain_repo = SqliteDomainRepository::new(state.pool.clone());
+
+    // 1. Resolve target tenant user
+    let target_user = if auth_user.is_admin() {
+        if let Some(ref tenant_slug) = query.tenant {
+            let found = if tenant_slug.starts_with("p_") {
+                user_repo.find_by_linux_username(tenant_slug).await
+            } else {
+                user_repo.find_by_username(tenant_slug).await
+            }
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?;
+
+            match found {
+                Some(u) => u,
+                None => {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(serde_json::json!({ "error": "Tenant tidak ditemukan" })),
+                    ));
+                }
+            }
+        } else {
+            user_repo
+                .find_by_id(auth_user.id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": e.to_string() })),
+                    )
+                })?
+                .ok_or((
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({ "error": "User tidak ditemukan" })),
+                ))?
+        }
+    } else {
+        if let Some(ref tenant_slug) = query.tenant
+            && tenant_slug != &auth_user.username
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Akses ditolak ke detail tenant lain" })),
+            ));
+        }
+        user_repo
+            .find_by_id(auth_user.id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?
+            .ok_or((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "User tidak ditemukan" })),
+            ))?
+    };
+
+    let linux_username = target_user
+        .linux_username
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| {
+            if target_user.username.starts_with("p_") {
+                target_user.username.clone()
+            } else {
+                format!("p_{}", target_user.username)
+            }
+        });
+
+    let home_dir = format!("/home/{}", linux_username);
+
+    // 2. Resolve site context if site_id is provided
+    let mut site_docroot: Option<String> = None;
+    let mut site_domain: Option<String> = None;
+
+    if let Some(site_id) = query.site_id {
+        let site = site_repo
+            .find_by_id(site_id)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            })?
+            .ok_or((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Situs tidak ditemukan" })),
+            ))?;
+
+        if !auth_user.can_access_user(site.user_id) {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "Akses ditolak ke situs ini" })),
+            ));
+        }
+
+        site_docroot = Some(site.docroot);
+
+        // Fetch primary domain
+        if let Ok(domains) = domain_repo.find_by_site_id(site_id).await {
+            site_domain = domains.into_iter().find(|d| d.is_primary).map(|d| d.name);
+        }
+    }
+
+    // 3. Resolve path (active_path and relative_path)
+    let raw_path = query
+        .path
+        .as_deref()
+        .or(site_docroot.as_deref())
+        .unwrap_or("");
+    let raw_path_clean = raw_path.trim();
+
+    let (active_path, relative_path) = if raw_path_clean.is_empty() {
+        (home_dir.clone(), String::new())
+    } else if let Some(stripped) = raw_path_clean.strip_prefix(&home_dir) {
+        let rel = stripped.trim_start_matches('/').to_string();
+        (raw_path_clean.to_string(), rel)
+    } else if raw_path_clean.starts_with('/') {
+        let rel = raw_path_clean.trim_start_matches('/').to_string();
+        (format!("{}/{}", home_dir, rel), rel)
+    } else {
+        (
+            format!("{}/{}", home_dir, raw_path_clean),
+            raw_path_clean.to_string(),
+        )
+    };
+
+    // 4. Resolve effective shell policy
+    let plan = if let Some(plan_id) = target_user.plan_id {
+        plan_repo.find_by_id(plan_id).await.ok().flatten()
+    } else {
+        None
+    };
+
+    let policy_str = target_user
+        .shell_policy
+        .as_deref()
+        .or_else(|| plan.as_ref().map(|p| p.shell_policy.as_str()))
+        .unwrap_or("full");
+
+    let shell_policy = ShellPolicy::parse(policy_str).unwrap_or(ShellPolicy::Full);
+
+    // 5. Check registered SSH public keys
+    let keys = ssh_repo
+        .list_by_user(target_user.id)
+        .await
+        .unwrap_or_default();
+    let has_ssh_keys = !keys.is_empty();
+    let ssh_keys_count = keys.len();
+
+    // 6. Resolve host and port
+    let host = if let Some(h) = query.host.filter(|h| !h.trim().is_empty()) {
+        h.trim().to_string()
+    } else if let Some(ref dom) = site_domain {
+        dom.clone()
+    } else if let Some(host_hdr) = req_headers.get("host").and_then(|h| h.to_str().ok()) {
+        host_hdr
+            .split(':')
+            .next()
+            .unwrap_or("127.0.0.1")
+            .to_string()
+    } else {
+        "127.0.0.1".to_string()
+    };
+
+    let port = query.port.unwrap_or(22);
+
+    // 7. Format commands via panel_core::ssh
+    let conn_params = SshConnectionParams {
+        username: &linux_username,
+        host: &host,
+        port,
+        folder: Some(&active_path),
+        policy: shell_policy,
+    };
+
+    let ssh_command = generate_ssh_command(&conn_params);
+    let sftp_command = generate_sftp_command(&conn_params);
+    let sftp_url = generate_sftp_url(&conn_params);
+    let alias = site_domain
+        .clone()
+        .unwrap_or_else(|| format!("{}-vps", linux_username));
+    let ssh_config_snippet =
+        generate_ssh_config_snippet(&alias, &host, &linux_username, port, None);
+
+    let can_shell = shell_policy == ShellPolicy::Full;
+    let can_sftp = shell_policy != ShellPolicy::None;
+
+    Ok(Json(SshConnectionInfoResponse {
+        host,
+        port,
+        username: linux_username,
+        user_id: target_user.id,
+        home_dir,
+        active_path,
+        relative_path,
+        shell_policy: shell_policy.to_string(),
+        can_shell,
+        can_sftp,
+        has_ssh_keys,
+        ssh_keys_count,
+        ssh_command,
+        sftp_command,
+        sftp_url,
+        ssh_config_snippet,
+        site_domain,
+    }))
 }

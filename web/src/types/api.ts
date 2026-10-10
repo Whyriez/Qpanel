@@ -580,3 +580,32 @@ export interface SshDropinApplyResponse {
   reloaded: boolean;
   message: string;
 }
+
+// SSH & SFTP Connection Details Types (Phase 6 - P6-T7)
+export interface SshConnectionInfoQuery {
+  site_id?: number;
+  path?: string;
+  tenant?: string;
+  port?: number;
+  host?: string;
+}
+
+export interface SshConnectionInfoResponse {
+  host: string;
+  port: number;
+  username: string;
+  user_id: number;
+  home_dir: string;
+  active_path: string;
+  relative_path: string;
+  shell_policy: 'full' | 'sftp' | 'none' | string;
+  can_shell: boolean;
+  can_sftp: boolean;
+  has_ssh_keys: boolean;
+  ssh_keys_count: number;
+  ssh_command: string | null;
+  sftp_command: string | null;
+  sftp_url: string | null;
+  ssh_config_snippet: string;
+  site_domain: string | null;
+}

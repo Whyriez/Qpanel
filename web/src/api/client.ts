@@ -959,3 +959,20 @@ export async function applySshDropin(
     }
   );
 }
+
+// SSH Connection Command Info (Phase 6 - P6-T7)
+export async function fetchSshConnectionInfo(
+  query?: import('../types/api').SshConnectionInfoQuery
+): Promise<import('../types/api').SshConnectionInfoResponse> {
+  const params = new URLSearchParams();
+  if (query?.site_id !== undefined) params.set('site_id', query.site_id.toString());
+  if (query?.path !== undefined) params.set('path', query.path);
+  if (query?.tenant !== undefined) params.set('tenant', query.tenant);
+  if (query?.port !== undefined) params.set('port', query.port.toString());
+  if (query?.host !== undefined) params.set('host', query.host);
+
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return request<import('../types/api').SshConnectionInfoResponse>(
+    `/api/v1/ssh/connection-info${qs}`
+  );
+}

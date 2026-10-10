@@ -99,6 +99,7 @@ use panel_db::pool::DbPool;
         crate::ssh::handlers::delete_ssh_key_handler,
         crate::ssh::handlers::validate_ssh_key_handler,
         crate::ssh::handlers::apply_ssh_dropin_handler,
+        crate::ssh::handlers::get_ssh_connection_info_handler,
         crate::tenants::handlers::get_tenant_shell_policy_handler,
         crate::tenants::handlers::update_tenant_shell_policy_handler,
     ),
@@ -199,6 +200,7 @@ use panel_db::pool::DbPool;
             crate::ssh::ValidateSshKeyResponse,
             crate::ssh::SshDropinApplyRequestDto,
             crate::ssh::SshDropinApplyResponseDto,
+            crate::ssh::SshConnectionInfoResponse,
             crate::tenants::TenantShellPolicyResponse,
             crate::tenants::UpdateTenantShellPolicyRequest,
         )

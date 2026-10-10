@@ -73,3 +73,33 @@ pub struct SshDropinApplyResponseDto {
     pub reloaded: bool,
     pub message: String,
 }
+
+#[derive(Debug, Deserialize, IntoParams, Default)]
+pub struct SshConnectionInfoQuery {
+    pub site_id: Option<i64>,
+    pub path: Option<String>,
+    pub tenant: Option<String>,
+    pub port: Option<u16>,
+    pub host: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SshConnectionInfoResponse {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub user_id: i64,
+    pub home_dir: String,
+    pub active_path: String,
+    pub relative_path: String,
+    pub shell_policy: String,
+    pub can_shell: bool,
+    pub can_sftp: bool,
+    pub has_ssh_keys: bool,
+    pub ssh_keys_count: usize,
+    pub ssh_command: Option<String>,
+    pub sftp_command: Option<String>,
+    pub sftp_url: Option<String>,
+    pub ssh_config_snippet: String,
+    pub site_domain: Option<String>,
+}

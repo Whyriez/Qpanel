@@ -13,7 +13,11 @@ pub mod totp;
 pub use auth::{hash_password, hash_token, verify_password};
 pub use domain::{DomainName, DomainValidationError};
 pub use rbac::{Action, Role, authorize, check_permission};
-pub use ssh::{ParsedSshKey, SshKeyError, parse_ssh_public_key};
+pub use ssh::{
+    ParsedSshKey, SshConnectionParams, SshKeyError, escape_shell_single_quote,
+    generate_sftp_command, generate_sftp_url, generate_ssh_command, generate_ssh_config_snippet,
+    parse_ssh_public_key,
+};
 pub use tenant::{MAX_TENANT_UID, MIN_TENANT_UID, ShellPolicy, TenantUid, is_reserved_username};
 pub use totp::{
     generate_recovery_codes, generate_totp_qr_base64, generate_totp_secret, generate_totp_uri,
