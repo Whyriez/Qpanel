@@ -17,7 +17,7 @@ use panel_db::repositories::{
 use panel_proto::{SiteApplyRequest, SiteProvisionRequest, SiteRemoveRequest};
 use panel_webserver::template::{
     DomainRedirectConfig, FastCgiCacheConfig, NginxTemplateRenderer, NodejsVhostContext, PhpPreset,
-    PhpVhostContext, StaticVhostContext, render_placeholder_html,
+    PhpVhostContext, PythonVhostContext, StaticVhostContext, render_placeholder_html,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -45,6 +45,15 @@ pub struct CreateStaticSiteRequest {
     pub entrypoint_value: Option<String>,
     pub auto_restart: Option<bool>,
     pub env_vars: Option<std::collections::BTreeMap<String, String>>,
+    pub python_version: Option<String>,
+    pub framework: Option<String>,
+    pub server_type: Option<String>,
+    pub workers: Option<u32>,
+    pub venv_dir: Option<String>,
+    pub static_url: Option<String>,
+    pub static_dir: Option<String>,
+    pub media_url: Option<String>,
+    pub media_dir: Option<String>,
 }
 
 pub type CreateSiteRequest = CreateStaticSiteRequest;
@@ -218,43 +227,12 @@ async fn resolve_target_user(
     Ok(user)
 }
 
-/// Recompiles the Nginx virtual host configuration for a site from its current DB state
-/// and applies it atomically with automatic rollback via the privileged agent.
-pub async fn recompile_and_apply_site_vhost(
-    state: &AppState,
-    site: &Site,
-    user: &User,
+fn build_domain_redirects_and_aliases(
     domains: &[Domain],
-) -> Result<(), (StatusCode, String)> {
-    let primary_domain = domains
-        .iter()
-        .find(|d| d.is_primary)
-        .map(|d| d.name.as_str())
-        .unwrap_or("unknown");
-
-    let settings: serde_json::Value =
-        serde_json::from_str(&site.settings_json).unwrap_or(serde_json::json!({}));
-    let spa_fallback = settings
-        .get("spa_fallback")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let force_https = settings
-        .get("force_https")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let has_ssl = settings
-        .get("has_ssl")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let ssl_cert = settings
-        .get("ssl_cert")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let ssl_key = settings
-        .get("ssl_key")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
+    primary_domain: &str,
+    has_ssl: bool,
+    force_https: bool,
+) -> (Vec<String>, Vec<DomainRedirectConfig>) {
     let mut alias_domains = Vec::new();
     let mut redirects = Vec::new();
 
@@ -325,6 +303,147 @@ pub async fn recompile_and_apply_site_vhost(
         }
     }
 
+    (alias_domains, redirects)
+}
+
+struct PythonVhostRenderArgs<'a> {
+    site: &'a Site,
+    primary_domain: &'a str,
+    linux_uname: &'a str,
+    settings: &'a serde_json::Value,
+    alias_domains: Vec<String>,
+    redirects: Vec<DomainRedirectConfig>,
+    has_ssl: bool,
+    ssl_cert: Option<String>,
+    ssl_key: Option<String>,
+    force_https: bool,
+}
+
+fn render_python_vhost_for_site(
+    renderer: &NginxTemplateRenderer,
+    args: PythonVhostRenderArgs<'_>,
+) -> Result<String, (StatusCode, String)> {
+    let socket_path = args
+        .settings
+        .get("socket_path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("/run/panel/python/site_{}.sock", args.site.id));
+
+    let static_url = args
+        .settings
+        .get("static_url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let static_dir = args
+        .settings
+        .get("static_dir")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let media_url = args
+        .settings
+        .get("media_url")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let media_dir = args
+        .settings
+        .get("media_dir")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let python_ctx = PythonVhostContext {
+        site_id: format!("site_{}", args.site.id),
+        primary_domain: args.primary_domain.to_string(),
+        alias_domains: args.alias_domains,
+        redirects: args.redirects,
+        unix_socket: socket_path,
+        log_dir: format!(
+            "/var/log/panel/{}/{}",
+            args.linux_uname, args.primary_domain
+        ),
+        snippets_dir: "/etc/panel/nginx/snippets".to_string(),
+        has_ssl: args.has_ssl,
+        ssl_cert: args.ssl_cert,
+        ssl_key: args.ssl_key,
+        force_https: args.force_https,
+        ocsp_stapling: args
+            .settings
+            .get("ocsp_stapling")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        custom_headers: vec![],
+        static_url,
+        static_dir,
+        media_url,
+        media_dir,
+        upload_max_size: args
+            .settings
+            .get("upload_max_size")
+            .or_else(|| args.settings.get("client_max_body_size"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        proxy_connect_timeout: args
+            .settings
+            .get("proxy_connect_timeout")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        proxy_send_timeout: None,
+        proxy_read_timeout: args
+            .settings
+            .get("proxy_read_timeout")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        proxy_buffering: None,
+    };
+
+    renderer.render_python(&python_ctx).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Python vhost render failed: {e}"),
+        )
+    })
+}
+
+/// Recompiles the Nginx virtual host configuration for a site from its current DB state
+/// and applies it atomically with automatic rollback via the privileged agent.
+pub async fn recompile_and_apply_site_vhost(
+    state: &AppState,
+    site: &Site,
+    user: &User,
+    domains: &[Domain],
+) -> Result<(), (StatusCode, String)> {
+    let primary_domain = domains
+        .iter()
+        .find(|d| d.is_primary)
+        .map(|d| d.name.as_str())
+        .unwrap_or("unknown");
+
+    let settings: serde_json::Value =
+        serde_json::from_str(&site.settings_json).unwrap_or(serde_json::json!({}));
+    let spa_fallback = settings
+        .get("spa_fallback")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let force_https = settings
+        .get("force_https")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_ssl = settings
+        .get("has_ssl")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let ssl_cert = settings
+        .get("ssl_cert")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let ssl_key = settings
+        .get("ssl_key")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let (alias_domains, redirects) =
+        build_domain_redirects_and_aliases(domains, primary_domain, has_ssl, force_https);
+
     let linux_uname = user
         .linux_username
         .as_deref()
@@ -333,6 +452,7 @@ pub async fn recompile_and_apply_site_vhost(
     let renderer = NginxTemplateRenderer::new();
     let is_php = site.kind == "php" || site.runtime.as_deref() == Some("php");
     let is_nodejs = site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs");
+    let is_python = site.kind == "python" || site.runtime.as_deref() == Some("python");
 
     let rendered = if is_php {
         let preset_str = settings
@@ -451,6 +571,22 @@ pub async fn recompile_and_apply_site_vhost(
                 format!("Node.js vhost render failed: {e}"),
             )
         })?
+    } else if is_python {
+        render_python_vhost_for_site(
+            &renderer,
+            PythonVhostRenderArgs {
+                site,
+                primary_domain,
+                linux_uname,
+                settings: &settings,
+                alias_domains,
+                redirects,
+                has_ssl,
+                ssl_cert,
+                ssl_key,
+                force_https,
+            },
+        )?
     } else {
         let vhost_ctx = StaticVhostContext {
             site_id: format!("site_{}", site.id),
@@ -577,6 +713,118 @@ pub async fn recompile_and_apply_site_vhost(
         let _ = state.agent_client.apply_node_site(node_apply_req).await;
     }
 
+    // If Python site is active, also ensure systemd unit and env file are applied on host
+    if is_python && site.status == "active" {
+        let py_ver = site
+            .version
+            .clone()
+            .or_else(|| {
+                settings
+                    .get("python_version")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "3.12.9".to_string());
+
+        let app_dir = settings
+            .get("app_dir")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&site.docroot)
+            .to_string();
+
+        let venv_dir = settings
+            .get("venv_dir")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{}/.venv", app_dir));
+
+        let socket_path = settings
+            .get("socket_path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("/run/panel/python/site_{}.sock", site.id));
+
+        let fw_str = settings
+            .get("framework_preset")
+            .or_else(|| settings.get("framework"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("generic");
+        let framework = match fw_str {
+            "django" => panel_proto::PythonSiteFramework::Django,
+            "flask" => panel_proto::PythonSiteFramework::Flask,
+            "fastapi" => panel_proto::PythonSiteFramework::FastApi,
+            _ => panel_proto::PythonSiteFramework::Generic,
+        };
+
+        let srv_str = settings
+            .get("server_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("gunicorn_wsgi");
+        let server_type = match srv_str {
+            "uvicorn_asgi" => panel_proto::PythonSiteServer::UvicornAsgi,
+            "gunicorn_uvicorn_worker" => panel_proto::PythonSiteServer::GunicornUvicornWorker,
+            _ => panel_proto::PythonSiteServer::GunicornWsgi,
+        };
+
+        let ep_type = settings
+            .get("entrypoint_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("wsgi");
+        let ep_val = settings
+            .get("entrypoint_value")
+            .or_else(|| settings.get("entrypoint"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("app:app")
+            .to_string();
+
+        let entrypoint = match ep_type {
+            "asgi" => panel_proto::PythonSiteEntrypoint::Asgi(ep_val),
+            "custom" => panel_proto::PythonSiteEntrypoint::CustomCommand(ep_val),
+            _ => panel_proto::PythonSiteEntrypoint::Wsgi(ep_val),
+        };
+
+        let workers = settings
+            .get("workers")
+            .and_then(|v| v.as_u64())
+            .map(|w| w as u32)
+            .unwrap_or(3);
+
+        let mut env_vars = std::collections::BTreeMap::new();
+        if let Some(env_obj) = settings.get("env_vars").and_then(|v| v.as_object()) {
+            for (k, v) in env_obj {
+                if let Some(val_str) = v.as_str() {
+                    env_vars.insert(k.clone(), val_str.to_string());
+                }
+            }
+        }
+
+        let auto_restart = settings
+            .get("auto_restart")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let py_apply_req = panel_proto::PythonSiteApplyRequest {
+            site_id: format!("site_{}", site.id),
+            username: linux_uname.to_string(),
+            uid: user.linux_uid.unwrap_or(user.id) as u32,
+            python_version: py_ver,
+            app_dir,
+            venv_dir,
+            socket_path,
+            framework,
+            server_type,
+            entrypoint,
+            workers,
+            env_vars,
+            auto_restart,
+            env_file_path: None,
+            unit_path: None,
+            base_runtime_dir: None,
+        };
+
+        let _ = state.agent_client.apply_python_site(py_apply_req).await;
+    }
+
     Ok(())
 }
 
@@ -665,11 +913,12 @@ pub async fn create_static_site_handler(
         .unwrap_or(target_user.username.as_str());
     let is_php = payload.kind.as_deref() == Some("php");
     let is_nodejs = payload.kind.as_deref() == Some("nodejs");
+    let is_python = payload.kind.as_deref() == Some("python");
     let preset_str = payload.preset.as_deref().unwrap_or("generic");
     let preset = PhpPreset::parse(preset_str).unwrap_or(PhpPreset::Generic);
 
     let docroot = payload.docroot.unwrap_or_else(|| {
-        if is_nodejs {
+        if is_nodejs || is_python {
             format!("/home/{linux_uname}/sites/{ascii_domain}/app")
         } else {
             format!("/home/{linux_uname}/sites/{ascii_domain}/public")
@@ -744,6 +993,75 @@ pub async fn create_static_site_handler(
         );
         settings_map.insert("auto_restart".to_string(), serde_json::json!(auto_restart));
         settings_map.insert("env_vars".to_string(), serde_json::json!(env_vars));
+    } else if is_python {
+        let py_ver = payload
+            .python_version
+            .clone()
+            .unwrap_or_else(|| "3.12.9".to_string());
+        let fw_preset = payload
+            .framework
+            .clone()
+            .unwrap_or_else(|| "generic".to_string());
+        let srv_type = payload.server_type.clone().unwrap_or_else(|| {
+            if fw_preset == "fastapi" {
+                "uvicorn_asgi".to_string()
+            } else {
+                "gunicorn_wsgi".to_string()
+            }
+        });
+        let ep_type = payload.entrypoint_type.clone().unwrap_or_else(|| {
+            if srv_type.contains("asgi") {
+                "asgi".to_string()
+            } else {
+                "wsgi".to_string()
+            }
+        });
+        let ep_val = payload
+            .entrypoint_value
+            .clone()
+            .unwrap_or_else(|| match fw_preset.as_str() {
+                "django" => "wsgi:application".to_string(),
+                "fastapi" => "main:app".to_string(),
+                _ => "app:app".to_string(),
+            });
+        let app_dir = payload.app_dir.clone().unwrap_or_else(|| docroot.clone());
+        let venv_dir = payload
+            .venv_dir
+            .clone()
+            .unwrap_or_else(|| format!("{}/.venv", app_dir));
+        let workers = payload.workers.unwrap_or(3);
+        let auto_restart = payload.auto_restart.unwrap_or(true);
+        let env_vars = payload.env_vars.clone().unwrap_or_default();
+
+        settings_map.insert("python_version".to_string(), serde_json::json!(py_ver));
+        settings_map.insert("framework_preset".to_string(), serde_json::json!(fw_preset));
+        settings_map.insert("server_type".to_string(), serde_json::json!(srv_type));
+        settings_map.insert("entrypoint_type".to_string(), serde_json::json!(ep_type));
+        settings_map.insert("entrypoint_value".to_string(), serde_json::json!(ep_val));
+        settings_map.insert("workers".to_string(), serde_json::json!(workers));
+        settings_map.insert("app_dir".to_string(), serde_json::json!(app_dir));
+        settings_map.insert("venv_dir".to_string(), serde_json::json!(venv_dir));
+        settings_map.insert("auto_restart".to_string(), serde_json::json!(auto_restart));
+        settings_map.insert("env_vars".to_string(), serde_json::json!(env_vars));
+
+        if fw_preset == "django" {
+            settings_map.insert("static_url".to_string(), serde_json::json!("/static/"));
+            settings_map.insert(
+                "static_dir".to_string(),
+                serde_json::json!(format!("{}/static", app_dir)),
+            );
+            settings_map.insert("media_url".to_string(), serde_json::json!("/media/"));
+            settings_map.insert(
+                "media_dir".to_string(),
+                serde_json::json!(format!("{}/media", app_dir)),
+            );
+        } else if fw_preset == "flask" {
+            settings_map.insert("static_url".to_string(), serde_json::json!("/static/"));
+            settings_map.insert(
+                "static_dir".to_string(),
+                serde_json::json!(format!("{}/static", app_dir)),
+            );
+        }
     }
     let settings = serde_json::Value::Object(settings_map);
 
@@ -754,6 +1072,8 @@ pub async fn create_static_site_handler(
             "php".to_string()
         } else if is_nodejs {
             "nodejs".to_string()
+        } else if is_python {
+            "python".to_string()
         } else {
             "static".to_string()
         },
@@ -762,6 +1082,8 @@ pub async fn create_static_site_handler(
             Some("php".to_string())
         } else if is_nodejs {
             Some("nodejs".to_string())
+        } else if is_python {
+            Some("python".to_string())
         } else {
             Some("none".to_string())
         },
@@ -773,6 +1095,13 @@ pub async fn create_static_site_handler(
                     .node_version
                     .clone()
                     .unwrap_or_else(|| "22.14.0".to_string()),
+            )
+        } else if is_python {
+            Some(
+                payload
+                    .python_version
+                    .clone()
+                    .unwrap_or_else(|| "3.12.9".to_string()),
             )
         } else {
             Some("none".to_string())
@@ -820,6 +1149,8 @@ pub async fn create_static_site_handler(
         render_php_placeholder(&unicode_domain, &php_version, preset.as_str())
     } else if is_nodejs {
         render_nodejs_placeholder(&unicode_domain)
+    } else if is_python {
+        render_python_placeholder(&unicode_domain)
     } else {
         render_placeholder_html(&unicode_domain)
     };
@@ -1792,6 +2123,37 @@ const server = http.createServer((req, res) => {{
 server.listen(port, '127.0.0.1', () => {{
     console.log(`Server listening on port ${{port}}`);
 }});
+"#
+    )
+}
+
+fn render_python_placeholder(domain: &str) -> String {
+    format!(
+        r#"def app(environ, start_response):
+    status = '200 OK'
+    response_headers = [('Content-Type', 'text/html; charset=utf-8')]
+    start_response(status, response_headers)
+    return [b"""<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Situs Python Aktif - {domain}</title>
+    <style>
+        body {{ font-family: system-ui, sans-serif; background: #0b0f19; color: #f1f5f9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
+        .card {{ background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.1); border-radius: 1rem; padding: 2.5rem; text-align: center; max-width: 32rem; }}
+        .badge {{ display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.85rem; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.875rem; margin-bottom: 1rem; }}
+        h1 {{ font-size: 1.75rem; margin: 0 0 0.5rem 0; }}
+        p {{ color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="badge"><span>●</span> Python WSGI Berjalan</div>
+        <h1>{domain}</h1>
+        <p>Aplikasi Python Anda aktif berjalan di Nusa Panel via Unix domain socket.</p>
+    </div>
+</body>
+</html>"""]
 "#
     )
 }

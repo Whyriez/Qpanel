@@ -30,6 +30,8 @@ import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
 import { PhpStatusCard } from '../components/sites/PhpStatusCard';
 import { NodeStatusCard } from '../components/sites/NodeStatusCard';
 import { NodeSettingsCard } from '../components/sites/NodeSettingsCard';
+import { PythonStatusCard } from '../components/sites/PythonStatusCard';
+import { PythonSettingsCard } from '../components/sites/PythonSettingsCard';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useTranslation } from 'react-i18next';
 import {
@@ -68,7 +70,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'node' | 'settings';
+type TabType = 'overview' | 'domains' | 'files' | 'ssl' | 'logs' | 'php' | 'node' | 'python' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -759,6 +761,20 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           </button>
         )}
 
+        {(site.kind === 'python' || site.runtime === 'python') && (
+          <button
+            onClick={() => setActiveTab('python')}
+            className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+              activeTab === 'python'
+                ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+                : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+            }`}
+          >
+            <Terminal className="w-4 h-4" />
+            Aplikasi Python
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('settings')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
@@ -920,6 +936,11 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {/* Node.js Live Process Status Card on Overview */}
           {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
             <NodeStatusCard siteId={site.id} />
+          )}
+
+          {/* Python Live Process Status Card on Overview */}
+          {(site.kind === 'python' || site.runtime === 'python') && (
+            <PythonStatusCard siteId={site.id} />
           )}
 
           {/* Details Table */}
@@ -1367,6 +1388,21 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         <div className="space-y-6">
           <NodeStatusCard siteId={site.id} />
           <NodeSettingsCard
+            siteId={site.id}
+            onSaved={() => {
+              loadSiteData();
+            }}
+          />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5c: PYTHON PROCESS & CONFIGURATION                                */}
+      {/* ===================================================================== */}
+      {activeTab === 'python' && (site.kind === 'python' || site.runtime === 'python') && (
+        <div className="space-y-6">
+          <PythonStatusCard siteId={site.id} />
+          <PythonSettingsCard
             siteId={site.id}
             onSaved={() => {
               loadSiteData();

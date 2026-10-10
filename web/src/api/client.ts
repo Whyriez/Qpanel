@@ -1083,3 +1083,93 @@ export async function updateNodeSiteSettings(
     }
   );
 }
+
+// Python Runtime & Site Management Client APIs (Phase 7 - P7-T3)
+export async function getPythonVersions(
+  refresh?: boolean
+): Promise<import('../types/api').PythonVersionSummaryDto[]> {
+  const qs = refresh ? '?refresh=true' : '';
+  const res = await request<import('../types/api').PythonRuntimeListApiResponse>(
+    `/api/v1/runtimes/python${qs}`
+  );
+  return res.versions;
+}
+
+export async function installPythonVersion(
+  payload: { version: string }
+): Promise<{ success: boolean; message: string; version: string }> {
+  return request<{ success: boolean; message: string; version: string }>(
+    '/api/v1/runtimes/python',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function removePythonVersion(
+  version: string
+): Promise<{ success: boolean; message: string; version: string }> {
+  return request<{ success: boolean; message: string; version: string }>(
+    `/api/v1/runtimes/python/${encodeURIComponent(version)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function getPythonSiteStatus(
+  siteId: number
+): Promise<import('../types/api').PythonSiteStatusApiResponse> {
+  return request<import('../types/api').PythonSiteStatusApiResponse>(
+    `/api/v1/sites/${siteId}/python/status`
+  );
+}
+
+export async function postPythonSiteAction(
+  siteId: number,
+  payload: import('../types/api').PythonSiteActionApiRequest
+): Promise<{ success: boolean; message: string }> {
+  return request<{ success: boolean; message: string }>(
+    `/api/v1/sites/${siteId}/python/action`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function runPythonSiteJob(
+  siteId: number,
+  payload: import('../types/api').PythonSiteJobApiRequest
+): Promise<import('../types/api').PythonSiteJobApiResponse> {
+  return request<import('../types/api').PythonSiteJobApiResponse>(
+    `/api/v1/sites/${siteId}/python/job`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getPythonSiteSettings(
+  siteId: number
+): Promise<import('../types/api').PythonSiteSettingsDto> {
+  return request<import('../types/api').PythonSiteSettingsDto>(
+    `/api/v1/sites/${siteId}/python/settings`
+  );
+}
+
+export async function updatePythonSiteSettings(
+  siteId: number,
+  payload: import('../types/api').UpdatePythonSiteSettingsRequest
+): Promise<import('../types/api').PythonSiteSettingsDto> {
+  return request<import('../types/api').PythonSiteSettingsDto>(
+    `/api/v1/sites/${siteId}/python/settings`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+

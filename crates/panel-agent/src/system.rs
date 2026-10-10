@@ -41,6 +41,13 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "npm",
     "pnpm",
     "yarn",
+    "uv",
+    "/usr/local/bin/uv",
+    "/usr/bin/uv",
+    "python",
+    "python3",
+    "gunicorn",
+    "uvicorn",
     "systemd-run",
 ];
 

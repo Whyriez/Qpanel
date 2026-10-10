@@ -182,6 +182,8 @@
       "phpDesc": "Akan tersedia pada Fase 4 dengan PHP-FPM terisolasi",
       "nodeTitle": "Node.js Application",
       "nodeDesc": "Aplikasi Node.js mandiri dengan systemd unit terisolasi, port lokal, dan reverse proxy otomatis",
+      "pythonTitle": "Aplikasi Python (uv + venv)",
+      "pythonDesc": "WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket & isolasi tenant slice",
       "domainLabel": "Domain Utama",
       "domainHelp": "Mendukung IDN / domain internasional (otomatis dikonversi ke Punycode)",
       "spaFallbackLabel": "Aktifkan Fallback SPA",
@@ -240,6 +242,11 @@
       "saveSettings": "Simpan Pengaturan",
       "savingSettings": "Menyimpan...",
       "settingsSaved": "Pengaturan Node.js berhasil diperbarui"
+    },
+    "python": {
+      "tabTitle": "Aplikasi Python",
+      "cardTitle": "Status Layanan Python (uv + venv)",
+      "settingsTitle": "Pengaturan Aplikasi Python (uv + venv)"
     },
     "detail": {
       "backToList": "Kembali ke Daftar Situs",

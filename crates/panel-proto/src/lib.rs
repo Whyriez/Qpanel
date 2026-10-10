@@ -123,6 +123,14 @@ pub enum RequestPayload {
     NodeSiteAction(NodeSiteActionRequest),
     NodeSiteStatus(NodeSiteStatusRequest),
     NodeSiteJob(NodeSiteJobRequest),
+    PythonRuntimeList(PythonRuntimeListRequest),
+    PythonRuntimeInstall(PythonRuntimeInstallRequest),
+    PythonRuntimeRemove(PythonRuntimeRemoveRequest),
+    PythonSiteApply(PythonSiteApplyRequest),
+    PythonSiteRemove(PythonSiteRemoveRequest),
+    PythonSiteAction(PythonSiteActionRequest),
+    PythonSiteStatus(PythonSiteStatusRequest),
+    PythonSiteJob(PythonSiteJobRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -307,6 +315,14 @@ pub enum ResponsePayload {
     NodeSiteAction(NodeSiteActionResponse),
     NodeSiteStatus(NodeSiteStatusResponse),
     NodeSiteJob(NodeSiteJobResponse),
+    PythonRuntimeList(PythonRuntimeListResponse),
+    PythonRuntimeInstalled(PythonRuntimeActionResponse),
+    PythonRuntimeRemoved(PythonRuntimeActionResponse),
+    PythonSiteApplied(PythonSiteApplyResponse),
+    PythonSiteRemoved(PythonSiteActionResponse),
+    PythonSiteAction(PythonSiteActionResponse),
+    PythonSiteStatus(PythonSiteStatusResponse),
+    PythonSiteJob(PythonSiteJobResponse),
     Error(String),
 }
 
@@ -1531,6 +1547,193 @@ pub struct NodeSiteJobResponse {
     pub duration_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonInstalledVersionDto {
+    pub version: String,
+    pub install_path: String,
+    pub bin_path: String,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonRuntimeListRequest {
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonRuntimeListResponse {
+    pub installed: Vec<PythonInstalledVersionDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonRuntimeInstallRequest {
+    pub version: String,
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonRuntimeRemoveRequest {
+    pub version: String,
+    pub base_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonRuntimeActionResponse {
+    pub version: String,
+    pub success: bool,
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PythonSiteFramework {
+    Django,
+    Flask,
+    FastApi,
+    #[default]
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PythonSiteServer {
+    #[default]
+    GunicornWsgi,
+    UvicornAsgi,
+    GunicornUvicornWorker,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum PythonSiteEntrypoint {
+    Wsgi(String),
+    Asgi(String),
+    CustomCommand(String),
+}
+
+impl Default for PythonSiteEntrypoint {
+    fn default() -> Self {
+        Self::Wsgi("app:app".to_string())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteApplyRequest {
+    pub site_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub python_version: String,
+    pub app_dir: String,
+    pub venv_dir: String,
+    pub socket_path: String,
+    pub framework: PythonSiteFramework,
+    pub server_type: PythonSiteServer,
+    pub entrypoint: PythonSiteEntrypoint,
+    pub workers: u32,
+    pub env_vars: std::collections::BTreeMap<String, String>,
+    pub auto_restart: bool,
+    pub env_file_path: Option<String>,
+    pub unit_path: Option<String>,
+    pub base_runtime_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteApplyResponse {
+    pub site_id: String,
+    pub service_name: String,
+    pub unit_path: String,
+    pub env_path: String,
+    pub socket_path: String,
+    pub active: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteRemoveRequest {
+    pub site_id: String,
+    pub socket_path: Option<String>,
+    pub unit_path: Option<String>,
+    pub env_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PythonSiteActionType {
+    Start,
+    Stop,
+    Restart,
+    Redeploy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteActionRequest {
+    pub site_id: String,
+    pub action: PythonSiteActionType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteActionResponse {
+    pub site_id: String,
+    pub action: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteStatusRequest {
+    pub site_id: String,
+    pub socket_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteStatusResponse {
+    pub site_id: String,
+    pub service_name: String,
+    pub active: bool,
+    pub sub_state: String,
+    pub pid: Option<u32>,
+    pub memory_bytes: Option<u64>,
+    pub cpu_usage_usec: Option<u64>,
+    pub uptime_secs: Option<u64>,
+    pub socket_exists: bool,
+    pub healthy: bool,
+    pub probe_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PythonSiteJobType {
+    UvVenvCreate,
+    UvPipInstallRequirements { req_file: Option<String> },
+    UvPipInstallPyproject,
+    CustomScript { script_name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteJobRequest {
+    pub site_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub python_version: String,
+    pub app_dir: String,
+    pub venv_dir: String,
+    pub job_type: PythonSiteJobType,
+    pub timeout_secs: Option<u64>,
+    pub base_runtime_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PythonSiteJobResponse {
+    pub site_id: String,
+    pub command: String,
+    pub exit_code: i32,
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -2334,5 +2537,74 @@ mod tests {
         let s_site_job = serde_json::to_string(&req_site_job).unwrap();
         let de_site_job: RpcRequest = serde_json::from_str(&s_site_job).unwrap();
         assert_eq!(req_site_job, de_site_job);
+
+        // Python Proto Serialization Tests
+        let mut py_env = std::collections::BTreeMap::new();
+        py_env.insert(
+            "DJANGO_SETTINGS_MODULE".to_string(),
+            "mysite.settings".to_string(),
+        );
+        let req_py_apply = RpcRequest::new(
+            "py-apply-1",
+            RequestPayload::PythonSiteApply(PythonSiteApplyRequest {
+                site_id: "site_py42".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                python_version: "3.12.9".to_string(),
+                app_dir: "/home/p_alice/sites/django.test/app".to_string(),
+                venv_dir: "/home/p_alice/sites/django.test/.venv".to_string(),
+                socket_path: "/run/panel/python/site_py42.sock".to_string(),
+                framework: PythonSiteFramework::Django,
+                server_type: PythonSiteServer::GunicornWsgi,
+                entrypoint: PythonSiteEntrypoint::Wsgi("mysite.wsgi:application".to_string()),
+                workers: 3,
+                env_vars: py_env,
+                auto_restart: true,
+                env_file_path: None,
+                unit_path: None,
+                base_runtime_dir: None,
+            }),
+        );
+        let s_py_apply = serde_json::to_string(&req_py_apply).unwrap();
+        let de_py_apply: RpcRequest = serde_json::from_str(&s_py_apply).unwrap();
+        assert_eq!(req_py_apply, de_py_apply);
+
+        let res_py_status = RpcResponse::ok(
+            "py-status-1",
+            ResponsePayload::PythonSiteStatus(PythonSiteStatusResponse {
+                site_id: "site_py42".to_string(),
+                service_name: "site-site_py42.service".to_string(),
+                active: true,
+                sub_state: "running".to_string(),
+                pid: Some(54321),
+                memory_bytes: Some(128 * 1024 * 1024),
+                cpu_usage_usec: Some(250_000),
+                uptime_secs: Some(7200),
+                socket_exists: true,
+                healthy: true,
+                probe_message: Some("Socket probe OK".to_string()),
+            }),
+        );
+        let s_py_status = serde_json::to_string(&res_py_status).unwrap();
+        let de_py_status: RpcResponse = serde_json::from_str(&s_py_status).unwrap();
+        assert_eq!(res_py_status, de_py_status);
+
+        let req_py_job = RpcRequest::new(
+            "py-job-1",
+            RequestPayload::PythonSiteJob(PythonSiteJobRequest {
+                site_id: "site_py42".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                python_version: "3.12.9".to_string(),
+                app_dir: "/home/p_alice/sites/django.test/app".to_string(),
+                venv_dir: "/home/p_alice/sites/django.test/.venv".to_string(),
+                job_type: PythonSiteJobType::UvPipInstallRequirements { req_file: None },
+                timeout_secs: Some(300),
+                base_runtime_dir: None,
+            }),
+        );
+        let s_py_job = serde_json::to_string(&req_py_job).unwrap();
+        let de_py_job: RpcRequest = serde_json::from_str(&s_py_job).unwrap();
+        assert_eq!(req_py_job, de_py_job);
     }
 }

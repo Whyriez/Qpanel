@@ -32,7 +32,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const { user } = useAuth();
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [siteType, setSiteType] = useState<'static' | 'php' | 'node'>('static');
+  const [siteType, setSiteType] = useState<'static' | 'php' | 'node' | 'python'>('static');
   const [domain, setDomain] = useState('');
   const [spaFallback, setSpaFallback] = useState(false);
   const [forceHttps, setForceHttps] = useState(true);
@@ -42,6 +42,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const [nodeVersion, setNodeVersion] = useState<string>('22.14.0');
   const [nodeEntrypoint, setNodeEntrypoint] = useState<string>('index.js');
   const [nodeEntrypointType, setNodeEntrypointType] = useState<string>('script');
+
+  // Python specific fields (Phase 7 - P7-T3)
+  const [pythonVersion, setPythonVersion] = useState<string>('3.12.9');
+  const [pythonFramework, setPythonFramework] = useState<string>('django');
+  const [pythonServer, setPythonServer] = useState<string>('gunicorn_wsgi');
+  const [pythonEntrypointType, setPythonEntrypointType] = useState<string>('wsgi');
+  const [pythonEntrypoint, setPythonEntrypoint] = useState<string>('myproject.wsgi:application');
+  const [pythonWorkers, setPythonWorkers] = useState<number>(3);
 
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
@@ -83,6 +91,27 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
   const tenantSlug = selectedTenant?.linux_username || (selectedTenant ? `p_${selectedTenant.username}` : 'p_<slug>');
   const docrootPreview = `/home/${tenantSlug}/sites/${domain.trim() || '<domain>'}/public`;
+
+  const handlePythonFrameworkChange = (preset: string) => {
+    setPythonFramework(preset);
+    if (preset === 'django') {
+      setPythonServer('gunicorn_wsgi');
+      setPythonEntrypointType('wsgi');
+      setPythonEntrypoint('myproject.wsgi:application');
+    } else if (preset === 'flask') {
+      setPythonServer('gunicorn_wsgi');
+      setPythonEntrypointType('wsgi');
+      setPythonEntrypoint('app:app');
+    } else if (preset === 'fastapi') {
+      setPythonServer('uvicorn_asgi');
+      setPythonEntrypointType('asgi');
+      setPythonEntrypoint('main:app');
+    } else {
+      setPythonServer('gunicorn_wsgi');
+      setPythonEntrypointType('wsgi');
+      setPythonEntrypoint('app:app');
+    }
+  };
 
   const handleNextStep1 = () => {
     setErrorMessage(null);
@@ -129,6 +158,16 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
             version: nodeVersion,
             entrypoint: nodeEntrypoint.trim() || undefined,
             entrypoint_type: nodeEntrypointType,
+          }
+        : siteType === 'python'
+        ? {
+            runtime: 'python',
+            version: pythonVersion,
+            framework: pythonFramework,
+            server_type: pythonServer,
+            entrypoint: pythonEntrypoint.trim() || undefined,
+            entrypoint_type: pythonEntrypointType,
+            workers: pythonWorkers,
           }
         : {}),
     };
@@ -293,6 +332,29 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                     {t('sites.wizard.nodeDesc')}
                   </p>
                 </div>
+
+                {/* Python Application (Available in Phase 7 - P7-T3) */}
+                <div
+                  onClick={() => setSiteType('python')}
+                  className={`cursor-pointer p-4 rounded-[var(--radius-md)] border transition-all ${
+                    siteType === 'python'
+                      ? 'border-[var(--primary)] bg-[var(--primary)]/5 shadow-xs'
+                      : 'border-[var(--line)] bg-[var(--raised)] hover:border-[var(--ink-muted)]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Terminal className="w-5 h-5 text-[var(--primary)]" />
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
+                      Tersedia
+                    </span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
+                    Aplikasi Python (uv + venv)
+                  </h3>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket &amp; isolasi tenant slice.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -374,6 +436,93 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
 
                   <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
                     Port lokal akan dialokasikan otomatis secara unik dalam rentang 20000 - 29999 dan diproxy oleh Nginx.
+                  </div>
+                </div>
+              )}
+
+              {/* Python Specific Options (Phase 7 - P7-T3) */}
+              {siteType === 'python' && (
+                <div className="pt-2 space-y-3 border-t border-[var(--line)]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Versi Python (uv)
+                      </label>
+                      <select
+                        value={pythonVersion}
+                        onChange={(e) => setPythonVersion(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="3.12.9">Python 3.12.9 (Default / Stabil)</option>
+                        <option value="3.11.11">Python 3.11.11</option>
+                        <option value="3.10.16">Python 3.10.16</option>
+                        <option value="3.13.2">Python 3.13.2</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Preset Framework
+                      </label>
+                      <select
+                        value={pythonFramework}
+                        onChange={(e) => handlePythonFrameworkChange(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="django">Django (WSGI + static/media)</option>
+                        <option value="flask">Flask (WSGI + static)</option>
+                        <option value="fastapi">FastAPI (ASGI)</option>
+                        <option value="generic">Generic (Kustom WSGI/ASGI)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Tipe Server
+                      </label>
+                      <select
+                        value={pythonServer}
+                        onChange={(e) => setPythonServer(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="gunicorn_wsgi">Gunicorn (WSGI)</option>
+                        <option value="uvicorn_asgi">Uvicorn (ASGI)</option>
+                        <option value="gunicorn_uvicorn_worker">Gunicorn + Uvicorn Worker</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                        Jumlah Worker
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={16}
+                        value={pythonWorkers}
+                        onChange={(e) => setPythonWorkers(parseInt(e.target.value, 10) || 1)}
+                        className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                      Entrypoint Modul &amp; Callable
+                    </label>
+                    <input
+                      type="text"
+                      value={pythonEntrypoint}
+                      onChange={(e) => setPythonEntrypoint(e.target.value)}
+                      placeholder="contoh: wsgi:application atau app:app atau main:app"
+                      className="w-full text-xs px-3 py-2 font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                    />
+                  </div>
+
+                  <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
+                    Situs akan terhubung ke backend via Unix domain socket di /run/panel/python/ dan diproxy oleh Nginx.
                   </div>
                 </div>
               )}
@@ -496,6 +645,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   <span className="font-semibold text-[var(--primary)]">
                     {siteType === 'node'
                       ? `Node.js Application (v${nodeVersion})`
+                      : siteType === 'python'
+                      ? `Python Application (${pythonFramework.toUpperCase()} &bull; v${pythonVersion})`
                       : siteType === 'php'
                       ? 'PHP (Multi-Versi)'
                       : 'Situs Statis (HTML/CSS/JS)'}
@@ -508,6 +659,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                       {nodeEntrypointType === 'npm_start'
                         ? 'npm start'
                         : `${nodeEntrypointType}: ${nodeEntrypoint}`}
+                    </span>
+                  </div>
+                )}
+                {siteType === 'python' && (
+                  <div className="flex items-center justify-between p-3">
+                    <span className="text-[var(--ink-muted)]">Server &amp; Entrypoint:</span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">
+                      {pythonServer} &bull; {pythonEntrypoint}
                     </span>
                   </div>
                 )}

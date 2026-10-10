@@ -36,6 +36,12 @@ pub enum RuntimeError {
     #[error("Versi Node.js '{0}' tidak ditemukan")]
     NodeVersionNotFound(String),
 
+    #[error("Versi Python '{0}' tidak ditemukan atau tidak valid")]
+    PythonVersionNotFound(String),
+
+    #[error("Operasi uv gagal: {0}")]
+    UvExecutionFailed(String),
+
     #[error("Gagal mem-parse data JSON: {0}")]
     JsonParseFailed(String),
 }

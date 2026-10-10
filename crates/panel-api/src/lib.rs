@@ -10,6 +10,7 @@ pub mod node;
 pub mod node_site;
 pub mod php;
 pub mod plans;
+pub mod python_site;
 pub mod routes;
 pub mod sites;
 pub mod ssh;
@@ -389,6 +390,41 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/runtimes/node/{version}/corepack",
             post(node::enable_node_corepack_handler),
+        )
+        // Python runtime and site management (Phase 7 - P7-T3)
+        .route(
+            "/api/v1/runtimes/python",
+            get(python_site::list_python_versions_handler)
+                .post(python_site::install_python_version_handler),
+        )
+        .route(
+            "/api/v1/runtimes/python/versions",
+            get(python_site::list_python_versions_handler),
+        )
+        .route(
+            "/api/v1/runtimes/python/install",
+            post(python_site::install_python_version_handler),
+        )
+        .route(
+            "/api/v1/runtimes/python/{version}",
+            axum::routing::delete(python_site::remove_python_version_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/python/status",
+            get(python_site::get_python_site_status_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/python/action",
+            post(python_site::action_python_site_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/python/job",
+            post(python_site::run_python_site_job_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/python/settings",
+            get(python_site::get_python_site_settings_handler)
+                .put(python_site::update_python_site_settings_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

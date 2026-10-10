@@ -7,6 +7,7 @@ pub mod node;
 pub mod node_site;
 pub mod php;
 pub mod pty;
+pub mod python_site;
 pub mod quota;
 pub mod resource;
 pub mod slice;
@@ -669,6 +670,32 @@ impl AgentServer {
                     "node.site_job".to_string(),
                     format!("{}:{:?}", d.site_id, d.job_type),
                 ),
+                RequestPayload::PythonRuntimeList(_) => {
+                    ("python.runtime_list".to_string(), "host".to_string())
+                }
+                RequestPayload::PythonRuntimeInstall(d) => {
+                    ("python.runtime_install".to_string(), d.version.clone())
+                }
+                RequestPayload::PythonRuntimeRemove(d) => {
+                    ("python.runtime_remove".to_string(), d.version.clone())
+                }
+                RequestPayload::PythonSiteApply(d) => {
+                    ("python.site_apply".to_string(), d.site_id.clone())
+                }
+                RequestPayload::PythonSiteRemove(d) => {
+                    ("python.site_remove".to_string(), d.site_id.clone())
+                }
+                RequestPayload::PythonSiteAction(d) => (
+                    format!("python.site_{:?}", d.action).to_lowercase(),
+                    d.site_id.clone(),
+                ),
+                RequestPayload::PythonSiteStatus(d) => {
+                    ("python.site_status".to_string(), d.site_id.clone())
+                }
+                RequestPayload::PythonSiteJob(d) => (
+                    "python.site_job".to_string(),
+                    format!("{}:{:?}", d.site_id, d.job_type),
+                ),
             };
 
             let response = match req.payload {
@@ -1221,6 +1248,75 @@ impl AgentServer {
                     match node_site::run_node_site_job(self.runner.as_ref(), &data) {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::NodeSiteJob(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonRuntimeList(data) => {
+                    match python_site::list_python_runtimes(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PythonRuntimeList(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonRuntimeInstall(data) => {
+                    match python_site::install_python_runtime(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PythonRuntimeInstalled(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonRuntimeRemove(data) => {
+                    match python_site::remove_python_runtime(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PythonRuntimeRemoved(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonSiteApply(data) => {
+                    match python_site::apply_python_site(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PythonSiteApplied(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonSiteRemove(data) => {
+                    match python_site::remove_python_site(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::PythonSiteRemoved(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonSiteAction(data) => {
+                    match python_site::action_python_site(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PythonSiteAction(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonSiteStatus(data) => {
+                    match python_site::status_python_site(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PythonSiteStatus(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::PythonSiteJob(data) => {
+                    match python_site::run_python_site_job(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PythonSiteJob(res))
                         }
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

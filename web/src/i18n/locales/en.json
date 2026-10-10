@@ -182,6 +182,8 @@
       "phpDesc": "Available in Phase 4 with isolated PHP-FPM pools",
       "nodeTitle": "Node.js Application",
       "nodeDesc": "Standalone Node.js application with sandboxed systemd unit, dedicated local port, and reverse proxy",
+      "pythonTitle": "Python Application (uv + venv)",
+      "pythonDesc": "WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket & tenant slice isolation",
       "domainLabel": "Primary Domain",
       "domainHelp": "Supports internationalized domain names (IDN / Punycode automatically)",
       "spaFallbackLabel": "Enable SPA Fallback",
@@ -240,6 +242,11 @@
       "saveSettings": "Save Settings",
       "savingSettings": "Saving...",
       "settingsSaved": "Node.js settings updated successfully"
+    },
+    "python": {
+      "tabTitle": "Python Application",
+      "cardTitle": "Python Service Status (uv + venv)",
+      "settingsTitle": "Python Application Settings (uv + venv)"
     },
     "detail": {
       "backToList": "Back to Sites",

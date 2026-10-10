@@ -321,6 +321,14 @@ export interface CreateSiteRequest {
   entrypoint_type?: string;
   auto_restart?: boolean;
   env_vars?: Record<string, string>;
+  framework?: string;
+  server_type?: string;
+  workers?: number;
+  venv_dir?: string;
+  static_url?: string;
+  static_dir?: string;
+  media_url?: string;
+  media_dir?: string;
 }
 
 export interface AddDomainRequest {
@@ -712,3 +720,93 @@ export interface UpdateNodeSiteSettingsRequest {
   auto_restart?: boolean;
   env_vars?: Record<string, string>;
 }
+
+// Python Site & Process Management Types (Phase 7 - P7-T3)
+export interface PythonRuntimeListApiResponse {
+  versions: PythonVersionSummaryDto[];
+}
+
+export interface PythonVersionSummaryDto {
+  version: string;
+  major_minor: string;
+  release_date: string | null;
+  is_default: boolean;
+  is_lts_or_stable: boolean;
+  description: string;
+  is_installed: boolean;
+  install_path: string | null;
+  bin_path: string | null;
+}
+
+export interface PythonSiteStatusApiResponse {
+  site_id: string;
+  service_name: string;
+  active: boolean;
+  sub_state: string;
+  pid: number | null;
+  memory_bytes: number | null;
+  cpu_usage_usec: number | null;
+  uptime_secs: number | null;
+  socket_path: string;
+  socket_exists: boolean;
+  healthy: boolean;
+  probe_message: string | null;
+}
+
+export interface PythonSiteActionApiRequest {
+  action: 'start' | 'stop' | 'restart' | 'redeploy' | string;
+}
+
+export interface PythonSiteJobApiRequest {
+  job_type: 'uv_venv' | 'uv_pip_install' | 'uv_pip_pyproject' | 'custom' | string;
+  req_file?: string;
+  script_name?: string;
+  timeout_secs?: number;
+}
+
+export interface PythonSiteJobApiResponse {
+  site_id: number;
+  command: string;
+  exit_code: number;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+}
+
+export interface PythonSiteSettingsDto {
+  site_id: number;
+  python_version: string;
+  framework_preset: 'django' | 'flask' | 'fastapi' | 'generic' | string;
+  server_type: 'gunicorn_wsgi' | 'uvicorn_asgi' | 'gunicorn_uvicorn_worker' | string;
+  entrypoint_type: 'wsgi' | 'asgi' | 'custom' | string;
+  entrypoint_value: string;
+  workers: number;
+  app_dir: string;
+  venv_dir: string;
+  socket_path: string;
+  static_url: string | null;
+  static_dir: string | null;
+  media_url: string | null;
+  media_dir: string | null;
+  auto_restart: boolean;
+  env_vars: Record<string, string>;
+}
+
+export interface UpdatePythonSiteSettingsRequest {
+  python_version?: string;
+  framework_preset?: string;
+  server_type?: string;
+  entrypoint_type?: string;
+  entrypoint_value?: string;
+  workers?: number;
+  app_dir?: string;
+  venv_dir?: string;
+  static_url?: string;
+  static_dir?: string;
+  media_url?: string;
+  media_dir?: string;
+  auto_restart?: boolean;
+  env_vars?: Record<string, string>;
+}
+

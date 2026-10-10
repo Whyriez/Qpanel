@@ -30,16 +30,21 @@ use panel_proto::{
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
     PtyCloseRequest, PtyCloseResponse, PtyInputRequest, PtyInputResponse, PtyListRequest,
     PtyListResponse, PtyOpenRequest, PtyOpenResponse, PtyReadOutputRequest, PtyReadOutputResponse,
-    PtyResizeRequest, PtyResizeResponse, QuotaGetRequest, QuotaGetResponse, QuotaScanRequest,
-    QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload, ResourceReadRequest,
-    ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse, SiteApplyRequest,
-    SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse,
-    SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest,
-    SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics, SshDropinApplyRequest,
-    SshDropinApplyResponse, SshKeysSyncRequest, SshKeysSyncResponse, SshPolicyApplyRequest,
-    SshPolicyApplyResponse, SslCertDeployRequest, SslCertDeployedResponse, UserCreateRequest,
-    UserCreatedResponse, UserDeleteRequest, UserDeletedResponse, UserSuspendRequest,
-    UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
+    PtyResizeRequest, PtyResizeResponse, PythonRuntimeActionResponse, PythonRuntimeInstallRequest,
+    PythonRuntimeListRequest, PythonRuntimeListResponse, PythonRuntimeRemoveRequest,
+    PythonSiteActionRequest, PythonSiteActionResponse, PythonSiteApplyRequest,
+    PythonSiteApplyResponse, PythonSiteJobRequest, PythonSiteJobResponse, PythonSiteRemoveRequest,
+    PythonSiteStatusRequest, PythonSiteStatusResponse, QuotaGetRequest, QuotaGetResponse,
+    QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload,
+    ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse,
+    SiteApplyRequest, SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest,
+    SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse,
+    SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics,
+    SshDropinApplyRequest, SshDropinApplyResponse, SshKeysSyncRequest, SshKeysSyncResponse,
+    SshPolicyApplyRequest, SshPolicyApplyResponse, SslCertDeployRequest, SslCertDeployedResponse,
+    UserCreateRequest, UserCreatedResponse, UserDeleteRequest, UserDeletedResponse,
+    UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse,
+    VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -2589,6 +2594,246 @@ impl AgentClient {
             ResponsePayload::NodeSiteJob(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "NodeSiteJob",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn list_python_runtimes(
+        &self,
+        req: PythonRuntimeListRequest,
+    ) -> Result<PythonRuntimeListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-runtime-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonRuntimeList(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonRuntimeList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonRuntimeList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn install_python_runtime(
+        &self,
+        req: PythonRuntimeInstallRequest,
+    ) -> Result<PythonRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-runtime-install-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonRuntimeInstall(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonRuntimeInstalled(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonRuntimeInstalled",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_python_runtime(
+        &self,
+        req: PythonRuntimeRemoveRequest,
+    ) -> Result<PythonRuntimeActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-runtime-remove-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonRuntimeRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonRuntimeRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonRuntimeRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn apply_python_site(
+        &self,
+        req: PythonSiteApplyRequest,
+    ) -> Result<PythonSiteApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-site-apply-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonSiteApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonSiteApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonSiteApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn remove_python_site(
+        &self,
+        req: PythonSiteRemoveRequest,
+    ) -> Result<PythonSiteActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-site-remove-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonSiteRemove(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonSiteRemoved(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonSiteRemoved",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn action_python_site(
+        &self,
+        req: PythonSiteActionRequest,
+    ) -> Result<PythonSiteActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-site-action-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonSiteAction(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonSiteAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonSiteAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn status_python_site(
+        &self,
+        req: PythonSiteStatusRequest,
+    ) -> Result<PythonSiteStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-site-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonSiteStatus(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonSiteStatus(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonSiteStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn run_python_site_job(
+        &self,
+        req: PythonSiteJobRequest,
+    ) -> Result<PythonSiteJobResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "py-site-job-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::PythonSiteJob(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::PythonSiteJob(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "PythonSiteJob",
                 got: format!("{other:?}"),
             }),
         }
