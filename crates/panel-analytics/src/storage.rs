@@ -1607,6 +1607,56 @@ impl AnalyticsStorage {
         end_ts: i64,
         resolution: RollupResolution,
     ) -> Result<Vec<SiteMetricsRollup>, AnalyticsError> {
+        if matches!(
+            resolution,
+            RollupResolution::OneMinute | RollupResolution::Raw
+        ) {
+            let points = self
+                .query_site_metrics_1m(site_id, start_ts, end_ts)
+                .await?;
+            return Ok(points
+                .into_iter()
+                .map(|pt| SiteMetricsRollup {
+                    site_id: pt.site_id,
+                    bucket_ts: pt.bucket_ts,
+                    total_requests: pt.total_requests,
+                    total_bytes: pt.total_bytes,
+                    status_2xx: pt.status_2xx,
+                    status_3xx: pt.status_3xx,
+                    status_4xx: pt.status_4xx,
+                    status_5xx: pt.status_5xx,
+                    cache_hit: pt.cache_hit,
+                    cache_miss: pt.cache_miss,
+                    cache_bypass: pt.cache_bypass,
+                    cache_other: pt.cache_other,
+                    latency_p50_ms: pt.latency_p50_ms,
+                    latency_p95_ms: pt.latency_p95_ms,
+                    latency_p99_ms: pt.latency_p99_ms,
+                    latency_avg_ms: pt.latency_avg_ms,
+                    upstream_time_avg_ms: pt.upstream_time_avg_ms,
+                    unique_visitors: pt.unique_visitors,
+                    human_requests: pt.human_requests,
+                    bot_requests: pt.bot_requests,
+                    http_v1: pt.http_v1,
+                    http_v2: pt.http_v2,
+                    http_v3: pt.http_v3,
+                    tls_v12: pt.tls_v12,
+                    tls_v13: pt.tls_v13,
+                    tls_other: pt.tls_other,
+                    top_paths: pt.top_paths,
+                    top_referrers: pt.top_referrers,
+                    top_countries: pt.top_countries,
+                    top_browsers: pt.top_browsers,
+                    top_os: pt.top_os,
+                    top_devices: pt.top_devices,
+                    top_slow_urls: pt.top_slow_urls,
+                    top_error_urls: pt.top_error_urls,
+                    latency_buckets: pt.latency_buckets,
+                    sample_count: 1,
+                })
+                .collect());
+        }
+
         let table = match resolution {
             RollupResolution::OneHour => "site_metrics_1h",
             RollupResolution::OneDay => "site_metrics_1d",

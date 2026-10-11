@@ -19,6 +19,8 @@ panel-proto = { workspace = true }
 panel-db = { workspace = true }
 panel-webserver = { workspace = true }
 panel-runtime = { workspace = true }
+panel-analytics = { workspace = true }
+chrono = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
 axum = { workspace = true }
@@ -41,6 +43,7 @@ rcgen = { workspace = true }
 x509-parser = { workspace = true }
 time = { workspace = true }
 instant-acme = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
 panel-agent = { workspace = true }

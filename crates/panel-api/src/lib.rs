@@ -1,15 +1,21 @@
 pub mod admin;
 pub mod agent_client;
+pub mod analytics;
 pub mod audit;
 pub mod auth;
+pub mod backups;
 pub mod config;
 pub mod cron;
+pub mod databases;
 pub mod env_vars;
 pub mod files;
+pub mod git_deploy;
 pub mod jobs;
 pub mod logs;
+pub mod mail;
 pub mod node;
 pub mod node_site;
+pub mod notifications;
 pub mod php;
 pub mod plans;
 pub mod processes;
@@ -155,6 +161,14 @@ pub fn create_router(state: AppState) -> Router {
             get(sites::get_site_handler).delete(sites::delete_site_handler),
         )
         .route(
+            "/api/v1/sites/{id}/overview",
+            get(sites::get_site_overview_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/action",
+            post(sites::site_quick_action_handler),
+        )
+        .route(
             "/api/v1/sites/{id}/enable",
             post(sites::enable_site_handler),
         )
@@ -297,6 +311,36 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/rules/validate-snippet",
             post(site_rules::validate_snippet_handler),
+        )
+        // Git Deploy management endpoints (Phase 8 - P8-T4)
+        .route(
+            "/api/v1/sites/{id}/git",
+            get(git_deploy::get_git_config_handler).put(git_deploy::upsert_git_config_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/git/key/generate",
+            post(git_deploy::generate_deploy_key_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/git/deploy",
+            post(git_deploy::trigger_deploy_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/git/rollback",
+            post(git_deploy::rollback_deploy_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/git/deployments",
+            get(git_deploy::list_deployments_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/git/deployments/{deploy_id}",
+            get(git_deploy::get_deployment_detail_handler),
+        )
+        // Public webhook endpoint
+        .route(
+            "/api/v1/webhooks/deploy/{site_id}",
+            post(git_deploy::webhook_deploy_handler),
         )
         // Node.js site management endpoints
         .route(
@@ -496,6 +540,45 @@ pub fn create_router(state: AppState) -> Router {
         )
         // Unified application process management (Phase 7 - P7-T5)
         .route("/api/v1/processes", get(processes::list_processes_handler))
+        // Database management (Phase 8 - P8-T5)
+        .nest("/api/v1/databases", databases::router())
+        // Site backups & snapshot restore (Phase 8 - P8-T6)
+        .merge(backups::router())
+        // System notifications (Phase 8 - P8-T7)
+        .merge(notifications::router())
+        // Analytics & Metrics (Phase 9 - P9-T5)
+        .route(
+            "/api/v1/sites/{id}/analytics/overview",
+            get(analytics::get_site_analytics_overview_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/timeseries",
+            get(analytics::get_site_analytics_timeseries_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/breakdowns",
+            get(analytics::get_site_analytics_breakdowns_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/compare",
+            get(analytics::get_site_analytics_compare_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/export",
+            get(analytics::export_site_analytics_csv_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/app",
+            get(analytics::get_site_app_metrics_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/slowlog",
+            get(analytics::get_site_slowlog_handler),
+        )
+        .route(
+            "/api/v1/system/analytics/timeseries",
+            get(analytics::get_system_analytics_timeseries_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())

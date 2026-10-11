@@ -106,6 +106,14 @@ use panel_db::pool::DbPool;
         crate::node::install_node_version_handler,
         crate::node::remove_node_version_handler,
         crate::node::enable_node_corepack_handler,
+        crate::analytics::get_site_analytics_overview_handler,
+        crate::analytics::get_site_analytics_timeseries_handler,
+        crate::analytics::get_site_analytics_breakdowns_handler,
+        crate::analytics::get_site_analytics_compare_handler,
+        crate::analytics::get_site_app_metrics_handler,
+        crate::analytics::get_site_slowlog_handler,
+        crate::analytics::export_site_analytics_csv_handler,
+        crate::analytics::get_system_analytics_timeseries_handler,
     ),
     components(
         schemas(
@@ -216,6 +224,21 @@ use panel_db::pool::DbPool;
             crate::node_site::NodeSiteSettingsDto,
             crate::node_site::UpdateNodeSiteSettingsRequest,
             crate::node_site::NodeSiteStatusApiResponse,
+            crate::analytics::SiteAnalyticsSummaryDto,
+            crate::analytics::PeriodChangeDto,
+            crate::analytics::SiteAnalyticsOverviewResponse,
+            crate::analytics::SiteTimeseriesPointDto,
+            crate::analytics::SiteTimeseriesResponse,
+            crate::analytics::BreakdownItemDto,
+            crate::analytics::SiteBreakdownsResponse,
+            crate::analytics::PhpFpmPoolOverviewDto,
+            crate::analytics::AppProcessOverviewDto,
+            crate::analytics::SiteAppMetricsResponse,
+            crate::analytics::PhpSlowlogFrameDto,
+            crate::analytics::PhpSlowlogEntryDto,
+            crate::analytics::SiteSlowlogResponse,
+            crate::analytics::ServerTimeseriesPointDto,
+            crate::analytics::SystemTimeseriesResponse,
         )
     ),
     tags(
@@ -230,7 +253,8 @@ use panel_db::pool::DbPool;
         (name = "files", description = "File manager operations and trash management"),
         (name = "terminal", description = "Web terminal and PTY session endpoints"),
         (name = "ssh", description = "SSH public key management and validation"),
-        (name = "tenants", description = "Tenant lifecycle and resource management")
+        (name = "tenants", description = "Tenant lifecycle and resource management"),
+        (name = "analytics", description = "Deep traffic analytics, runtime metrics, and timeseries endpoints")
     ),
     info(
         title = "Nusa Panel API",
@@ -269,6 +293,7 @@ pub struct AppState {
     pub audit_writer: Arc<crate::audit::AuditWriter>,
     pub job_runner: Arc<crate::jobs::JobRunner>,
     pub terminal_hub: Arc<crate::terminal::TerminalHub>,
+    pub analytics_storage: Arc<tokio::sync::RwLock<Option<Arc<panel_analytics::AnalyticsStorage>>>>,
 }
 
 impl AppState {
@@ -289,6 +314,7 @@ impl AppState {
             crate::terminal::TerminalHub::new(Arc::clone(&agent_client))
                 .with_audit_writer(Arc::clone(&audit_writer)),
         );
+        let analytics_storage = Arc::new(tokio::sync::RwLock::new(None));
         Self {
             agent_client,
             pool,
@@ -298,7 +324,46 @@ impl AppState {
             audit_writer,
             job_runner,
             terminal_hub,
+            analytics_storage,
         }
+    }
+
+    /// Sets an explicit analytics storage instance (useful for hermetic tests).
+    pub fn with_analytics(self, storage: Arc<panel_analytics::AnalyticsStorage>) -> Self {
+        if let Ok(mut lock) = self.analytics_storage.try_write() {
+            *lock = Some(storage);
+        }
+        self
+    }
+
+    /// Retrieves or lazily connects to the analytics storage.
+    pub async fn get_analytics(
+        &self,
+    ) -> Result<Arc<panel_analytics::AnalyticsStorage>, (StatusCode, String)> {
+        {
+            let lock = self.analytics_storage.read().await;
+            if let Some(ref s) = *lock {
+                return Ok(Arc::clone(s));
+            }
+        }
+        let mut lock = self.analytics_storage.write().await;
+        if let Some(ref s) = *lock {
+            return Ok(Arc::clone(s));
+        }
+
+        let db_path =
+            std::env::var("PANEL_ANALYTICS_DB_PATH").unwrap_or_else(|_| "analytics.db".to_string());
+        let storage = panel_analytics::AnalyticsStorage::connect(&db_path)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Gagal menghubungkan database analitik: {e}"),
+                )
+            })?;
+        let arc_s = Arc::new(storage);
+        *lock = Some(Arc::clone(&arc_s));
+        Ok(arc_s)
     }
 }
 
