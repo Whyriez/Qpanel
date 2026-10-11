@@ -290,7 +290,7 @@ async fn test_node_site_port_allocation() {
     let port1 = allocate_node_site_port(&ctx.pool)
         .await
         .expect("allocate port 1");
-    assert!(port1 >= 20000 && port1 <= 29999);
+    assert!((20000..=29999).contains(&port1));
 
     // Insert dummy site using port1
     sqlx::query(
@@ -312,7 +312,7 @@ async fn test_node_site_port_allocation() {
         .await
         .expect("allocate port 2");
     assert_ne!(port1, port2);
-    assert!(port2 >= 20000 && port2 <= 29999);
+    assert!((20000..=29999).contains(&port2));
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::clone_on_ref_ptr)]
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};

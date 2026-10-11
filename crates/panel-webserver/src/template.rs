@@ -2901,6 +2901,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_ssrf_guard_rules() {
         // 1. Loopback addresses: allowed regardless of allow_external
         assert!(validate_reverse_proxy_upstream_url("http://127.0.0.1:3000", false).is_ok());

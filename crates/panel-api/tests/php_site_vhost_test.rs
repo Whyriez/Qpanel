@@ -264,6 +264,7 @@ async fn test_create_php_site_generic_preset_and_vhost() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -319,6 +320,7 @@ async fn test_create_php_site_wordpress_preset_security_rules() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -370,6 +372,7 @@ async fn test_create_php_site_laravel_preset_routing() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -417,6 +420,7 @@ async fn test_create_php_site_custom_front_controller() {
         spa_fallback: None,
         force_https: None,
         docroot: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -463,6 +467,7 @@ async fn test_create_php_site_with_fastcgi_cache() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -514,6 +519,7 @@ async fn test_php_site_domain_redirects_and_recompile() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -584,6 +590,7 @@ async fn test_delete_php_site_removes_vhost() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()

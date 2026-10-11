@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use panel_cli::{
     BenchmarkComparison, BenchmarkOptions, BenchmarkRunResult, BenchmarkTarget, BenchmarkTool,
     LatencyDistribution, MeasuredSystemMetrics, TuningProfile, export_results_to_json,
@@ -233,7 +235,7 @@ fn test_markdown_and_json_report_generation() {
     };
     let target_rep = validate_non_functional_targets(&metrics);
 
-    let md = generate_markdown_report(&[run.clone()], &[], Some(&target_rep));
+    let md = generate_markdown_report(std::slice::from_ref(&run), &[], Some(&target_rep));
     assert!(
         md.contains("# Laporan Benchmark &amp; Validasi Kinerja Nusa Panel")
             || md.contains("# Laporan Benchmark")
@@ -261,11 +263,11 @@ async fn test_builtin_http_benchmark_mock_server() {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
                 let mut buf = [0u8; 1024];
-                if let Ok(n) = socket.read(&mut buf).await {
-                    if n > 0 {
-                        let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
-                        let _ = socket.write_all(response.as_bytes()).await;
-                    }
+                if let Ok(n) = socket.read(&mut buf).await
+                    && n > 0
+                {
+                    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 13\r\nConnection: close\r\n\r\nHello, World!";
+                    let _ = socket.write_all(response.as_bytes()).await;
                 }
             });
         }

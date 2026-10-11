@@ -7,6 +7,7 @@ use crate::error::AnalyticsError;
 use crate::models::PhpFpmPoolMetricPoint;
 use panel_proto::PhpFpmStatusMetrics;
 use std::path::Path;
+#[cfg(not(unix))]
 use tracing::warn;
 
 /// FastCGI record types

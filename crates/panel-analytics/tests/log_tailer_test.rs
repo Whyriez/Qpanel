@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::clone_on_ref_ptr)]
+
 use panel_analytics::{
     AnalyticsStorage, LogFileTailer, LogTailerEngine, NginxJsonLog, SiteAttributor,
     TailerEngineConfig,

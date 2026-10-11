@@ -414,10 +414,12 @@ mod tests {
 
     #[test]
     fn test_manifest_serialization() {
-        let mut manifest = BackupManifest::default();
-        manifest.site_id = 42;
-        manifest.primary_domain = "blog.example.com".to_string();
-        manifest.created_at = 1700000000;
+        let mut manifest = BackupManifest {
+            site_id: 42,
+            primary_domain: "blog.example.com".to_string(),
+            created_at: 1700000000,
+            ..Default::default()
+        };
         manifest.databases.push(BackupDatabaseManifestEntry {
             engine: "mariadb".to_string(),
             name: "p_alice_blog".to_string(),

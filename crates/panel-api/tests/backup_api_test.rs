@@ -234,6 +234,7 @@ async fn setup_test_context() -> TestContext {
         terminal_hub: Arc::new(panel_api::terminal::TerminalHub::new(Arc::clone(
             &agent_client,
         ))),
+        analytics_storage: Arc::new(tokio::sync::RwLock::new(None)),
     };
 
     let app = create_router(state);

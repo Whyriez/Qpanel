@@ -274,6 +274,7 @@ async fn test_switch_php_version_success_without_downtime() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -362,6 +363,7 @@ async fn test_switch_php_version_automatic_rollback_on_health_check_failure() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -457,6 +459,7 @@ async fn test_switch_php_version_validation_errors() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req = Request::builder()
@@ -510,6 +513,7 @@ async fn test_switch_php_version_validation_errors() {
         force_https: None,
         docroot: None,
         custom_entry_file: None,
+        ..Default::default()
     };
 
     let req_php = Request::builder()

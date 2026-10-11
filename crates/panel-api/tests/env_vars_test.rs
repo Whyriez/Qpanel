@@ -1,4 +1,8 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::bool_assert_comparison
+)]
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};

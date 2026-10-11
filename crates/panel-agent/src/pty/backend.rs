@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 //! Low-level PTY allocation and process execution backend.
 //!
 //! Provides the underlying OS pseudo-terminal interface:
@@ -291,8 +293,6 @@ impl PtyBackend for UnixPtyBackend {
             .map_err(|e| AgentError::InvalidInput(format!("Invalid shell: {e}")))?;
         let c_user = CString::new(config.username.as_bytes())
             .map_err(|e| AgentError::InvalidInput(format!("Invalid username: {e}")))?;
-        let c_term = CString::new(config.term.as_bytes())
-            .map_err(|e| AgentError::InvalidInput(format!("Invalid term: {e}")))?;
 
         // Prepare environment variables
         let env_home = CString::new(format!("HOME=/home/{}", config.username)).map_err(|_| {
@@ -336,6 +336,7 @@ impl PtyBackend for UnixPtyBackend {
 
         if pid < 0 {
             let err = std::io::Error::last_os_error();
+            #[allow(unsafe_code)]
             unsafe {
                 libc::close(master_fd);
                 libc::close(slave_fd);

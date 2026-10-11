@@ -133,6 +133,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: Some("64M".to_string()),
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let rendered = renderer.render_php(&ctx).expect("render wordpress vhost");
@@ -187,6 +188,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: Some("32M".to_string()),
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let rendered = renderer.render_php(&ctx).expect("render laravel vhost");
@@ -234,6 +236,7 @@ mod tests {
             custom_entry_file: None,
             upload_max_size: Some("16M".to_string()),
             fastcgi_cache: None,
+            site_rules_block: None,
         };
 
         let rendered = renderer.render_php(&ctx).expect("render generic vhost");

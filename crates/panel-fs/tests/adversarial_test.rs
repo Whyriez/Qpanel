@@ -259,8 +259,10 @@ fn test_directory_operations_and_pagination() {
     assert!(!list_no_hidden.entries.iter().any(|e| e.name == ".env"));
 
     // List with hidden files
-    let mut opts_hidden = ListOptions::default();
-    opts_hidden.show_hidden = true;
+    let opts_hidden = ListOptions {
+        show_hidden: true,
+        ..Default::default()
+    };
     let list_hidden = fs
         .list_dir("sites/example.com/public", opts_hidden)
         .expect("list");
@@ -268,8 +270,10 @@ fn test_directory_operations_and_pagination() {
     assert!(list_hidden.entries.iter().any(|e| e.name == ".env"));
 
     // Filter by extension
-    let mut opts_ext = ListOptions::default();
-    opts_ext.extension = Some("php".to_string());
+    let opts_ext = ListOptions {
+        extension: Some("php".to_string()),
+        ..Default::default()
+    };
     let list_ext = fs
         .list_dir("sites/example.com/public", opts_ext)
         .expect("list");
@@ -277,11 +281,13 @@ fn test_directory_operations_and_pagination() {
     assert_eq!(list_ext.entries[0].name, "index.php");
 
     // Pagination: limit 2, offset 0
-    let mut opts_page1 = ListOptions::default();
-    opts_page1.limit = 2;
-    opts_page1.offset = 0;
-    opts_page1.sort_by = SortBy::Name;
-    opts_page1.sort_order = SortOrder::Asc;
+    let opts_page1 = ListOptions {
+        limit: 2,
+        offset: 0,
+        sort_by: SortBy::Name,
+        sort_order: SortOrder::Asc,
+        ..Default::default()
+    };
     let page1 = fs
         .list_dir("sites/example.com/public", opts_page1)
         .expect("page1");
@@ -289,11 +295,13 @@ fn test_directory_operations_and_pagination() {
     assert!(page1.has_more);
 
     // Pagination: limit 2, offset 2
-    let mut opts_page2 = ListOptions::default();
-    opts_page2.limit = 2;
-    opts_page2.offset = 2;
-    opts_page2.sort_by = SortBy::Name;
-    opts_page2.sort_order = SortOrder::Asc;
+    let opts_page2 = ListOptions {
+        limit: 2,
+        offset: 2,
+        sort_by: SortBy::Name,
+        sort_order: SortOrder::Asc,
+        ..Default::default()
+    };
     let page2 = fs
         .list_dir("sites/example.com/public", opts_page2)
         .expect("page2");

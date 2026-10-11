@@ -11,7 +11,7 @@ use tempfile::tempdir;
 #[test]
 fn test_search_by_filename_and_extension_filter() {
     let tmp = tempdir().expect("tempdir");
-    let fs = ConfinedFs::new(tmp.path().to_path_buf(), SymlinkPolicy::DenyAll).expect("fs");
+    let fs = ConfinedFs::new(tmp.path(), SymlinkPolicy::DenyAll).expect("fs");
 
     // Setup files
     fs.create_dir_all("src").expect("create src");
@@ -61,7 +61,7 @@ fn test_search_by_filename_and_extension_filter() {
 #[test]
 fn test_search_content_matches_with_snippets_and_binary_skipping() {
     let tmp = tempdir().expect("tempdir");
-    let fs = ConfinedFs::new(tmp.path().to_path_buf(), SymlinkPolicy::DenyAll).expect("fs");
+    let fs = ConfinedFs::new(tmp.path(), SymlinkPolicy::DenyAll).expect("fs");
 
     fs.create_dir_all("app").expect("create app");
     let php_code = "<?php\n// Secret key configuration\n$api_key = 'PANEL_SECRET_TOKEN_123';\necho 'Connected';\n";
@@ -100,12 +100,12 @@ fn test_search_content_matches_with_snippets_and_binary_skipping() {
 #[test]
 fn test_search_max_results_cap() {
     let tmp = tempdir().expect("tempdir");
-    let fs = ConfinedFs::new(tmp.path().to_path_buf(), SymlinkPolicy::DenyAll).expect("fs");
+    let fs = ConfinedFs::new(tmp.path(), SymlinkPolicy::DenyAll).expect("fs");
 
     // Create 15 files with prefix "item_"
     fs.create_dir_all("items").expect("create items");
     for i in 1..=15 {
-        fs.write_atomic(&format!("items/item_{:02}.txt", i), b"content", None)
+        fs.write_atomic(format!("items/item_{:02}.txt", i), b"content", None)
             .expect("write");
     }
 
@@ -128,7 +128,7 @@ fn test_search_max_results_cap() {
 #[test]
 fn test_search_skips_trash_and_upload_tmp() {
     let tmp = tempdir().expect("tempdir");
-    let fs = ConfinedFs::new(tmp.path().to_path_buf(), SymlinkPolicy::DenyAll).expect("fs");
+    let fs = ConfinedFs::new(tmp.path(), SymlinkPolicy::DenyAll).expect("fs");
 
     // Create regular file
     fs.create_dir_all("site").expect("create site");
@@ -164,7 +164,7 @@ fn test_search_skips_trash_and_upload_tmp() {
 #[test]
 fn test_search_confinement_violation_rejected() {
     let tmp = tempdir().expect("tempdir");
-    let fs = ConfinedFs::new(tmp.path().to_path_buf(), SymlinkPolicy::DenyAll).expect("fs");
+    let fs = ConfinedFs::new(tmp.path(), SymlinkPolicy::DenyAll).expect("fs");
 
     let opts = SearchOptions {
         query: "passwd".to_string(),

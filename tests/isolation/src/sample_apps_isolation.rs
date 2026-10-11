@@ -403,6 +403,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: Some("60s".to_string()),
             proxy_buffering: None,
+            site_rules_block: None,
         };
         let express_conf = renderer
             .render_nodejs(&express_ctx)
@@ -437,6 +438,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: None,
             proxy_buffering: None,
+            site_rules_block: None,
         };
         let nextjs_conf = renderer
             .render_nodejs(&nextjs_ctx)
@@ -468,6 +470,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: Some("60s".to_string()),
             proxy_buffering: None,
+            site_rules_block: None,
         };
         let django_conf = renderer
             .render_python(&django_ctx)
@@ -502,6 +505,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: None,
             proxy_buffering: None,
+            site_rules_block: None,
         };
         let fastapi_conf = renderer
             .render_python(&fastapi_ctx)
@@ -533,6 +537,7 @@ mod tests {
             proxy_send_timeout: None,
             proxy_read_timeout: None,
             proxy_buffering: None,
+            site_rules_block: None,
         };
         let flask_conf = renderer
             .render_python(&flask_ctx)

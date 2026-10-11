@@ -2975,6 +2975,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::cognitive_complexity)]
     fn test_rpc_php_runtime_payloads() {
         let req_install = RpcRequest::new(
             "php-inst-1",

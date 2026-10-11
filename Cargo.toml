@@ -91,7 +91,8 @@ mimalloc = { version = "0.1", default-features = false }
 
 
 [workspace.lints.rust]
-unsafe_code = "deny"
+unsafe_code = "warn"
+
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

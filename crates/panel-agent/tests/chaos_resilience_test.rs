@@ -7,7 +7,7 @@
 //! 4. Corrupted Nginx configuration -> Detected by doctor/reconcile, regenerated cleanly from desired state.
 //! 5. Forced reboot / interrupted job recovery -> Deterministic transition from running to failed.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::clone_on_ref_ptr)]
 
 use panel_agent::nftables::NftablesManager;
 use panel_agent::reliability::ReliabilityManager;

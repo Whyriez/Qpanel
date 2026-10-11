@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cognitive_complexity)]
+
 use panel_analytics::{
     AnalyticsStorage, GeoIpResolver, LatencyHistogram, ParsedLogEntry, PathNormalizer,
     RetentionConfig, RollupResolution, SiteMetricsAggregator, SiteMetricsPoint, SpaceSavingCounter,

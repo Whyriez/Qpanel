@@ -31,7 +31,7 @@ pub async fn probe_upstream(req: &ProxyUpstreamProbeRequest) -> ProxyUpstreamPro
 
 async fn probe_unix_socket(
     path: &str,
-    _timeout: Duration,
+    timeout: Duration,
     start: Instant,
 ) -> ProxyUpstreamProbeResponse {
     #[cfg(unix)]
@@ -82,6 +82,7 @@ async fn probe_unix_socket(
     }
     #[cfg(not(unix))]
     {
+        let _ = timeout;
         let latency_ms = start.elapsed().as_millis() as u64;
         let exists = std::path::Path::new(path).exists();
         ProxyUpstreamProbeResponse {

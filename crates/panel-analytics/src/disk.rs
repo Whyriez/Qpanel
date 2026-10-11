@@ -1,3 +1,5 @@
+#![allow(unsafe_code)]
+
 use crate::error::AnalyticsError;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;

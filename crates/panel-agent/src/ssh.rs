@@ -344,7 +344,7 @@ impl SshManager {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::clone_on_ref_ptr)]
 mod tests {
     use super::*;
     use crate::system::MockSystemRunner;
