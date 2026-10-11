@@ -224,7 +224,7 @@ impl CgroupMetricsCollector {
     }
 }
 
-fn read_u64_file(path: &Path) -> Option<u64> {
+pub(crate) fn read_u64_file(path: &Path) -> Option<u64> {
     let content = fs::read_to_string(path).ok()?;
     let trimmed = content.trim();
     if trimmed == "max" {
@@ -233,7 +233,7 @@ fn read_u64_file(path: &Path) -> Option<u64> {
     trimmed.parse::<u64>().ok()
 }
 
-fn read_cpu_usage_usec(path: &Path) -> u64 {
+pub(crate) fn read_cpu_usage_usec(path: &Path) -> u64 {
     let Ok(content) = fs::read_to_string(path) else {
         return 0;
     };
@@ -246,7 +246,7 @@ fn read_cpu_usage_usec(path: &Path) -> u64 {
     0
 }
 
-fn read_io_bytes(path: &Path) -> (u64, u64) {
+pub(crate) fn read_io_bytes(path: &Path) -> (u64, u64) {
     let Ok(content) = fs::read_to_string(path) else {
         return (0, 0);
     };

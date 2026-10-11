@@ -1,8 +1,9 @@
 use crate::error::AnalyticsError;
 use crate::models::{
-    LogCheckpoint, RetentionConfig, RollupResolution, ServerMetricsPoint, ServerMetricsRollup,
-    ServiceMetricsPoint, ServiceMetricsRollup, SiteMetricsPoint, SiteMetricsRollup,
-    SiteRollupReport, TenantMetricsPoint, TenantMetricsRollup,
+    AppProcessMetricPoint, AppProcessMetricRollup, AppType, LogCheckpoint, PhpFpmPoolMetricPoint,
+    PhpFpmPoolMetricRollup, PhpSlowlogEntry, PhpSlowlogFrame, RetentionConfig, RollupResolution,
+    ServerMetricsPoint, ServerMetricsRollup, ServiceMetricsPoint, ServiceMetricsRollup,
+    SiteMetricsPoint, SiteMetricsRollup, SiteRollupReport, TenantMetricsPoint, TenantMetricsRollup,
 };
 use crate::rollup::SiteMetricsRollupProcessor;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -429,6 +430,98 @@ impl AnalyticsStorage {
         );
         CREATE INDEX IF NOT EXISTS idx_site_1d_site_ts ON site_metrics_1d (site_id, bucket_ts);
         CREATE INDEX IF NOT EXISTS idx_site_1d_ts ON site_metrics_1d (bucket_ts);
+
+        -- 16. PHP-FPM pool metrics: Raw (10s) (P9-T4)
+        CREATE TABLE IF NOT EXISTS metrics_php_fpm_raw (
+            timestamp INTEGER NOT NULL,
+            pool_name TEXT NOT NULL,
+            user TEXT,
+            php_version TEXT,
+            active_processes INTEGER NOT NULL,
+            idle_processes INTEGER NOT NULL,
+            total_processes INTEGER NOT NULL,
+            max_active_processes INTEGER NOT NULL,
+            max_children_reached INTEGER NOT NULL,
+            listen_queue INTEGER NOT NULL,
+            max_listen_queue INTEGER NOT NULL,
+            listen_queue_len INTEGER NOT NULL,
+            slow_requests INTEGER NOT NULL,
+            accepted_conn INTEGER NOT NULL,
+            PRIMARY KEY (timestamp, pool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_php_fpm_raw_pool_ts ON metrics_php_fpm_raw (pool_name, timestamp);
+
+        -- 17. PHP-FPM pool metrics: 1-minute rollup (P9-T4)
+        CREATE TABLE IF NOT EXISTS metrics_php_fpm_1m (
+            bucket_ts INTEGER NOT NULL,
+            pool_name TEXT NOT NULL,
+            active_avg REAL NOT NULL,
+            active_max INTEGER NOT NULL,
+            idle_avg REAL NOT NULL,
+            total_avg REAL NOT NULL,
+            total_max INTEGER NOT NULL,
+            listen_queue_avg REAL NOT NULL,
+            listen_queue_max INTEGER NOT NULL,
+            max_children_reached_max INTEGER NOT NULL,
+            slow_requests_delta INTEGER NOT NULL,
+            accepted_conn_delta INTEGER NOT NULL,
+            sample_count INTEGER NOT NULL,
+            PRIMARY KEY (bucket_ts, pool_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_php_fpm_1m_pool_ts ON metrics_php_fpm_1m (pool_name, bucket_ts);
+
+        -- 18. Application process metrics (Node / Python): Raw (10s) (P9-T4)
+        CREATE TABLE IF NOT EXISTS metrics_app_process_raw (
+            timestamp INTEGER NOT NULL,
+            site_id INTEGER NOT NULL,
+            app_type TEXT NOT NULL,
+            service_name TEXT NOT NULL,
+            cpu_usage_usec INTEGER NOT NULL,
+            cpu_percent REAL NOT NULL,
+            memory_current_bytes INTEGER NOT NULL,
+            memory_peak_bytes INTEGER,
+            memory_swap_bytes INTEGER,
+            pids_current INTEGER NOT NULL,
+            io_read_bytes_sec REAL NOT NULL,
+            io_write_bytes_sec REAL NOT NULL,
+            PRIMARY KEY (timestamp, site_id, app_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_app_proc_raw_site_ts ON metrics_app_process_raw (site_id, timestamp);
+
+        -- 19. Application process metrics (Node / Python): 1-minute rollup (P9-T4)
+        CREATE TABLE IF NOT EXISTS metrics_app_process_1m (
+            bucket_ts INTEGER NOT NULL,
+            site_id INTEGER NOT NULL,
+            app_type TEXT NOT NULL,
+            cpu_avg REAL NOT NULL,
+            cpu_max REAL NOT NULL,
+            memory_current_avg REAL NOT NULL,
+            memory_current_max INTEGER NOT NULL,
+            memory_peak_max INTEGER,
+            pids_max INTEGER NOT NULL,
+            io_read_avg REAL NOT NULL,
+            io_write_avg REAL NOT NULL,
+            sample_count INTEGER NOT NULL,
+            PRIMARY KEY (bucket_ts, site_id, app_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_app_proc_1m_site_ts ON metrics_app_process_1m (site_id, bucket_ts);
+
+        -- 20. PHP-FPM slowlog events (P9-T4)
+        CREATE TABLE IF NOT EXISTS php_slowlog_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            pool TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            script_filename TEXT NOT NULL,
+            top_function TEXT,
+            frames_json TEXT NOT NULL,
+            duration_secs REAL,
+            site_id INTEGER,
+            tenant_user TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_slowlog_pool_ts ON php_slowlog_events (pool, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_slowlog_site_ts ON php_slowlog_events (site_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_slowlog_user_ts ON php_slowlog_events (tenant_user, timestamp);
         "#;
 
         sqlx::query(schema)
@@ -858,7 +951,21 @@ impl AnalyticsStorage {
             .execute(&self.pool)
             .await
             .map_err(AnalyticsError::Database)?;
-        total_deleted += (q1.rows_affected() + q2.rows_affected() + q3.rows_affected()) as usize;
+        let q_fpm_raw = sqlx::query("DELETE FROM metrics_php_fpm_raw WHERE timestamp < ?")
+            .bind(raw_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_app_raw = sqlx::query("DELETE FROM metrics_app_process_raw WHERE timestamp < ?")
+            .bind(raw_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        total_deleted += (q1.rows_affected()
+            + q2.rows_affected()
+            + q3.rows_affected()
+            + q_fpm_raw.rows_affected()
+            + q_app_raw.rows_affected()) as usize;
 
         // 2. 1-minute records (default 14 days)
         let m1_cutoff = current_timestamp - retention.one_minute_retention_secs;
@@ -877,7 +984,27 @@ impl AnalyticsStorage {
             .execute(&self.pool)
             .await
             .map_err(AnalyticsError::Database)?;
-        total_deleted += (q4.rows_affected() + q5.rows_affected() + q6.rows_affected()) as usize;
+        let q_fpm_1m = sqlx::query("DELETE FROM metrics_php_fpm_1m WHERE bucket_ts < ?")
+            .bind(m1_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_app_1m = sqlx::query("DELETE FROM metrics_app_process_1m WHERE bucket_ts < ?")
+            .bind(m1_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_slow = sqlx::query("DELETE FROM php_slowlog_events WHERE timestamp < ?")
+            .bind(m1_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        total_deleted += (q4.rows_affected()
+            + q5.rows_affected()
+            + q6.rows_affected()
+            + q_fpm_1m.rows_affected()
+            + q_app_1m.rows_affected()
+            + q_slow.rows_affected()) as usize;
 
         // 3. 1-hour records (default 400 days)
         let h1_cutoff = current_timestamp - retention.one_hour_retention_secs;
@@ -1709,6 +1836,605 @@ impl AnalyticsStorage {
             res_1m.rows_affected() as usize,
             res_1h.rows_affected() as usize,
         ))
+    }
+
+    // ==========================================
+    // PHP-FPM Pool Metrics (P9-T4)
+    // ==========================================
+
+    /// Insert a single PHP-FPM pool metric raw point.
+    pub async fn insert_php_fpm_point(
+        &self,
+        pt: &PhpFpmPoolMetricPoint,
+    ) -> Result<(), AnalyticsError> {
+        self.insert_php_fpm_points(std::slice::from_ref(pt)).await
+    }
+
+    /// Insert batch of PHP-FPM pool metric raw points.
+    pub async fn insert_php_fpm_points(
+        &self,
+        pts: &[PhpFpmPoolMetricPoint],
+    ) -> Result<(), AnalyticsError> {
+        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let query = r#"
+        INSERT OR REPLACE INTO metrics_php_fpm_raw (
+            timestamp, pool_name, user, php_version,
+            active_processes, idle_processes, total_processes,
+            max_active_processes, max_children_reached,
+            listen_queue, max_listen_queue, listen_queue_len,
+            slow_requests, accepted_conn
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        for pt in pts {
+            sqlx::query(query)
+                .bind(pt.timestamp)
+                .bind(&pt.pool_name)
+                .bind(&pt.user)
+                .bind(&pt.php_version)
+                .bind(pt.active_processes as i64)
+                .bind(pt.idle_processes as i64)
+                .bind(pt.total_processes as i64)
+                .bind(pt.max_active_processes as i64)
+                .bind(pt.max_children_reached as i64)
+                .bind(pt.listen_queue as i64)
+                .bind(pt.max_listen_queue as i64)
+                .bind(pt.listen_queue_len as i64)
+                .bind(pt.slow_requests as i64)
+                .bind(pt.accepted_conn as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(AnalyticsError::Database)?;
+        }
+
+        tx.commit().await.map_err(AnalyticsError::Database)?;
+        Ok(())
+    }
+
+    /// Rollup raw PHP-FPM pool metrics into 1-minute buckets up to `until_ts`.
+    pub async fn rollup_php_fpm_1m(&self, until_ts: i64) -> Result<usize, AnalyticsError> {
+        let query = r#"
+        INSERT OR REPLACE INTO metrics_php_fpm_1m (
+            bucket_ts, pool_name,
+            active_avg, active_max,
+            idle_avg,
+            total_avg, total_max,
+            listen_queue_avg, listen_queue_max,
+            max_children_reached_max,
+            slow_requests_delta, accepted_conn_delta,
+            sample_count
+        )
+        SELECT
+            (timestamp / 60) * 60 AS bucket_ts,
+            pool_name,
+            AVG(active_processes) AS active_avg,
+            MAX(active_processes) AS active_max,
+            AVG(idle_processes) AS idle_avg,
+            AVG(total_processes) AS total_avg,
+            MAX(total_processes) AS total_max,
+            AVG(listen_queue) AS listen_queue_avg,
+            MAX(listen_queue) AS listen_queue_max,
+            MAX(max_children_reached) AS max_children_reached_max,
+            MAX(slow_requests) - MIN(slow_requests) AS slow_requests_delta,
+            MAX(accepted_conn) - MIN(accepted_conn) AS accepted_conn_delta,
+            COUNT(*) AS sample_count
+        FROM metrics_php_fpm_raw
+        WHERE timestamp <= ?
+        GROUP BY pool_name, (timestamp / 60) * 60
+        "#;
+
+        let res = sqlx::query(query)
+            .bind(until_ts)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        Ok(res.rows_affected() as usize)
+    }
+
+    /// Query raw PHP-FPM metrics for a specific pool in time range.
+    pub async fn query_php_fpm_raw(
+        &self,
+        pool_name: &str,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<PhpFpmPoolMetricPoint>, AnalyticsError> {
+        let query = r#"
+        SELECT
+            timestamp, pool_name, user, php_version,
+            active_processes, idle_processes, total_processes,
+            max_active_processes, max_children_reached,
+            listen_queue, max_listen_queue, listen_queue_len,
+            slow_requests, accepted_conn
+        FROM metrics_php_fpm_raw
+        WHERE pool_name = ? AND timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp ASC
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(pool_name)
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut pts = Vec::with_capacity(rows.len());
+        for row in rows {
+            let active: i64 = row
+                .try_get("active_processes")
+                .map_err(AnalyticsError::Database)?;
+            let idle: i64 = row
+                .try_get("idle_processes")
+                .map_err(AnalyticsError::Database)?;
+            let total: i64 = row
+                .try_get("total_processes")
+                .map_err(AnalyticsError::Database)?;
+            let max_active: i64 = row
+                .try_get("max_active_processes")
+                .map_err(AnalyticsError::Database)?;
+            let max_children: i64 = row
+                .try_get("max_children_reached")
+                .map_err(AnalyticsError::Database)?;
+            let listen_q: i64 = row
+                .try_get("listen_queue")
+                .map_err(AnalyticsError::Database)?;
+            let max_listen_q: i64 = row
+                .try_get("max_listen_queue")
+                .map_err(AnalyticsError::Database)?;
+            let listen_q_len: i64 = row
+                .try_get("listen_queue_len")
+                .map_err(AnalyticsError::Database)?;
+            let slow_reqs: i64 = row
+                .try_get("slow_requests")
+                .map_err(AnalyticsError::Database)?;
+            let accepted: i64 = row
+                .try_get("accepted_conn")
+                .map_err(AnalyticsError::Database)?;
+
+            pts.push(PhpFpmPoolMetricPoint {
+                timestamp: row.try_get("timestamp").map_err(AnalyticsError::Database)?,
+                pool_name: row.try_get("pool_name").map_err(AnalyticsError::Database)?,
+                user: row.try_get("user").map_err(AnalyticsError::Database)?,
+                php_version: row
+                    .try_get("php_version")
+                    .map_err(AnalyticsError::Database)?,
+                active_processes: active.max(0) as u32,
+                idle_processes: idle.max(0) as u32,
+                total_processes: total.max(0) as u32,
+                max_active_processes: max_active.max(0) as u32,
+                max_children_reached: max_children.max(0) as u32,
+                listen_queue: listen_q.max(0) as u32,
+                max_listen_queue: max_listen_q.max(0) as u32,
+                listen_queue_len: listen_q_len.max(0) as u32,
+                slow_requests: slow_reqs.max(0) as u64,
+                accepted_conn: accepted.max(0) as u64,
+            });
+        }
+
+        Ok(pts)
+    }
+
+    /// Query 1-minute rollups for a PHP-FPM pool in time range.
+    pub async fn query_php_fpm_1m(
+        &self,
+        pool_name: &str,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<PhpFpmPoolMetricRollup>, AnalyticsError> {
+        let query = r#"
+        SELECT
+            bucket_ts, pool_name,
+            active_avg, active_max,
+            idle_avg,
+            total_avg, total_max,
+            listen_queue_avg, listen_queue_max,
+            max_children_reached_max,
+            slow_requests_delta, accepted_conn_delta,
+            sample_count
+        FROM metrics_php_fpm_1m
+        WHERE pool_name = ? AND bucket_ts >= ? AND bucket_ts <= ?
+        ORDER BY bucket_ts ASC
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(pool_name)
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut rollups = Vec::with_capacity(rows.len());
+        for row in rows {
+            let active_max: i64 = row
+                .try_get("active_max")
+                .map_err(AnalyticsError::Database)?;
+            let total_max: i64 = row.try_get("total_max").map_err(AnalyticsError::Database)?;
+            let listen_q_max: i64 = row
+                .try_get("listen_queue_max")
+                .map_err(AnalyticsError::Database)?;
+            let max_ch_max: i64 = row
+                .try_get("max_children_reached_max")
+                .map_err(AnalyticsError::Database)?;
+            let slow_delta: i64 = row
+                .try_get("slow_requests_delta")
+                .map_err(AnalyticsError::Database)?;
+            let acc_delta: i64 = row
+                .try_get("accepted_conn_delta")
+                .map_err(AnalyticsError::Database)?;
+            let samples: i64 = row
+                .try_get("sample_count")
+                .map_err(AnalyticsError::Database)?;
+
+            rollups.push(PhpFpmPoolMetricRollup {
+                pool_name: row.try_get("pool_name").map_err(AnalyticsError::Database)?,
+                bucket_ts: row.try_get("bucket_ts").map_err(AnalyticsError::Database)?,
+                active_avg: row
+                    .try_get("active_avg")
+                    .map_err(AnalyticsError::Database)?,
+                active_max: active_max.max(0) as u32,
+                idle_avg: row.try_get("idle_avg").map_err(AnalyticsError::Database)?,
+                total_avg: row.try_get("total_avg").map_err(AnalyticsError::Database)?,
+                total_max: total_max.max(0) as u32,
+                listen_queue_avg: row
+                    .try_get("listen_queue_avg")
+                    .map_err(AnalyticsError::Database)?,
+                listen_queue_max: listen_q_max.max(0) as u32,
+                max_children_reached_max: max_ch_max.max(0) as u32,
+                slow_requests_delta: slow_delta.max(0) as u64,
+                accepted_conn_delta: acc_delta.max(0) as u64,
+                sample_count: samples.max(0) as u32,
+            });
+        }
+
+        Ok(rollups)
+    }
+
+    // ==========================================
+    // Slowlog Events (P9-T4)
+    // ==========================================
+
+    /// Insert a single PHP slowlog execution event.
+    pub async fn insert_slowlog_entry(
+        &self,
+        entry: &PhpSlowlogEntry,
+    ) -> Result<i64, AnalyticsError> {
+        let frames_json = serde_json::to_string(&entry.frames)
+            .map_err(|e| AnalyticsError::Internal(format!("Failed to serialize frames: {e}")))?;
+
+        let query = r#"
+        INSERT INTO php_slowlog_events (
+            timestamp, pool, pid, script_filename,
+            top_function, frames_json, duration_secs,
+            site_id, tenant_user
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let res = sqlx::query(query)
+            .bind(entry.timestamp)
+            .bind(&entry.pool)
+            .bind(entry.pid as i64)
+            .bind(&entry.script_filename)
+            .bind(&entry.top_function)
+            .bind(frames_json)
+            .bind(entry.duration_secs)
+            .bind(entry.site_id)
+            .bind(&entry.tenant_user)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        Ok(res.last_insert_rowid())
+    }
+
+    /// Insert batch of PHP slowlog execution events.
+    pub async fn insert_slowlog_entries(
+        &self,
+        entries: &[PhpSlowlogEntry],
+    ) -> Result<usize, AnalyticsError> {
+        let mut count = 0;
+        for entry in entries {
+            self.insert_slowlog_entry(entry).await?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Query slowlog events matching optional pool or site_id filter in time range.
+    pub async fn query_slowlog_events(
+        &self,
+        pool: Option<&str>,
+        site_id: Option<i64>,
+        start_ts: i64,
+        end_ts: i64,
+        limit: u32,
+    ) -> Result<Vec<PhpSlowlogEntry>, AnalyticsError> {
+        let query = r#"
+        SELECT
+            id, timestamp, pool, pid, script_filename,
+            top_function, frames_json, duration_secs,
+            site_id, tenant_user
+        FROM php_slowlog_events
+        WHERE timestamp >= ? AND timestamp <= ?
+          AND (? IS NULL OR pool = ?)
+          AND (? IS NULL OR site_id = ?)
+        ORDER BY timestamp DESC
+        LIMIT ?
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(start_ts)
+            .bind(end_ts)
+            .bind(pool)
+            .bind(pool)
+            .bind(site_id)
+            .bind(site_id)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let pid_val: i64 = row.try_get("pid").map_err(AnalyticsError::Database)?;
+            let frames_str: String = row
+                .try_get("frames_json")
+                .map_err(AnalyticsError::Database)?;
+            let frames: Vec<PhpSlowlogFrame> =
+                serde_json::from_str(&frames_str).unwrap_or_default();
+
+            entries.push(PhpSlowlogEntry {
+                id: Some(row.try_get("id").map_err(AnalyticsError::Database)?),
+                timestamp: row.try_get("timestamp").map_err(AnalyticsError::Database)?,
+                pool: row.try_get("pool").map_err(AnalyticsError::Database)?,
+                pid: pid_val.max(0) as u32,
+                script_filename: row
+                    .try_get("script_filename")
+                    .map_err(AnalyticsError::Database)?,
+                top_function: row
+                    .try_get("top_function")
+                    .map_err(AnalyticsError::Database)?,
+                frames,
+                duration_secs: row
+                    .try_get("duration_secs")
+                    .map_err(AnalyticsError::Database)?,
+                site_id: row.try_get("site_id").map_err(AnalyticsError::Database)?,
+                tenant_user: row
+                    .try_get("tenant_user")
+                    .map_err(AnalyticsError::Database)?,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    // ==========================================
+    // Application Process Metrics: Node / Python (P9-T4)
+    // ==========================================
+
+    /// Insert single application process raw metric point.
+    pub async fn insert_app_process_point(
+        &self,
+        pt: &AppProcessMetricPoint,
+    ) -> Result<(), AnalyticsError> {
+        self.insert_app_process_points(std::slice::from_ref(pt))
+            .await
+    }
+
+    /// Insert batch of application process raw metric points.
+    pub async fn insert_app_process_points(
+        &self,
+        pts: &[AppProcessMetricPoint],
+    ) -> Result<(), AnalyticsError> {
+        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let query = r#"
+        INSERT OR REPLACE INTO metrics_app_process_raw (
+            timestamp, site_id, app_type, service_name,
+            cpu_usage_usec, cpu_percent,
+            memory_current_bytes, memory_peak_bytes, memory_swap_bytes,
+            pids_current, io_read_bytes_sec, io_write_bytes_sec
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        for pt in pts {
+            sqlx::query(query)
+                .bind(pt.timestamp)
+                .bind(pt.site_id)
+                .bind(pt.app_type.as_str())
+                .bind(&pt.service_name)
+                .bind(pt.cpu_usage_usec as i64)
+                .bind(pt.cpu_percent)
+                .bind(pt.memory_current_bytes as i64)
+                .bind(pt.memory_peak_bytes.map(|v| v as i64))
+                .bind(pt.memory_swap_bytes.map(|v| v as i64))
+                .bind(pt.pids_current as i64)
+                .bind(pt.io_read_bytes_sec)
+                .bind(pt.io_write_bytes_sec)
+                .execute(&mut *tx)
+                .await
+                .map_err(AnalyticsError::Database)?;
+        }
+
+        tx.commit().await.map_err(AnalyticsError::Database)?;
+        Ok(())
+    }
+
+    /// Rollup application process metrics into 1-minute buckets up to `until_ts`.
+    pub async fn rollup_app_process_1m(&self, until_ts: i64) -> Result<usize, AnalyticsError> {
+        let query = r#"
+        INSERT OR REPLACE INTO metrics_app_process_1m (
+            bucket_ts, site_id, app_type,
+            cpu_avg, cpu_max,
+            memory_current_avg, memory_current_max, memory_peak_max,
+            pids_max, io_read_avg, io_write_avg,
+            sample_count
+        )
+        SELECT
+            (timestamp / 60) * 60 AS bucket_ts,
+            site_id,
+            app_type,
+            AVG(cpu_percent) AS cpu_avg,
+            MAX(cpu_percent) AS cpu_max,
+            AVG(memory_current_bytes) AS memory_current_avg,
+            MAX(memory_current_bytes) AS memory_current_max,
+            MAX(memory_peak_bytes) AS memory_peak_max,
+            MAX(pids_current) AS pids_max,
+            AVG(io_read_bytes_sec) AS io_read_avg,
+            AVG(io_write_bytes_sec) AS io_write_avg,
+            COUNT(*) AS sample_count
+        FROM metrics_app_process_raw
+        WHERE timestamp <= ?
+        GROUP BY site_id, app_type, (timestamp / 60) * 60
+        "#;
+
+        let res = sqlx::query(query)
+            .bind(until_ts)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        Ok(res.rows_affected() as usize)
+    }
+
+    /// Query raw application process metrics for site_id and app_type in time range.
+    pub async fn query_app_process_raw(
+        &self,
+        site_id: i64,
+        app_type: AppType,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<AppProcessMetricPoint>, AnalyticsError> {
+        let query = r#"
+        SELECT
+            timestamp, site_id, app_type, service_name,
+            cpu_usage_usec, cpu_percent,
+            memory_current_bytes, memory_peak_bytes, memory_swap_bytes,
+            pids_current, io_read_bytes_sec, io_write_bytes_sec
+        FROM metrics_app_process_raw
+        WHERE site_id = ? AND app_type = ? AND timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp ASC
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(site_id)
+            .bind(app_type.as_str())
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut pts = Vec::with_capacity(rows.len());
+        for row in rows {
+            let cpu_usec: i64 = row
+                .try_get("cpu_usage_usec")
+                .map_err(AnalyticsError::Database)?;
+            let mem_curr: i64 = row
+                .try_get("memory_current_bytes")
+                .map_err(AnalyticsError::Database)?;
+            let mem_peak: Option<i64> = row
+                .try_get("memory_peak_bytes")
+                .map_err(AnalyticsError::Database)?;
+            let mem_swap: Option<i64> = row
+                .try_get("memory_swap_bytes")
+                .map_err(AnalyticsError::Database)?;
+            let pids: i64 = row
+                .try_get("pids_current")
+                .map_err(AnalyticsError::Database)?;
+
+            pts.push(AppProcessMetricPoint {
+                timestamp: row.try_get("timestamp").map_err(AnalyticsError::Database)?,
+                site_id: row.try_get("site_id").map_err(AnalyticsError::Database)?,
+                app_type,
+                service_name: row
+                    .try_get("service_name")
+                    .map_err(AnalyticsError::Database)?,
+                cpu_usage_usec: cpu_usec.max(0) as u64,
+                cpu_percent: row
+                    .try_get("cpu_percent")
+                    .map_err(AnalyticsError::Database)?,
+                memory_current_bytes: mem_curr.max(0) as u64,
+                memory_peak_bytes: mem_peak.map(|v| v.max(0) as u64),
+                memory_swap_bytes: mem_swap.map(|v| v.max(0) as u64),
+                pids_current: pids.max(0) as u64,
+                io_read_bytes_sec: row
+                    .try_get("io_read_bytes_sec")
+                    .map_err(AnalyticsError::Database)?,
+                io_write_bytes_sec: row
+                    .try_get("io_write_bytes_sec")
+                    .map_err(AnalyticsError::Database)?,
+            });
+        }
+
+        Ok(pts)
+    }
+
+    /// Query 1-minute rollups for an application service in time range.
+    pub async fn query_app_process_1m(
+        &self,
+        site_id: i64,
+        app_type: AppType,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<AppProcessMetricRollup>, AnalyticsError> {
+        let query = r#"
+        SELECT
+            bucket_ts, site_id, app_type,
+            cpu_avg, cpu_max,
+            memory_current_avg, memory_current_max, memory_peak_max,
+            pids_max, io_read_avg, io_write_avg,
+            sample_count
+        FROM metrics_app_process_1m
+        WHERE site_id = ? AND app_type = ? AND bucket_ts >= ? AND bucket_ts <= ?
+        ORDER BY bucket_ts ASC
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(site_id)
+            .bind(app_type.as_str())
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut rollups = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mem_max: i64 = row
+                .try_get("memory_current_max")
+                .map_err(AnalyticsError::Database)?;
+            let mem_peak: Option<i64> = row
+                .try_get("memory_peak_max")
+                .map_err(AnalyticsError::Database)?;
+            let pids_max: i64 = row.try_get("pids_max").map_err(AnalyticsError::Database)?;
+            let sample_cnt: i64 = row
+                .try_get("sample_count")
+                .map_err(AnalyticsError::Database)?;
+
+            rollups.push(AppProcessMetricRollup {
+                site_id: row.try_get("site_id").map_err(AnalyticsError::Database)?,
+                app_type,
+                bucket_ts: row.try_get("bucket_ts").map_err(AnalyticsError::Database)?,
+                cpu_avg: row.try_get("cpu_avg").map_err(AnalyticsError::Database)?,
+                cpu_max: row.try_get("cpu_max").map_err(AnalyticsError::Database)?,
+                memory_current_avg: row
+                    .try_get("memory_current_avg")
+                    .map_err(AnalyticsError::Database)?,
+                memory_current_max: mem_max.max(0) as u64,
+                memory_peak_max: mem_peak.map(|v| v.max(0) as u64),
+                pids_max: pids_max.max(0) as u64,
+                io_read_avg: row
+                    .try_get("io_read_avg")
+                    .map_err(AnalyticsError::Database)?,
+                io_write_avg: row
+                    .try_get("io_write_avg")
+                    .map_err(AnalyticsError::Database)?,
+                sample_count: sample_cnt.max(0) as u32,
+            });
+        }
+
+        Ok(rollups)
     }
 }
 

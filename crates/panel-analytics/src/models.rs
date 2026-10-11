@@ -384,3 +384,128 @@ pub struct SiteRollupReport {
     pub pruned_1m_records: usize,
     pub pruned_1h_records: usize,
 }
+
+/// Raw metric point for PHP-FPM pool status (10s interval).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PhpFpmPoolMetricPoint {
+    pub timestamp: i64,
+    pub pool_name: String,
+    pub user: Option<String>,
+    pub php_version: Option<String>,
+    pub active_processes: u32,
+    pub idle_processes: u32,
+    pub total_processes: u32,
+    pub max_active_processes: u32,
+    pub max_children_reached: u32,
+    pub listen_queue: u32,
+    pub max_listen_queue: u32,
+    pub listen_queue_len: u32,
+    pub slow_requests: u64,
+    pub accepted_conn: u64,
+}
+
+/// 1-minute rollup for PHP-FPM pool metrics.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PhpFpmPoolMetricRollup {
+    pub pool_name: String,
+    pub bucket_ts: i64,
+    pub active_avg: f64,
+    pub active_max: u32,
+    pub idle_avg: f64,
+    pub total_avg: f64,
+    pub total_max: u32,
+    pub listen_queue_avg: f64,
+    pub listen_queue_max: u32,
+    pub max_children_reached_max: u32,
+    pub slow_requests_delta: u64,
+    pub accepted_conn_delta: u64,
+    pub sample_count: u32,
+}
+
+/// A single frame within a PHP-FPM slowlog stack trace.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpSlowlogFrame {
+    pub frame_index: usize,
+    pub function: String,
+    pub file: String,
+    pub line: u32,
+    pub address: Option<String>,
+}
+
+/// A parsed slowlog execution event for a tenant.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PhpSlowlogEntry {
+    pub id: Option<i64>,
+    pub timestamp: i64,
+    pub pool: String,
+    pub pid: u32,
+    pub script_filename: String,
+    pub top_function: Option<String>,
+    pub frames: Vec<PhpSlowlogFrame>,
+    pub duration_secs: Option<f64>,
+    pub site_id: Option<i64>,
+    pub tenant_user: Option<String>,
+}
+
+/// Application runtime type for transient cgroup monitoring.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppType {
+    Node,
+    Python,
+}
+
+impl AppType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Node => "node",
+            Self::Python => "python",
+        }
+    }
+}
+
+impl std::str::FromStr for AppType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "node" | "nodejs" => Ok(Self::Node),
+            "python" | "py" => Ok(Self::Python),
+            other => Err(format!("Unknown app type: {other}")),
+        }
+    }
+}
+
+/// Raw metric point for Node.js / Python application service (10s interval).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AppProcessMetricPoint {
+    pub timestamp: i64,
+    pub site_id: i64,
+    pub app_type: AppType,
+    pub service_name: String,
+    pub cpu_usage_usec: u64,
+    pub cpu_percent: f64,
+    pub memory_current_bytes: u64,
+    pub memory_peak_bytes: Option<u64>,
+    pub memory_swap_bytes: Option<u64>,
+    pub pids_current: u64,
+    pub io_read_bytes_sec: f64,
+    pub io_write_bytes_sec: f64,
+}
+
+/// 1-minute rollup for Node.js / Python application service.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AppProcessMetricRollup {
+    pub site_id: i64,
+    pub app_type: AppType,
+    pub bucket_ts: i64,
+    pub cpu_avg: f64,
+    pub cpu_max: f64,
+    pub memory_current_avg: f64,
+    pub memory_current_max: u64,
+    pub memory_peak_max: Option<u64>,
+    pub pids_max: u64,
+    pub io_read_avg: f64,
+    pub io_write_avg: f64,
+    pub sample_count: u32,
+}
