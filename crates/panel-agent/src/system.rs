@@ -50,6 +50,26 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "uvicorn",
     "systemd-run",
     "journalctl",
+    "ssh-keygen",
+    "git",
+    "ssh",
+    "sh",
+    "bash",
+    "mariadb",
+    "mysql",
+    "mariadb-dump",
+    "mysqldump",
+    "psql",
+    "pg_dump",
+    "createdb",
+    "dropdb",
+    "createuser",
+    "dropuser",
+    "tar",
+    "zstd",
+    "gzip",
+    "sysctl",
+    "nft",
 ];
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
@@ -60,6 +80,8 @@ pub trait SystemRunner: Send + Sync {
     fn set_ownership(&self, path: &Path, uid: u32, gid: u32) -> Result<(), AgentError>;
     fn set_facl(&self, path: &Path, user: &str, permissions: &str) -> Result<(), AgentError>;
     fn move_path(&self, from: &Path, to: &Path) -> Result<(), AgentError>;
+    fn create_symlink(&self, original: &Path, link: &Path) -> Result<(), AgentError>;
+    fn read_link(&self, path: &Path) -> Result<PathBuf, AgentError>;
     fn remove_dir_all(&self, path: &Path) -> Result<(), AgentError>;
     fn path_exists(&self, path: &Path) -> bool;
     fn write_file(&self, path: &Path, content: &[u8], mode: u32) -> Result<(), AgentError>;
@@ -162,6 +184,38 @@ impl SystemRunner for RealSystemRunner {
         Ok(())
     }
 
+    fn create_symlink(&self, original: &Path, link: &Path) -> Result<(), AgentError> {
+        if let Some(parent) = link.parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        if link.is_symlink() || link.exists() {
+            let _ = std::fs::remove_file(link);
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(original, link).map_err(AgentError::Io)?;
+        }
+        #[cfg(windows)]
+        {
+            if original.is_dir() {
+                std::os::windows::fs::symlink_dir(original, link).map_err(AgentError::Io)?;
+            } else {
+                std::os::windows::fs::symlink_file(original, link).map_err(AgentError::Io)?;
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (original, link);
+        }
+        Ok(())
+    }
+
+    fn read_link(&self, path: &Path) -> Result<PathBuf, AgentError> {
+        std::fs::read_link(path).map_err(AgentError::Io)
+    }
+
     fn remove_dir_all(&self, path: &Path) -> Result<(), AgentError> {
         if path.exists() {
             std::fs::remove_dir_all(path)?;
@@ -236,6 +290,10 @@ pub enum MockAction {
         from: PathBuf,
         to: PathBuf,
     },
+    CreateSymlink {
+        original: PathBuf,
+        link: PathBuf,
+    },
     RemoveDir {
         path: PathBuf,
     },
@@ -257,6 +315,7 @@ pub struct MockSystemRunner {
     pub actions: Arc<Mutex<Vec<MockAction>>>,
     pub responses: Arc<Mutex<std::collections::HashMap<String, MockCommandResponse>>>,
     pub files: Arc<Mutex<std::collections::HashMap<PathBuf, Vec<u8>>>>,
+    pub symlinks: Arc<Mutex<std::collections::HashMap<PathBuf, PathBuf>>>,
 }
 
 impl MockSystemRunner {
@@ -265,6 +324,7 @@ impl MockSystemRunner {
             actions: Arc::new(Mutex::new(Vec::new())),
             responses: Arc::new(Mutex::new(std::collections::HashMap::new())),
             files: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            symlinks: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -367,6 +427,9 @@ impl SystemRunner for MockSystemRunner {
     }
 
     fn create_dir_all(&self, path: &Path, mode: u32, uid: u32, gid: u32) -> Result<(), AgentError> {
+        if let Ok(mut files) = self.files.lock() {
+            files.insert(path.to_path_buf(), Vec::new());
+        }
         if let Ok(mut lock) = self.actions.lock() {
             lock.push(MockAction::CreateDir {
                 path: path.to_path_buf(),
@@ -417,6 +480,12 @@ impl SystemRunner for MockSystemRunner {
                 files.insert(to.to_path_buf(), content);
             }
         }
+        if let Ok(mut symlinks) = self.symlinks.lock() {
+            let target = symlinks.remove(from);
+            if let Some(target) = target {
+                symlinks.insert(to.to_path_buf(), target);
+            }
+        }
         if let Ok(mut lock) = self.actions.lock() {
             lock.push(MockAction::MovePath {
                 from: from.to_path_buf(),
@@ -424,6 +493,35 @@ impl SystemRunner for MockSystemRunner {
             });
         }
         Ok(())
+    }
+
+    fn create_symlink(&self, original: &Path, link: &Path) -> Result<(), AgentError> {
+        if let Ok(mut lock) = self.symlinks.lock() {
+            lock.insert(link.to_path_buf(), original.to_path_buf());
+        }
+        if let Ok(mut lock) = self.actions.lock() {
+            lock.push(MockAction::CreateSymlink {
+                original: original.to_path_buf(),
+                link: link.to_path_buf(),
+            });
+        }
+        Ok(())
+    }
+
+    fn read_link(&self, path: &Path) -> Result<PathBuf, AgentError> {
+        if let Ok(lock) = self.symlinks.lock()
+            && let Some(target) = lock.get(path)
+        {
+            return Ok(target.clone());
+        }
+        if path.is_symlink() {
+            std::fs::read_link(path).map_err(AgentError::Io)
+        } else {
+            Err(AgentError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Mock symlink not found: {:?}", path),
+            )))
+        }
     }
 
     fn remove_dir_all(&self, path: &Path) -> Result<(), AgentError> {
@@ -441,6 +539,14 @@ impl SystemRunner for MockSystemRunner {
     fn path_exists(&self, path: &Path) -> bool {
         if self
             .files
+            .lock()
+            .ok()
+            .is_some_and(|lock| lock.contains_key(path))
+        {
+            return true;
+        }
+        if self
+            .symlinks
             .lock()
             .ok()
             .is_some_and(|lock| lock.contains_key(path))
@@ -485,6 +591,9 @@ impl SystemRunner for MockSystemRunner {
 
     fn remove_file(&self, path: &Path) -> Result<(), AgentError> {
         if let Ok(mut lock) = self.files.lock() {
+            lock.remove(path);
+        }
+        if let Ok(mut lock) = self.symlinks.lock() {
             lock.remove(path);
         }
         if let Ok(mut lock) = self.actions.lock() {

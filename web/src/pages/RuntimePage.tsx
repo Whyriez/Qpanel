@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   Activity,
   HardDrive,
+  Database,
 } from 'lucide-react';
 import {
   PhpRuntimeListApiResponse,
@@ -43,9 +44,10 @@ import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 import { PhpExtensionsModal } from '../components/runtime/PhpExtensionsModal';
 import { NodeInstallModal } from '../components/runtime/NodeInstallModal';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
+import { DatabaseServersTab } from '../components/runtime/DatabaseServersTab';
 import { toast } from 'sonner';
 
-type RuntimeTab = 'php' | 'node' | 'processes';
+type RuntimeTab = 'php' | 'node' | 'processes' | 'databases';
 
 export const RuntimePage: React.FC = () => {
   const { t } = useTranslation();
@@ -434,6 +436,18 @@ export const RuntimePage: React.FC = () => {
           >
             {activeProcessCount}
           </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('databases')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
+            activeTab === 'databases'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
+          }`}
+        >
+          <Database className="w-3.5 h-3.5" />
+          <span>Server Basis Data</span>
         </button>
       </div>
 
@@ -994,6 +1008,13 @@ export const RuntimePage: React.FC = () => {
             </div>
           )}
         </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB CONTENT: DATABASE SERVERS (Phase 8 - P8-T5)           */}
+      {/* ========================================================= */}
+      {activeTab === 'databases' && (
+        <DatabaseServersTab />
       )}
 
       {/* ========================================================= */}

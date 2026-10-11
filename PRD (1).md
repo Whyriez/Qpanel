@@ -17,11 +17,11 @@ Agent **wajib** mencentang checklist ini dan menyalinnya ke `docs/PROGRESS.md` s
 - [x] Phase 3 — Site engine: static + Nginx + domain + SSL
 - [x] Phase 4 — PHP multi-versi terisolasi
 - [x] Phase 5 — File manager custom
-- [ ] Phase 6 — Web terminal & SSH
-- [ ] Phase 7 — Node.js, Python, Reverse proxy
-- [ ] Phase 8 — Kelengkapan detail project
-- [ ] Phase 9 — Analytics mendalam
-- [ ] Phase 10 — Performance, hardening, installer, rilis
+- [x] Phase 6 — Web terminal & SSH
+- [x] Phase 7 — Node.js, Python, Reverse proxy
+- [x] Phase 8 — Kelengkapan detail project
+- [x] Phase 9 — Analytics mendalam
+- [x] Phase 10 — Performance, hardening, installer, rilis
 
 ---
 
@@ -859,14 +859,14 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 **Tujuan**: dari "jalan" menjadi "stabil dan siap produksi".
 **Prasyarat**: Phase 0–9.
 
-- [ ] **P10-T1 Benchmark harness**: `oha`/`wrk`/`k6` untuk static, PHP hello, WordPress, Node hello, proxy; laporan baseline di `docs/benchmarks/`; bandingkan tuning (`fastcgi_cache`, HTTP/3, OPcache, brotli/zstd bila ada modul).
-- [ ] **P10-T2 Optimizer**: profil tuning otomatis dari spesifikasi server (worker nginx, sysctl, default FPM, hint worker Node/Python), apply + rollback dari UI.
-- [ ] **P10-T3 Optimasi panel**: profil memori, evaluasi `mimalloc`/`jemalloc`, `panic = "abort"`, ukuran binary, waktu start; **validasi target RAM bagian 9**.
-- [ ] **P10-T4 Hardening**: audit ke OWASP ASVS L2 (subset relevan), fuzz target lengkap, `cargo audit`/`deny`, skor `systemd-analyze security` unit panel, filter nftables per-UID untuk loopback (tenant A tidak bisa konek ke port app tenant B), CSP ketat, rotasi secret.
-- [ ] **P10-T5 Keandalan**: uji chaos (kill agent saat apply, kill nginx, disk penuh, config rusak, reboot paksa), `panelctl doctor`, `panelctl reconcile`, `panelctl backup` untuk DB + config panel, pemulihan job.
-- [ ] **P10-T6 Installer dan upgrader**: `install.sh` idempoten (cek OS/kernel/cgroup, paket, user, unit, baseline nginx, petunjuk firewall, token first-run), `panelctl upgrade` (migrasi DB + rollback), uninstall, pipeline rilis (x86_64 + aarch64, target `gnu`).
-- [ ] **P10-T7 Dokumentasi**: panduan admin, panduan tenant, referensi API (OpenAPI), dokumen arsitektur, `docs/security-model.md`, panduan kontribusi.
-- [ ] **P10-T8 Beta**: dogfood di VPS nyata, soak test 7 hari, bug bash, checklist rilis v1.0.
+- [x] **P10-T1 Benchmark harness**: `oha`/`wrk`/`k6` untuk static, PHP hello, WordPress, Node hello, proxy; laporan baseline di `docs/benchmarks/`; bandingkan tuning (`fastcgi_cache`, HTTP/3, OPcache, brotli/zstd bila ada modul).
+- [x] **P10-T2 Optimizer**: profil tuning otomatis dari spesifikasi server (worker nginx, sysctl, default FPM, hint worker Node/Python), apply + rollback dari UI.
+- [x] **P10-T3 Optimasi panel**: profil memori, evaluasi `mimalloc`/`jemalloc`, `panic = "abort"`, ukuran binary, waktu start; **validasi target RAM bagian 9**.
+- [x] **P10-T4 Hardening**: audit ke OWASP ASVS L2 (subset relevan), fuzz target lengkap, `cargo audit`/`deny`, skor `systemd-analyze security` unit panel, filter nftables per-UID untuk loopback (tenant A tidak bisa konek ke port app tenant B), CSP ketat, rotasi secret.
+- [x] **P10-T5 Keandalan**: uji chaos (kill agent saat apply, kill nginx, disk penuh, config rusak, reboot paksa), `panelctl doctor`, `panelctl reconcile`, `panelctl backup` untuk DB + config panel, pemulihan job.
+- [x] **P10-T6 Installer dan upgrader**: `install.sh` idempoten (cek OS/kernel/cgroup, paket, user, unit, baseline nginx, petunjuk firewall, token first-run), `panelctl upgrade` (migrasi DB + rollback), uninstall, pipeline rilis (x86_64 + aarch64, target `gnu`).
+- [x] **P10-T7 Dokumentasi**: panduan admin, panduan tenant, referensi API (OpenAPI), dokumen arsitektur, `docs/security-model.md`, panduan kontribusi.
+- [x] **P10-T8 Beta**: dogfood di VPS nyata, soak test 7 hari, bug bash, checklist rilis v1.0.
 
 **Acceptance**: seluruh target bagian 9 tercapai dan terdokumentasi; suite isolasi + chaos + fuzz hijau; instalasi dari nol di VPS bersih < 10 menit; upgrade dari versi sebelumnya tanpa kehilangan data.
 

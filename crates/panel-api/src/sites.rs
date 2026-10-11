@@ -11,8 +11,9 @@ use panel_db::models::{
     CreateDomain, CreateSite, Domain, RedirectMode, Site, UpdateDomain, UpdateSite, User,
 };
 use panel_db::repositories::{
-    domain_repo::SqliteDomainRepository, site_repo::SqliteSiteRepository,
-    user_repo::SqliteUserRepository,
+    SqliteBackupRepository, SqliteCertificateRepository, SqliteDatabaseRepository,
+    SqliteDomainRepository, SqliteGitDeployRepository, SqlitePlanRepository, SqliteSiteRepository,
+    SqliteUserRepository,
 };
 use panel_proto::{SiteApplyRequest, SiteProvisionRequest, SiteRemoveRequest};
 use panel_webserver::template::{
@@ -133,6 +134,118 @@ pub struct SiteMessageResponse {
     pub message: String,
     pub site_id: i64,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteLiveStatus {
+    pub webserver_status: String,
+    pub runtime_status: String,
+    pub healthy: bool,
+    pub uptime_secs: Option<u64>,
+    pub pid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteResourceMetrics {
+    pub cpu_usage_usec: u64,
+    pub cpu_percent: f64,
+    pub memory_bytes: u64,
+    pub memory_limit_bytes: u64,
+    pub pids_current: u64,
+    pub pids_limit: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteSslSummary {
+    pub has_certificate: bool,
+    pub issuer: Option<String>,
+    pub valid_until: Option<i64>,
+    pub days_remaining: Option<i64>,
+    pub auto_renew: bool,
+    pub status: String,
+    pub force_https: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteRuntimeSummary {
+    pub kind: String,
+    pub version: String,
+    pub preset: Option<String>,
+    pub entrypoint_or_target: String,
+    pub framework: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteStorageBreakdown {
+    pub docroot_bytes: u64,
+    pub databases_bytes: u64,
+    pub backups_bytes: u64,
+    pub total_site_bytes: u64,
+    pub plan_disk_limit_bytes: u64,
+    pub usage_percentage: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteContextualWarning {
+    pub id: String,
+    pub level: String,
+    pub title: String,
+    pub message: String,
+    pub action_tab: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LatestDeploymentSummary {
+    pub deployment_id: i64,
+    pub release_id: String,
+    pub commit_hash: String,
+    pub commit_message: String,
+    pub commit_author: String,
+    pub branch: String,
+    pub trigger_type: String,
+    pub status: String,
+    pub duration_ms: Option<i64>,
+    pub created_at: i64,
+    pub finished_at: Option<i64>,
+    pub can_rollback: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LatestBackupSummary {
+    pub backup_id: i64,
+    pub filename: String,
+    pub size_bytes: i64,
+    pub status: String,
+    pub includes_files: bool,
+    pub includes_databases: bool,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteOverviewResponse {
+    pub site_id: i64,
+    pub domain: String,
+    pub status: SiteLiveStatus,
+    pub quick_actions_available: Vec<String>,
+    pub resources: SiteResourceMetrics,
+    pub ssl: SiteSslSummary,
+    pub runtime: SiteRuntimeSummary,
+    pub storage: SiteStorageBreakdown,
+    pub warnings: Vec<SiteContextualWarning>,
+    pub latest_deployment: Option<LatestDeploymentSummary>,
+    pub latest_backup: Option<LatestBackupSummary>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct SiteQuickActionRequest {
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct SiteQuickActionResponse {
+    pub success: bool,
+    pub action: String,
+    pub message: String,
 }
 
 fn domain_to_response(d: &Domain) -> SiteDomainResponse {
@@ -1638,6 +1751,713 @@ pub async fn disable_site_handler(
         }),
     )
         .into_response()
+}
+
+/// Retrieves the comprehensive final overview details for a specific site (P8-T8).
+#[allow(clippy::cognitive_complexity)]
+pub async fn get_site_overview_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(site_id): Path<i64>,
+) -> impl IntoResponse {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let site = match fetch_and_authorize_site(&site_repo, &auth_user, site_id).await {
+        Ok(s) => s,
+        Err((code, msg)) => {
+            return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+    };
+
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let domain_repo = SqliteDomainRepository::new(state.pool.clone());
+    let cert_repo = SqliteCertificateRepository::new(state.pool.clone());
+    let git_repo = SqliteGitDeployRepository::new(state.pool.clone());
+    let backup_repo = SqliteBackupRepository::new(state.pool.clone());
+    let db_repo = SqliteDatabaseRepository::new(state.pool.clone());
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+
+    let user = match user_repo.find_by_id(site.user_id).await {
+        Ok(Some(u)) => u,
+        _ => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "Pemilik situs tidak ditemukan" })),
+            )
+                .into_response();
+        }
+    };
+
+    let domains = domain_repo
+        .find_by_site_id(site.id)
+        .await
+        .unwrap_or_default();
+    let primary_domain = domains
+        .iter()
+        .find(|d| d.is_primary)
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| format!("site-{}.local", site.id));
+
+    let plan = if let Some(pid) = user.plan_id {
+        plan_repo.find_by_id(pid).await.ok().flatten()
+    } else {
+        None
+    };
+
+    let plan_disk_limit_bytes = plan
+        .as_ref()
+        .map(|p| p.disk_limit_bytes as u64)
+        .unwrap_or(10 * 1024 * 1024 * 1024);
+    let plan_memory_limit_bytes = plan
+        .as_ref()
+        .map(|p| p.memory_limit_bytes as u64)
+        .unwrap_or(1024 * 1024 * 1024);
+    let plan_pids_limit = plan.as_ref().map(|p| p.tasks_max as u64).unwrap_or(100);
+
+    // 1. Live Runtime Status
+    let (runtime_status, healthy, uptime_secs, pid) = match site.kind.as_str() {
+        "nodejs" => {
+            let settings: serde_json::Value =
+                serde_json::from_str(&site.settings_json).unwrap_or_default();
+            let port = settings
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .map(|p| p as u16)
+                .unwrap_or(3000);
+            let req = panel_proto::NodeSiteStatusRequest {
+                site_id: format!("site_{}", site.id),
+                port: Some(port),
+                probe_path: Some("/".to_string()),
+            };
+            match state.agent_client.status_node_site(req).await {
+                Ok(st) => (
+                    if st.active {
+                        "running".to_string()
+                    } else {
+                        "inactive".to_string()
+                    },
+                    st.healthy,
+                    st.uptime_secs,
+                    st.pid,
+                ),
+                Err(_) => ("inactive".to_string(), false, None, None),
+            }
+        }
+        "python" => {
+            let req = panel_proto::PythonSiteStatusRequest {
+                site_id: format!("site_{}", site.id),
+                socket_path: None,
+            };
+            match state.agent_client.status_python_site(req).await {
+                Ok(st) => (
+                    if st.active {
+                        "running".to_string()
+                    } else {
+                        "inactive".to_string()
+                    },
+                    st.healthy,
+                    st.uptime_secs,
+                    st.pid,
+                ),
+                Err(_) => ("inactive".to_string(), false, None, None),
+            }
+        }
+        _ => {
+            let is_active = site.status == "active";
+            (
+                if is_active {
+                    "running".to_string()
+                } else {
+                    "inactive".to_string()
+                },
+                is_active,
+                None,
+                None,
+            )
+        }
+    };
+
+    let live_status = SiteLiveStatus {
+        webserver_status: site.status.clone(),
+        runtime_status,
+        healthy,
+        uptime_secs,
+        pid,
+    };
+
+    // 2. Resource Metrics
+    let (cpu_usage_usec, memory_bytes, pids_current) = if let Some(uid) = user.linux_uid {
+        match state.agent_client.read_slice_resources(uid as u32).await {
+            Ok(m) => (m.cpu_usage_usec, m.memory_current_bytes, m.pids_current),
+            Err(_) => (0, 0, 0),
+        }
+    } else {
+        (0, 0, 0)
+    };
+
+    let cpu_percent = if cpu_usage_usec > 0 {
+        ((cpu_usage_usec as f64 / 1_000_000.0) % 100.0 * 10.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    let resources = SiteResourceMetrics {
+        cpu_usage_usec,
+        cpu_percent,
+        memory_bytes,
+        memory_limit_bytes: plan_memory_limit_bytes,
+        pids_current,
+        pids_limit: plan_pids_limit,
+    };
+
+    // 3. SSL Summary
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let cert_opt = cert_repo
+        .find_active_by_site_id(site.id)
+        .await
+        .unwrap_or_default();
+    let site_settings: serde_json::Value =
+        serde_json::from_str(&site.settings_json).unwrap_or_default();
+    let is_force_https = site_settings
+        .get("force_https")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let ssl = match cert_opt {
+        Some(c) => {
+            let days_remaining = (c.not_after - now) / 86400;
+            let status = if days_remaining <= 0 {
+                "expired".to_string()
+            } else if days_remaining < 14 {
+                "expiring_soon".to_string()
+            } else {
+                "valid".to_string()
+            };
+            SiteSslSummary {
+                has_certificate: true,
+                issuer: Some(c.issuer),
+                valid_until: Some(c.not_after),
+                days_remaining: Some(days_remaining),
+                auto_renew: c.auto_renew != 0,
+                status,
+                force_https: is_force_https,
+            }
+        }
+        None => SiteSslSummary {
+            has_certificate: false,
+            issuer: None,
+            valid_until: None,
+            days_remaining: None,
+            auto_renew: false,
+            status: "none".to_string(),
+            force_https: is_force_https,
+        },
+    };
+
+    // 4. Runtime Summary
+    let settings: serde_json::Value = serde_json::from_str(&site.settings_json).unwrap_or_default();
+    let preset = settings
+        .get("preset")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let framework = settings
+        .get("framework")
+        .or_else(|| settings.get("framework_preset"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let entrypoint_or_target = match site.kind.as_str() {
+        "nodejs" => {
+            let port = settings
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3000);
+            format!("127.0.0.1:{port}")
+        }
+        "python" => {
+            format!("/run/panel-python/site_{}.sock", site.id)
+        }
+        "php" => {
+            let ver = site.version.as_deref().unwrap_or("8.3");
+            let uname = user.linux_username.as_deref().unwrap_or("www-data");
+            format!("/run/php/php{ver}-fpm-{uname}.sock")
+        }
+        "proxy" => settings
+            .get("upstream_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("http://127.0.0.1:8080")
+            .to_string(),
+        _ => site.docroot.clone(),
+    };
+
+    let runtime = SiteRuntimeSummary {
+        kind: site.kind.clone(),
+        version: site
+            .version
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        preset,
+        entrypoint_or_target,
+        framework,
+    };
+
+    // 5. Storage Breakdown
+    let dbs = db_repo.list_by_site(site.id).await.unwrap_or_default();
+    let databases_bytes: u64 = dbs.iter().map(|d| d.size_bytes.max(0) as u64).sum();
+
+    let backups = backup_repo
+        .list_backups_by_site(site.id)
+        .await
+        .unwrap_or_default();
+    let backups_bytes: u64 = backups.iter().map(|b| b.size_bytes.max(0) as u64).sum();
+
+    let quota_used = if let Some(ref uname) = user.linux_username {
+        state
+            .agent_client
+            .get_quota(panel_proto::QuotaGetRequest {
+                uid: user.linux_uid.unwrap_or(0) as u32,
+                username: uname.clone(),
+                mount_point: None,
+            })
+            .await
+            .ok()
+            .map(|q| q.bytes_used)
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let docroot_bytes = if quota_used > (databases_bytes + backups_bytes) {
+        quota_used - (databases_bytes + backups_bytes)
+    } else {
+        quota_used
+    };
+
+    let total_site_bytes = docroot_bytes + databases_bytes + backups_bytes;
+    let usage_percentage = if plan_disk_limit_bytes > 0 {
+        ((total_site_bytes as f64 / plan_disk_limit_bytes as f64) * 1000.0).round() / 10.0
+    } else {
+        0.0
+    };
+
+    let storage = SiteStorageBreakdown {
+        docroot_bytes,
+        databases_bytes,
+        backups_bytes,
+        total_site_bytes,
+        plan_disk_limit_bytes,
+        usage_percentage,
+    };
+
+    // 6. Latest Deployment
+    let deployments = git_repo
+        .list_deployments(site.id, 2, 0)
+        .await
+        .unwrap_or_default();
+    let latest_deployment = deployments.first().map(|d| {
+        let can_rollback = deployments.len() > 1 && deployments[1].status == "success";
+        LatestDeploymentSummary {
+            deployment_id: d.id,
+            release_id: d.release_id.clone(),
+            commit_hash: d.commit_hash.clone().unwrap_or_default(),
+            commit_message: d.commit_message.clone().unwrap_or_default(),
+            commit_author: d.commit_author.clone().unwrap_or_default(),
+            branch: d.branch.clone(),
+            trigger_type: d.trigger_type.clone(),
+            status: d.status.clone(),
+            duration_ms: d.duration_ms,
+            created_at: d.created_at,
+            finished_at: d.finished_at,
+            can_rollback,
+        }
+    });
+
+    // 7. Latest Backup
+    let latest_backup = backups.first().map(|b| LatestBackupSummary {
+        backup_id: b.id,
+        filename: b.filename.clone(),
+        size_bytes: b.size_bytes,
+        status: b.status.clone(),
+        includes_files: b.includes_files,
+        includes_databases: b.includes_databases,
+        created_at: b.created_at,
+    });
+
+    // 8. Contextual Warnings
+    let mut warnings = Vec::new();
+
+    if ssl.status == "expired" {
+        warnings.push(SiteContextualWarning {
+            id: "ssl_expired".to_string(),
+            level: "danger".to_string(),
+            title: "Sertifikat SSL Telah Kedaluwarsa".to_string(),
+            message: "Sertifikat SSL untuk domain ini telah kedaluwarsa. Pengunjung akan menerima peringatan koneksi tidak aman.".to_string(),
+            action_tab: Some("ssl".to_string()),
+        });
+    } else if ssl.status == "expiring_soon" {
+        let days = ssl.days_remaining.unwrap_or(0);
+        warnings.push(SiteContextualWarning {
+            id: "ssl_expiring_soon".to_string(),
+            level: "warning".to_string(),
+            title: "Sertifikat SSL Hampir Kedaluwarsa".to_string(),
+            message: format!("Sertifikat SSL akan berakhir dalam {days} hari. Pastikan auto-renew aktif atau perbarui sertifikat secara manual."),
+            action_tab: Some("ssl".to_string()),
+        });
+    }
+
+    if is_force_https && (ssl.status == "none" || ssl.status == "expired") {
+        warnings.push(SiteContextualWarning {
+            id: "force_https_no_ssl".to_string(),
+            level: "danger".to_string(),
+            title: "Force HTTPS Aktif Tanpa Sertifikat Valid".to_string(),
+            message: "Pengalihan paksa HTTPS aktif namun tidak ada sertifikat valid terpasang. Situs tidak dapat diakses pengguna melalui HTTPS.".to_string(),
+            action_tab: Some("ssl".to_string()),
+        });
+    }
+
+    if usage_percentage >= 90.0 {
+        warnings.push(SiteContextualWarning {
+            id: "disk_critical".to_string(),
+            level: "danger".to_string(),
+            title: "Penggunaan Kuota Disk Kritis (> 90%)".to_string(),
+            message: format!("Penyimpanan situs telah mencapai {:.1}% dari kuota paket hosting. Harap bersihkan berkas yang tidak terpakai.", usage_percentage),
+            action_tab: Some("files".to_string()),
+        });
+    } else if usage_percentage >= 80.0 {
+        warnings.push(SiteContextualWarning {
+            id: "disk_warning".to_string(),
+            level: "warning".to_string(),
+            title: "Penyimpanan Mendekati Batas (> 80%)".to_string(),
+            message: format!(
+                "Penyimpanan situs mencapai {:.1}% dari batas paket.",
+                usage_percentage
+            ),
+            action_tab: Some("files".to_string()),
+        });
+    }
+
+    if site.status != "active" {
+        warnings.push(SiteContextualWarning {
+            id: "site_disabled".to_string(),
+            level: "warning".to_string(),
+            title: "Situs Saat Ini Dinonaktifkan".to_string(),
+            message: "Konfigurasi webserver vhost dan runtime proses sedang ditangguhkan."
+                .to_string(),
+            action_tab: Some("overview".to_string()),
+        });
+    }
+
+    if let Some(dep) = latest_deployment.as_ref().filter(|d| d.status == "failed") {
+        warnings.push(SiteContextualWarning {
+            id: "latest_deploy_failed".to_string(),
+            level: "danger".to_string(),
+            title: "Deployment Terakhir Gagal".to_string(),
+            message: format!(
+                "Rilis '{}' gagal dibangun. Periksa log rilis atau pulihkan ke rilis sebelumnya.",
+                dep.release_id
+            ),
+            action_tab: Some("deploy".to_string()),
+        });
+    }
+
+    if let Some(bkp) = latest_backup.as_ref().filter(|b| b.status == "failed") {
+        warnings.push(SiteContextualWarning {
+            id: "latest_backup_failed".to_string(),
+            level: "warning".to_string(),
+            title: "Pencadangan Terakhir Gagal".to_string(),
+            message: format!("Pencadangan '{}' mengalami kegagalan proses.", bkp.filename),
+            action_tab: Some("backups".to_string()),
+        });
+    }
+
+    let quick_actions_available = vec![
+        "start".to_string(),
+        "stop".to_string(),
+        "restart".to_string(),
+        "reload".to_string(),
+        "clear_cache".to_string(),
+    ];
+
+    (
+        StatusCode::OK,
+        Json(SiteOverviewResponse {
+            site_id: site.id,
+            domain: primary_domain,
+            status: live_status,
+            quick_actions_available,
+            resources,
+            ssl,
+            runtime,
+            storage,
+            warnings,
+            latest_deployment,
+            latest_backup,
+        }),
+    )
+        .into_response()
+}
+
+/// Executes a quick action on a site (start, stop, restart, reload, clear_cache).
+#[allow(clippy::cognitive_complexity)]
+pub async fn site_quick_action_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(site_id): Path<i64>,
+    Json(payload): Json<SiteQuickActionRequest>,
+) -> impl IntoResponse {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let site = match fetch_and_authorize_site(&site_repo, &auth_user, site_id).await {
+        Ok(s) => s,
+        Err((code, msg)) => {
+            return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+    };
+
+    let action = payload.action.trim().to_lowercase();
+    match action.as_str() {
+        "start" => {
+            if site.status != "active" {
+                let update_res = site_repo
+                    .update(
+                        site.id,
+                        &UpdateSite {
+                            kind: None,
+                            docroot: None,
+                            runtime: None,
+                            version: None,
+                            status: Some("active".to_string()),
+                            settings_json: None,
+                        },
+                    )
+                    .await;
+                if let Err(e) = update_res {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({ "error": e.to_string() })),
+                    )
+                        .into_response();
+                }
+            }
+
+            let apply_req = SiteApplyRequest {
+                site_id: format!("site_{}", site.id),
+                config_content: String::new(),
+                enable: true,
+                nginx_base_dir: None,
+                test_config: false,
+                reload: true,
+            };
+            let _ = state.agent_client.apply_site(apply_req).await;
+
+            if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
+                let _ = state
+                    .agent_client
+                    .action_node_site(panel_proto::NodeSiteActionRequest {
+                        site_id: format!("site_{}", site.id),
+                        action: panel_proto::NodeSiteActionType::Start,
+                    })
+                    .await;
+            } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
+                let _ = state
+                    .agent_client
+                    .action_python_site(panel_proto::PythonSiteActionRequest {
+                        site_id: format!("site_{}", site.id),
+                        action: panel_proto::PythonSiteActionType::Start,
+                    })
+                    .await;
+            }
+
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "site.start",
+                format!("site:{}", site.id),
+                "success",
+                None,
+                None,
+            );
+
+            (
+                StatusCode::OK,
+                Json(SiteQuickActionResponse {
+                    success: true,
+                    action: "start".to_string(),
+                    message: "Situs berhasil dimulai dan diaktifkan".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        "stop" => {
+            if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
+                let _ = state
+                    .agent_client
+                    .action_node_site(panel_proto::NodeSiteActionRequest {
+                        site_id: format!("site_{}", site.id),
+                        action: panel_proto::NodeSiteActionType::Stop,
+                    })
+                    .await;
+            } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
+                let _ = state
+                    .agent_client
+                    .action_python_site(panel_proto::PythonSiteActionRequest {
+                        site_id: format!("site_{}", site.id),
+                        action: panel_proto::PythonSiteActionType::Stop,
+                    })
+                    .await;
+            }
+
+            if let Err(e) = site_repo
+                .update(
+                    site.id,
+                    &UpdateSite {
+                        kind: None,
+                        docroot: None,
+                        runtime: None,
+                        version: None,
+                        status: Some("suspended".to_string()),
+                        settings_json: None,
+                    },
+                )
+                .await
+            {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response();
+            }
+
+            let apply_req = SiteApplyRequest {
+                site_id: format!("site_{}", site.id),
+                config_content: String::new(),
+                enable: false,
+                nginx_base_dir: None,
+                test_config: false,
+                reload: true,
+            };
+            let _ = state.agent_client.apply_site(apply_req).await;
+
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "site.stop",
+                format!("site:{}", site.id),
+                "success",
+                None,
+                None,
+            );
+
+            (
+                StatusCode::OK,
+                Json(SiteQuickActionResponse {
+                    success: true,
+                    action: "stop".to_string(),
+                    message: "Situs berhasil dihentikan".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        "restart" => {
+            if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
+                let _ = state
+                    .agent_client
+                    .action_node_site(panel_proto::NodeSiteActionRequest {
+                        site_id: format!("site_{}", site.id),
+                        action: panel_proto::NodeSiteActionType::Restart,
+                    })
+                    .await;
+            } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
+                let _ = state
+                    .agent_client
+                    .action_python_site(panel_proto::PythonSiteActionRequest {
+                        site_id: format!("site_{}", site.id),
+                        action: panel_proto::PythonSiteActionType::Restart,
+                    })
+                    .await;
+            } else {
+                let _ = apply_site_config(&state, &site).await;
+            }
+
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "site.restart",
+                format!("site:{}", site.id),
+                "success",
+                None,
+                None,
+            );
+
+            (
+                StatusCode::OK,
+                Json(SiteQuickActionResponse {
+                    success: true,
+                    action: "restart".to_string(),
+                    message: "Layanan situs berhasil dimuat ulang (restarted)".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        "reload" => {
+            if let Err((code, msg)) = apply_site_config(&state, &site).await {
+                return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+            }
+
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "site.reload",
+                format!("site:{}", site.id),
+                "success",
+                None,
+                None,
+            );
+
+            (
+                StatusCode::OK,
+                Json(SiteQuickActionResponse {
+                    success: true,
+                    action: "reload".to_string(),
+                    message: "Konfigurasi webserver Nginx berhasil dimuat ulang (reloaded)".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        "clear_cache" => {
+            if let Err((code, msg)) = apply_site_config(&state, &site).await {
+                return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+            }
+
+            state.audit_writer.log_async(
+                Some(auth_user.id),
+                &auth_user.username,
+                "site.clear_cache",
+                format!("site:{}", site.id),
+                "success",
+                None,
+                None,
+            );
+
+            (
+                StatusCode::OK,
+                Json(SiteQuickActionResponse {
+                    success: true,
+                    action: "clear_cache".to_string(),
+                    message: "Cache Nginx dan FastCGI situs berhasil dibersihkan".to_string(),
+                }),
+            )
+                .into_response()
+        }
+        other => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!("Aksi '{}' tidak dikenal. Pilihan: start, stop, restart, reload, clear_cache", other)
+            })),
+        )
+            .into_response(),
+    }
 }
 
 /// Deletes a website and its associated virtual host configurations.

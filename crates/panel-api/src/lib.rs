@@ -13,9 +13,11 @@ pub mod git_deploy;
 pub mod jobs;
 pub mod logs;
 pub mod mail;
+pub mod memory_profile;
 pub mod node;
 pub mod node_site;
 pub mod notifications;
+pub mod optimizer;
 pub mod php;
 pub mod plans;
 pub mod processes;
@@ -24,11 +26,14 @@ pub mod python_site;
 pub mod retention;
 pub mod routes;
 pub mod security_analytics;
+pub mod security_hardening;
+pub mod security_headers;
 pub mod site_rules;
 pub mod sites;
 pub mod ssh;
 pub mod ssl;
 pub mod static_files;
+pub mod system_reliability;
 pub mod tenants;
 pub mod terminal;
 
@@ -48,6 +53,10 @@ pub fn create_router(state: AppState) -> Router {
     let api_routes = Router::new()
         .route("/healthz", get(healthz_handler))
         .route("/api/v1/system/info", get(system_info_handler))
+        .route(
+            "/api/v1/system/memory-profile",
+            get(memory_profile::get_memory_profile_handler),
+        )
         .route("/api/v1/auth/login", post(auth::login_handler))
         .route("/api/v1/auth/logout", post(auth::logout_handler))
         .route("/api/v1/auth/me", get(auth::me_handler))
@@ -624,9 +633,57 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/system/analytics/integrity-check",
             post(retention::check_analytics_integrity_handler),
         )
+        // Server Optimizer endpoints (Phase 10 - P10-T2)
+        .route(
+            "/api/v1/system/optimizer",
+            get(optimizer::get_optimizer_status_handler),
+        )
+        .route(
+            "/api/v1/system/optimizer/apply",
+            post(optimizer::apply_optimizer_handler),
+        )
+        .route(
+            "/api/v1/system/optimizer/rollback",
+            post(optimizer::rollback_optimizer_handler),
+        )
+        // Hardening OWASP ASVS L2 & nftables firewall (Phase 10 - P10-T4)
+        .route(
+            "/api/v1/system/security-hardening",
+            get(security_hardening::get_security_hardening_overview_handler),
+        )
+        .route(
+            "/api/v1/system/security-hardening/nftables/sync",
+            post(security_hardening::sync_nftables_loopback_handler),
+        )
+        // System Reliability & Diagnostics (Phase 10 - P10-T5)
+        .route(
+            "/api/v1/system/doctor",
+            get(system_reliability::get_system_doctor_handler),
+        )
+        .route(
+            "/api/v1/system/doctor/fix",
+            post(system_reliability::fix_system_doctor_handler),
+        )
+        .route(
+            "/api/v1/system/reconcile",
+            get(system_reliability::get_system_reconcile_handler)
+                .post(system_reliability::apply_system_reconcile_handler),
+        )
+        .route(
+            "/api/v1/system/backups",
+            get(system_reliability::list_system_backups_handler)
+                .post(system_reliability::create_system_backup_handler),
+        )
+        .route(
+            "/api/v1/system/backups/restore",
+            post(system_reliability::restore_system_backup_handler),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(
+            security_headers::security_headers_middleware,
+        ))
         .with_state(state);
 
     // Fallback to static files from web/dist for all non-API paths

@@ -1898,5 +1898,293 @@ export interface TriggerMaintenanceRequest {
   force_wal_checkpoint?: boolean | null;
 }
 
+// ==========================================
+// Server Optimizer Types (Phase 10 - P10-T2)
+// ==========================================
+
+export interface ServerHardwareSpecsDto {
+  vcpu_count: number;
+  ram_total_mb: number;
+  ram_free_mb: number;
+  swap_total_mb: number;
+  swap_free_mb: number;
+  kernel_version: string;
+  os_distro: string;
+}
+
+export interface NginxTuningConfigDto {
+  worker_processes: string;
+  worker_connections: number;
+  worker_rlimit_nofile: number;
+  multi_accept: boolean;
+  keepalive_timeout_secs: number;
+  client_body_buffer_size_kb: number;
+  fastcgi_buffer_size_kb: number;
+  fastcgi_buffers: string;
+  open_file_cache_max: number;
+  open_file_cache_inactive_secs: number;
+}
+
+export interface SysctlTuningConfigDto {
+  somaxconn: number;
+  tcp_max_syn_backlog: number;
+  tcp_tw_reuse: number;
+  ip_local_port_range: string;
+  swappiness: number;
+  file_max: number;
+  netdev_max_backlog: number;
+}
+
+export interface PhpFpmTuningConfigDto {
+  pm_type: string;
+  max_children: number;
+  start_servers?: number | null;
+  min_spare_servers?: number | null;
+  max_spare_servers?: number | null;
+  process_idle_timeout_secs: number;
+  max_requests: number;
+}
+
+export interface AppRuntimeHintsDto {
+  recommended_node_workers: number;
+  recommended_node_max_old_space_mb: number;
+  recommended_python_workers: number;
+}
+
+export interface OptimizerProfileDto {
+  profile_type: string;
+  display_name: string;
+  description: string;
+  nginx: NginxTuningConfigDto;
+  sysctl: SysctlTuningConfigDto;
+  php_fpm: PhpFpmTuningConfigDto;
+  hints: AppRuntimeHintsDto;
+}
+
+export interface OptimizerStatusResponseDto {
+  hardware: ServerHardwareSpecsDto;
+  recommended_profile: string;
+  active_profile?: string | null;
+  applied_at?: number | null;
+  current_settings: OptimizerProfileDto;
+  recommended_settings: OptimizerProfileDto;
+  has_backup: boolean;
+  last_backup_at?: number | null;
+}
+
+export interface ApplyOptimizerRequestDto {
+  profile: string;
+}
+
+export interface OptimizerActionResponseDto {
+  success: boolean;
+  profile?: string | null;
+  message: string;
+  nginx_reloaded: boolean;
+  sysctl_applied: boolean;
+  timestamp: number;
+}
+
+// Memory Profile & PRD Section 9 Validation Types (Phase 10 - P10-T3)
+export interface ProcessMemorySnapshot {
+  pid: number;
+  rss_bytes: number;
+  rss_mb: number;
+  vsize_bytes: number;
+  vsize_mb: number;
+  allocator: string;
+  timestamp_epoch_secs: number;
+}
+
+export interface ReleaseProfileInfo {
+  opt_level: string;
+  lto: string;
+  codegen_units: number;
+  panic_strategy: string;
+  strip: boolean;
+  memory_allocator: string;
+}
+
+export interface MemoryTargetEvaluation {
+  target_id: string;
+  name: string;
+  threshold: string;
+  measured: string;
+  passed: boolean;
+  notes: string;
+}
+
+export interface PanelMemoryProfileReport {
+  generated_at: string;
+  allocator: string;
+  release_profile: ReleaseProfileInfo;
+  api_process?: ProcessMemorySnapshot | null;
+  agent_process?: ProcessMemorySnapshot | null;
+  total_panel_rss_mb: number;
+  bundle_gzip_kb: number;
+  cold_start_api_ms?: number | null;
+  api_read_latency_p95_ms?: number | null;
+  targets: MemoryTargetEvaluation[];
+  all_passed: boolean;
+  summary: string;
+}
+
+// Security Hardening & OWASP ASVS L2 / nftables Types (Phase 10 - P10-T4)
+export interface AsvsRequirement {
+  id: string;
+  chapter: string;
+  title: string;
+  level: 'L1' | 'L2' | 'L3';
+  status: 'Pass' | 'Fail' | 'Conditional' | 'NotApplicable';
+  description: string;
+  implementation_evidence: string;
+  verification_notes?: string | null;
+}
+
+export interface OwaspAsvsAuditReport {
+  audited_at: number;
+  panel_version: string;
+  asvs_version: string;
+  target_level: string;
+  total_controls: number;
+  passed_controls: number;
+  failed_controls: number;
+  compliance_percentage: number;
+  requirements: AsvsRequirement[];
+  executive_summary: string;
+}
+
+export interface SystemdDirective {
+  name: string;
+  expected_setting: string;
+  detected_setting?: string | null;
+  compliant: boolean;
+  risk_weight: number;
+  description: string;
+}
+
+export interface SystemdServiceSecurityScore {
+  service_name: string;
+  exposure_score: number;
+  rating: string;
+  is_root: boolean;
+  sandboxed: boolean;
+  directives: SystemdDirective[];
+}
+
+export interface NftablesStatusResponseDto {
+  enabled: boolean;
+  table_name: string;
+  active_rules_count: number;
+  protected_ports_count: number;
+  last_synced_at: number;
+}
+
+export interface TenantPortBindingDto {
+  site_id: number;
+  tenant_uid: number;
+  port: number;
+}
+
+export interface SecurityHardeningOverviewResponse {
+  asvs_audit: OwaspAsvsAuditReport;
+  nftables_status: NftablesStatusResponseDto;
+  systemd_security: SystemdServiceSecurityScore[];
+  secret_vault_active: boolean;
+  secret_key_version: number;
+}
+
+export interface NftablesSyncPayload {
+  custom_bindings?: TenantPortBindingDto[];
+}
+
+export interface NftablesSyncResponseDto {
+  success: boolean;
+  rules_count: number;
+  message: string;
+}
+
+// System Reliability, Doctor, Reconcile, and Backup (P10-T5)
+export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
+export type DoctorCheckCategory =
+  | 'os_kernel'
+  | 'prerequisites'
+  | 'services'
+  | 'socket'
+  | 'database'
+  | 'filesystem'
+  | 'firewall'
+  | 'jobs';
+
+export interface DoctorCheckItem {
+  id: string;
+  name: string;
+  category: DoctorCheckCategory;
+  status: DoctorCheckStatus;
+  message: string;
+  remediation_hint: string | null;
+  fixable: boolean;
+}
+
+export interface DoctorReport {
+  timestamp: number;
+  checks: DoctorCheckItem[];
+  total_passed: number;
+  total_warnings: number;
+  total_failures: number;
+  overall_status: DoctorCheckStatus;
+  healthy: boolean;
+}
+
+export type DriftType =
+  | 'missing_nginx_config'
+  | 'orphaned_nginx_config'
+  | 'missing_docroot_directory'
+  | 'directory_permission_mismatch'
+  | 'nftables_binding_mismatch'
+  | 'interrupted_job_stuck';
+
+export interface DriftItem {
+  id: string;
+  drift_type: DriftType;
+  resource_type: string;
+  resource_id: string;
+  description: string;
+  desired_state: string;
+  actual_state: string;
+  remediation_action: string;
+}
+
+export interface ReconcileReport {
+  timestamp: number;
+  total_resources_checked: number;
+  drifts: DriftItem[];
+  is_clean: boolean;
+}
+
+export interface SystemBackupSummary {
+  filename: string;
+  filepath: string;
+  created_at: number;
+  size_bytes: number;
+  checksum_sha256: string;
+  files_count: number;
+  verified: boolean;
+}
+
+export interface CreateSystemBackupPayload {
+  filename?: string;
+}
+
+export interface RestoreSystemBackupPayload {
+  filepath: string;
+}
+
+export interface SystemBackupVerificationResult {
+  is_valid: boolean;
+  manifest: unknown | null;
+  errors: string[];
+}
+
 
 

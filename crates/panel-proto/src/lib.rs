@@ -141,6 +141,34 @@ pub enum RequestPayload {
     CronJobRemove(CronJobRemoveRequest),
     CronJobRunNow(CronJobRunNowRequest),
     CronJobLogsRead(CronJobLogsReadRequest),
+    SiteDeployKeyGenerate(SiteDeployKeyGenerateRequest),
+    SiteGitDeploy(SiteGitDeployRequest),
+    SiteGitRollback(SiteGitRollbackRequest),
+    SiteGitReleasesList(SiteGitReleasesListRequest),
+    DatabaseServerStatus(DatabaseServerStatusRequest),
+    DatabaseServerInstall(DatabaseServerInstallRequest),
+    DatabaseServerAction(DatabaseServerActionRequest),
+    DatabaseCreate(DatabaseCreateRequest),
+    DatabaseDelete(DatabaseDeleteRequest),
+    DatabaseRotatePassword(DatabaseRotatePasswordRequest),
+    DatabaseUpdateRemoteAccess(DatabaseUpdateRemoteAccessRequest),
+    DatabaseExport(DatabaseExportRequest),
+    DatabaseImport(DatabaseImportRequest),
+    DatabaseSizeCheck(DatabaseSizeCheckRequest),
+    BackupCreate(BackupCreateRequest),
+    BackupRestore(BackupRestoreRequest),
+    BackupDelete(BackupDeleteRequest),
+    OptimizerGetStatus(OptimizerGetStatusRequest),
+    OptimizerApply(OptimizerApplyRequest),
+    OptimizerRollback(OptimizerRollbackRequest),
+    NftablesSync(NftablesSyncRequest),
+    NftablesStatus(NftablesStatusRequest),
+    SystemDoctorCheck(SystemDoctorCheckRequest),
+    SystemDoctorFix(SystemDoctorFixRequest),
+    SystemReconcile(SystemReconcileRequest),
+    SystemBackupCreate(SystemBackupCreateRequest),
+    SystemBackupList(SystemBackupListRequest),
+    SystemBackupRestore(SystemBackupRestoreRequest),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -343,6 +371,34 @@ pub enum ResponsePayload {
     CronJobRemoved(CronJobRemoveResponse),
     CronJobRunNow(CronJobRunNowResponse),
     CronJobLogsRead(CronJobLogsReadResponse),
+    SiteDeployKeyGenerated(SiteDeployKeyGenerateResponse),
+    SiteGitDeployed(SiteGitDeployResponse),
+    SiteGitRollbacked(SiteGitRollbackResponse),
+    SiteGitReleasesList(SiteGitReleasesListResponse),
+    DatabaseServerStatus(DatabaseServerStatusResponse),
+    DatabaseServerInstalled(DatabaseServerInstallResponse),
+    DatabaseServerAction(DatabaseServerActionResponse),
+    DatabaseCreated(DatabaseCreateResponse),
+    DatabaseDeleted(DatabaseDeleteResponse),
+    DatabasePasswordRotated(DatabaseRotatePasswordResponse),
+    DatabaseRemoteAccessUpdated(DatabaseUpdateRemoteAccessResponse),
+    DatabaseExported(DatabaseExportResponse),
+    DatabaseImported(DatabaseImportResponse),
+    DatabaseSizeChecked(DatabaseSizeCheckResponse),
+    BackupCreated(BackupCreateResponse),
+    BackupRestored(BackupRestoreResponse),
+    BackupDeleted(BackupDeleteResponse),
+    OptimizerStatus(Box<OptimizerStatusResponse>),
+    OptimizerApplied(OptimizerApplyResponse),
+    OptimizerRollbacked(OptimizerRollbackResponse),
+    NftablesSynced(NftablesSyncResponse),
+    NftablesStatus(NftablesStatusResponse),
+    SystemDoctorChecked(SystemDoctorCheckResponse),
+    SystemDoctorFixed(SystemDoctorFixResponse),
+    SystemReconciled(SystemReconcileResponse),
+    SystemBackupCreated(SystemBackupCreateResponse),
+    SystemBackupListed(SystemBackupListResponse),
+    SystemBackupRestored(SystemBackupRestoreResponse),
     Error(String),
 }
 
@@ -1916,6 +1972,444 @@ pub struct CronJobLogsReadResponse {
     pub logs: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteDeployKeyGenerateRequest {
+    pub site_id: String,
+    pub username: String,
+    pub key_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteDeployKeyGenerateResponse {
+    pub site_id: String,
+    pub public_key: String,
+    pub private_key_path: String,
+    pub public_key_path: String,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteGitDeployRequest {
+    pub site_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub repo_url: String,
+    pub branch: String,
+    pub commit_hash: Option<String>,
+    pub base_dir: String,
+    pub docroot_subpath: Option<String>,
+    pub build_cmd: Option<String>,
+    pub post_deploy_cmd: Option<String>,
+    pub release_id: String,
+    pub keep_releases: u32,
+    pub deploy_key_path: Option<String>,
+    pub env_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteGitDeployResponse {
+    pub site_id: String,
+    pub release_id: String,
+    pub commit_hash: String,
+    pub commit_author: String,
+    pub commit_message: String,
+    pub duration_ms: u64,
+    pub success: bool,
+    pub log: String,
+    pub current_symlink_target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteGitRollbackRequest {
+    pub site_id: String,
+    pub username: String,
+    pub uid: u32,
+    pub base_dir: String,
+    pub target_release_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteGitRollbackResponse {
+    pub site_id: String,
+    pub release_id: String,
+    pub success: bool,
+    pub log: String,
+    pub current_symlink_target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteGitReleasesListRequest {
+    pub base_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteGitReleasesListResponse {
+    pub current_release: Option<String>,
+    pub releases: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerStatusRequest {
+    pub engines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerStatusItem {
+    pub engine: String,
+    pub is_installed: bool,
+    pub is_running: bool,
+    pub version: Option<String>,
+    pub port: u16,
+    pub socket_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerStatusResponse {
+    pub servers: Vec<DatabaseServerStatusItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerInstallRequest {
+    pub engine: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerInstallResponse {
+    pub engine: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerActionRequest {
+    pub engine: String,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseServerActionResponse {
+    pub engine: String,
+    pub action: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseCreateRequest {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+    pub password: String,
+    pub remote_access: bool,
+    pub allowed_hosts: String,
+    pub collation: String,
+    pub character_set: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseCreateResponse {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseDeleteRequest {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseDeleteResponse {
+    pub engine: String,
+    pub name: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseRotatePasswordRequest {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+    pub new_password: String,
+    pub allowed_hosts: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseRotatePasswordResponse {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseUpdateRemoteAccessRequest {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+    pub remote_access: bool,
+    pub allowed_hosts: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseUpdateRemoteAccessResponse {
+    pub engine: String,
+    pub name: String,
+    pub db_user: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseExportRequest {
+    pub engine: String,
+    pub name: String,
+    pub db_user: Option<String>,
+    pub export_file_path: String,
+    pub tenant_username: String,
+    pub tenant_uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseExportResponse {
+    pub engine: String,
+    pub name: String,
+    pub file_path: String,
+    pub size_bytes: u64,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseImportRequest {
+    pub engine: String,
+    pub name: String,
+    pub db_user: Option<String>,
+    pub import_file_path: String,
+    pub tenant_username: String,
+    pub tenant_uid: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseImportResponse {
+    pub engine: String,
+    pub name: String,
+    pub file_path: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseSizeCheckRequest {
+    pub engine: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseSizeCheckResponse {
+    pub engine: String,
+    pub name: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupDatabaseInfo {
+    pub engine: String,
+    pub name: String,
+    pub username: String,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupCreateRequest {
+    pub site_id: i64,
+    pub tenant_username: String,
+    pub tenant_uid: u32,
+    pub site_dir: String,
+    pub backup_dir: String,
+    pub filename: String,
+    pub include_files: bool,
+    pub include_databases: bool,
+    pub databases: Vec<BackupDatabaseInfo>,
+    pub format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupCreateResponse {
+    pub success: bool,
+    pub size_bytes: u64,
+    pub checksum_sha256: String,
+    pub filepath: String,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupRestoreRequest {
+    pub site_id: i64,
+    pub tenant_username: String,
+    pub tenant_uid: u32,
+    pub backup_filepath: String,
+    pub target_site_dir: String,
+    pub restore_files: bool,
+    pub restore_databases: bool,
+    pub databases: Vec<BackupDatabaseInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupRestoreResponse {
+    pub success: bool,
+    pub restored_files_count: u64,
+    pub restored_databases_count: u32,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupDeleteRequest {
+    pub filepath: String,
+    pub tenant_username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupDeleteResponse {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptimizerProfileType {
+    Micro,
+    Standard,
+    HighPerformance,
+    DedicatedLarge,
+    Custom,
+}
+
+impl OptimizerProfileType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Micro => "micro",
+            Self::Standard => "standard",
+            Self::HighPerformance => "high_performance",
+            Self::DedicatedLarge => "dedicated_large",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ServerHardwareSpecs {
+    pub vcpu_count: u32,
+    pub ram_total_mb: u64,
+    pub ram_free_mb: u64,
+    pub swap_total_mb: u64,
+    pub swap_free_mb: u64,
+    pub kernel_version: String,
+    pub os_distro: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NginxTuningConfig {
+    pub worker_processes: String,
+    pub worker_connections: u32,
+    pub worker_rlimit_nofile: u32,
+    pub multi_accept: bool,
+    pub keepalive_timeout_secs: u32,
+    pub client_body_buffer_size_kb: u32,
+    pub fastcgi_buffer_size_kb: u32,
+    pub fastcgi_buffers: String,
+    pub open_file_cache_max: u32,
+    pub open_file_cache_inactive_secs: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SysctlTuningConfig {
+    pub somaxconn: u32,
+    pub tcp_max_syn_backlog: u32,
+    pub tcp_tw_reuse: u32,
+    pub ip_local_port_range: String,
+    pub swappiness: u32,
+    pub file_max: u64,
+    pub netdev_max_backlog: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhpFpmTuningConfig {
+    pub pm_type: String,
+    pub max_children: u32,
+    pub start_servers: Option<u32>,
+    pub min_spare_servers: Option<u32>,
+    pub max_spare_servers: Option<u32>,
+    pub process_idle_timeout_secs: u32,
+    pub max_requests: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppRuntimeHints {
+    pub recommended_node_workers: u32,
+    pub recommended_node_max_old_space_mb: u32,
+    pub recommended_python_workers: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OptimizerProfile {
+    pub profile_type: OptimizerProfileType,
+    pub display_name: String,
+    pub description: String,
+    pub nginx: NginxTuningConfig,
+    pub sysctl: SysctlTuningConfig,
+    pub php_fpm: PhpFpmTuningConfig,
+    pub hints: AppRuntimeHints,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct OptimizerGetStatusRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OptimizerStatusResponse {
+    pub hardware: ServerHardwareSpecs,
+    pub recommended_profile: OptimizerProfileType,
+    pub active_profile: Option<OptimizerProfileType>,
+    pub applied_at: Option<u64>,
+    pub current_settings: OptimizerProfile,
+    pub recommended_settings: OptimizerProfile,
+    pub has_backup: bool,
+    pub last_backup_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OptimizerApplyRequest {
+    pub profile: OptimizerProfileType,
+    pub custom_tuning: Option<OptimizerProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OptimizerApplyResponse {
+    pub success: bool,
+    pub applied_profile: OptimizerProfileType,
+    pub message: String,
+    pub backup_path: Option<String>,
+    pub nginx_reloaded: bool,
+    pub sysctl_applied: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct OptimizerRollbackRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OptimizerRollbackResponse {
+    pub success: bool,
+    pub restored_profile: Option<OptimizerProfileType>,
+    pub message: String,
+    pub restored_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct VersionInfo {
     pub version: String,
@@ -1981,6 +2475,182 @@ where
             None => Err(ProtoError::ConnectionClosed),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TenantPortBindingDto {
+    pub site_id: u64,
+    pub tenant_uid: u32,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NftablesSyncRequest {
+    pub bindings: Vec<TenantPortBindingDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NftablesSyncResponse {
+    pub success: bool,
+    pub rules_count: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NftablesStatusRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NftablesStatusDto {
+    pub enabled: bool,
+    pub table_name: String,
+    pub active_rules_count: usize,
+    pub protected_ports_count: usize,
+    pub last_synced_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NftablesStatusResponse {
+    pub status: NftablesStatusDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SystemDoctorCheckRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DoctorCheckItemDto {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub status: String,
+    pub message: String,
+    pub remediation_hint: Option<String>,
+    pub fixable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemDoctorCheckResponse {
+    pub timestamp: u64,
+    pub checks: Vec<DoctorCheckItemDto>,
+    pub total_passed: usize,
+    pub total_warnings: usize,
+    pub total_failures: usize,
+    pub overall_status: String,
+    pub healthy: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SystemDoctorFixRequest {
+    pub target_checks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DoctorRemediationResultDto {
+    pub item_id: String,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemDoctorFixResponse {
+    pub results: Vec<DoctorRemediationResultDto>,
+    pub all_fixed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReconcileSiteInputDto {
+    pub site_id: i64,
+    pub domain: String,
+    pub username: String,
+    pub uid: u32,
+    pub kind: String,
+    pub docroot: String,
+    pub config_content: String,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SystemReconcileRequest {
+    pub dry_run: bool,
+    pub desired_sites: Vec<ReconcileSiteInputDto>,
+    pub desired_nftables_ports: Vec<TenantPortBindingDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DriftItemDto {
+    pub id: String,
+    pub drift_type: String,
+    pub resource_type: String,
+    pub resource_id: String,
+    pub description: String,
+    pub desired_state: String,
+    pub actual_state: String,
+    pub remediation_action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemReconcileResponse {
+    pub timestamp: u64,
+    pub total_resources_checked: usize,
+    pub drifts: Vec<DriftItemDto>,
+    pub is_clean: bool,
+    pub reconciled_count: usize,
+    pub failed_count: usize,
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SystemBackupCreateRequest {
+    pub output_filename: Option<String>,
+    pub include_analytics: bool,
+    pub db_path: Option<String>,
+    pub analytics_db_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemBackupCreateResponse {
+    pub success: bool,
+    pub filename: String,
+    pub filepath: String,
+    pub size_bytes: u64,
+    pub checksum_sha256: String,
+    pub files_count: usize,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SystemBackupListRequest {
+    pub backups_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemBackupSummaryDto {
+    pub filename: String,
+    pub filepath: String,
+    pub created_at: u64,
+    pub size_bytes: u64,
+    pub checksum_sha256: String,
+    pub files_count: usize,
+    pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemBackupListResponse {
+    pub backups: Vec<SystemBackupSummaryDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemBackupRestoreRequest {
+    pub backup_filepath: String,
+    pub target_db_path: Option<String>,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SystemBackupRestoreResponse {
+    pub success: bool,
+    pub restored_files_count: usize,
+    pub error: Option<String>,
 }
 
 #[cfg(test)]
@@ -2927,5 +3597,408 @@ mod tests {
         let s_res_cron_run = serde_json::to_string(&res_cron_run).unwrap();
         let de_res_cron_run: RpcResponse = serde_json::from_str(&s_res_cron_run).unwrap();
         assert_eq!(res_cron_run, de_res_cron_run);
+
+        // P8-T4 Git Deploy payloads roundtrip tests
+        let req_deploy_key = RpcRequest::new(
+            "git-key-1",
+            RequestPayload::SiteDeployKeyGenerate(SiteDeployKeyGenerateRequest {
+                site_id: "site-1".to_string(),
+                username: "p_alice".to_string(),
+                key_dir: Some("/etc/panel/keys".to_string()),
+            }),
+        );
+        let s_deploy_key = serde_json::to_string(&req_deploy_key).unwrap();
+        let de_deploy_key: RpcRequest = serde_json::from_str(&s_deploy_key).unwrap();
+        assert_eq!(req_deploy_key, de_deploy_key);
+
+        let res_deploy_key = RpcResponse::ok(
+            "git-key-1",
+            ResponsePayload::SiteDeployKeyGenerated(SiteDeployKeyGenerateResponse {
+                site_id: "site-1".to_string(),
+                public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... deploy@vpanel".to_string(),
+                private_key_path: "/etc/panel/keys/site_site-1_deploy_key".to_string(),
+                public_key_path: "/etc/panel/keys/site_site-1_deploy_key.pub".to_string(),
+                success: true,
+            }),
+        );
+        let s_res_key = serde_json::to_string(&res_deploy_key).unwrap();
+        let de_res_key: RpcResponse = serde_json::from_str(&s_res_key).unwrap();
+        assert_eq!(res_deploy_key, de_res_key);
+
+        let req_git_deploy = RpcRequest::new(
+            "git-deploy-1",
+            RequestPayload::SiteGitDeploy(SiteGitDeployRequest {
+                site_id: "site-1".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                repo_url: "git@github.com:org/repo.git".to_string(),
+                branch: "main".to_string(),
+                commit_hash: None,
+                base_dir: "/home/p_alice/sites/example.com".to_string(),
+                docroot_subpath: Some("dist".to_string()),
+                build_cmd: Some("npm run build".to_string()),
+                post_deploy_cmd: Some("./post-deploy.sh".to_string()),
+                release_id: "20261003-120000-abcd".to_string(),
+                keep_releases: 5,
+                deploy_key_path: Some("/etc/panel/keys/site_site-1_deploy_key".to_string()),
+                env_file_path: Some("/etc/panel/env/site-1.env".to_string()),
+            }),
+        );
+        let s_git_deploy = serde_json::to_string(&req_git_deploy).unwrap();
+        let de_git_deploy: RpcRequest = serde_json::from_str(&s_git_deploy).unwrap();
+        assert_eq!(req_git_deploy, de_git_deploy);
+
+        let res_git_deploy = RpcResponse::ok(
+            "git-deploy-1",
+            ResponsePayload::SiteGitDeployed(SiteGitDeployResponse {
+                site_id: "site-1".to_string(),
+                release_id: "20261003-120000-abcd".to_string(),
+                commit_hash: "abcdef123456".to_string(),
+                commit_author: "Alice <alice@example.com>".to_string(),
+                commit_message: "feat: initial commit".to_string(),
+                duration_ms: 3500,
+                success: true,
+                log: "Cloning... Built successfully.".to_string(),
+                current_symlink_target:
+                    "/home/p_alice/sites/example.com/releases/20261003-120000-abcd/dist".to_string(),
+            }),
+        );
+        let s_res_deploy = serde_json::to_string(&res_git_deploy).unwrap();
+        let de_res_deploy: RpcResponse = serde_json::from_str(&s_res_deploy).unwrap();
+        assert_eq!(res_git_deploy, de_res_deploy);
+
+        let req_git_rollback = RpcRequest::new(
+            "git-rollback-1",
+            RequestPayload::SiteGitRollback(SiteGitRollbackRequest {
+                site_id: "site-1".to_string(),
+                username: "p_alice".to_string(),
+                uid: 10001,
+                base_dir: "/home/p_alice/sites/example.com".to_string(),
+                target_release_id: "20261003-110000-prev".to_string(),
+            }),
+        );
+        let s_git_rollback = serde_json::to_string(&req_git_rollback).unwrap();
+        let de_git_rollback: RpcRequest = serde_json::from_str(&s_git_rollback).unwrap();
+        assert_eq!(req_git_rollback, de_git_rollback);
+
+        let res_git_rollback = RpcResponse::ok(
+            "git-rollback-1",
+            ResponsePayload::SiteGitRollbacked(SiteGitRollbackResponse {
+                site_id: "site-1".to_string(),
+                release_id: "20261003-110000-prev".to_string(),
+                success: true,
+                log: "Symlink swapped to previous release".to_string(),
+                current_symlink_target:
+                    "/home/p_alice/sites/example.com/releases/20261003-110000-prev".to_string(),
+            }),
+        );
+        let s_res_rollback = serde_json::to_string(&res_git_rollback).unwrap();
+        let de_res_rollback: RpcResponse = serde_json::from_str(&s_res_rollback).unwrap();
+        assert_eq!(res_git_rollback, de_res_rollback);
+
+        // P8-T5 Database payloads roundtrip tests
+        let req_db_create = RpcRequest::new(
+            "db-create-1",
+            RequestPayload::DatabaseCreate(DatabaseCreateRequest {
+                engine: "mariadb".to_string(),
+                name: "p_alice_app".to_string(),
+                db_user: "p_alice_user".to_string(),
+                password: "SecurePassword123!".to_string(),
+                remote_access: false,
+                allowed_hosts: "localhost".to_string(),
+                collation: "utf8mb4_unicode_ci".to_string(),
+                character_set: "utf8mb4".to_string(),
+            }),
+        );
+        let s_db_create = serde_json::to_string(&req_db_create).unwrap();
+        let de_db_create: RpcRequest = serde_json::from_str(&s_db_create).unwrap();
+        assert_eq!(req_db_create, de_db_create);
+
+        let res_db_create = RpcResponse::ok(
+            "db-create-1",
+            ResponsePayload::DatabaseCreated(DatabaseCreateResponse {
+                engine: "mariadb".to_string(),
+                name: "p_alice_app".to_string(),
+                db_user: "p_alice_user".to_string(),
+                success: true,
+                message: "Database created".to_string(),
+            }),
+        );
+        let s_res_create = serde_json::to_string(&res_db_create).unwrap();
+        let de_res_create: RpcResponse = serde_json::from_str(&s_res_create).unwrap();
+        assert_eq!(res_db_create, de_res_create);
+
+        let req_db_server = RpcRequest::new(
+            "db-server-1",
+            RequestPayload::DatabaseServerStatus(DatabaseServerStatusRequest {
+                engines: vec!["mariadb".to_string(), "postgresql".to_string()],
+            }),
+        );
+        let s_db_server = serde_json::to_string(&req_db_server).unwrap();
+        let de_db_server: RpcRequest = serde_json::from_str(&s_db_server).unwrap();
+        assert_eq!(req_db_server, de_db_server);
+
+        let res_db_server = RpcResponse::ok(
+            "db-server-1",
+            ResponsePayload::DatabaseServerStatus(DatabaseServerStatusResponse {
+                servers: vec![
+                    DatabaseServerStatusItem {
+                        engine: "mariadb".to_string(),
+                        is_installed: true,
+                        is_running: true,
+                        version: Some("11.4.2".to_string()),
+                        port: 3306,
+                        socket_path: Some("/run/mysqld/mysqld.sock".to_string()),
+                    },
+                    DatabaseServerStatusItem {
+                        engine: "postgresql".to_string(),
+                        is_installed: false,
+                        is_running: false,
+                        version: None,
+                        port: 5432,
+                        socket_path: None,
+                    },
+                ],
+            }),
+        );
+        let s_res_server = serde_json::to_string(&res_db_server).unwrap();
+        let de_res_server: RpcResponse = serde_json::from_str(&s_res_server).unwrap();
+        assert_eq!(res_db_server, de_res_server);
+
+        let req_db_export = RpcRequest::new(
+            "db-export-1",
+            RequestPayload::DatabaseExport(DatabaseExportRequest {
+                engine: "mariadb".to_string(),
+                name: "p_alice_app".to_string(),
+                db_user: Some("p_alice_user".to_string()),
+                export_file_path: "/home/p_alice/backup.sql".to_string(),
+                tenant_username: "p_alice".to_string(),
+                tenant_uid: 10001,
+            }),
+        );
+        let s_db_export = serde_json::to_string(&req_db_export).unwrap();
+        let de_db_export: RpcRequest = serde_json::from_str(&s_db_export).unwrap();
+        assert_eq!(req_db_export, de_db_export);
+
+        let res_db_export = RpcResponse::ok(
+            "db-export-1",
+            ResponsePayload::DatabaseExported(DatabaseExportResponse {
+                engine: "mariadb".to_string(),
+                name: "p_alice_app".to_string(),
+                file_path: "/home/p_alice/backup.sql".to_string(),
+                size_bytes: 1048576,
+                success: true,
+                message: "Export completed".to_string(),
+            }),
+        );
+        let s_res_export = serde_json::to_string(&res_db_export).unwrap();
+        let de_res_export: RpcResponse = serde_json::from_str(&s_res_export).unwrap();
+        assert_eq!(res_db_export, de_res_export);
+    }
+
+    #[test]
+    fn test_rpc_backup_payloads() {
+        let req_create = RpcRequest::new(
+            "bk-create-1",
+            RequestPayload::BackupCreate(BackupCreateRequest {
+                site_id: 1,
+                tenant_username: "p_alice".to_string(),
+                tenant_uid: 10001,
+                site_dir: "/home/p_alice/sites/mysite".to_string(),
+                backup_dir: "/home/p_alice/backups".to_string(),
+                filename: "backup_mysite_1700000000.tar.zst".to_string(),
+                include_files: true,
+                include_databases: true,
+                databases: vec![BackupDatabaseInfo {
+                    engine: "mariadb".to_string(),
+                    name: "p_alice_db".to_string(),
+                    username: "p_alice_u".to_string(),
+                    password: Some("secret123".to_string()),
+                }],
+                format: "tar.zst".to_string(),
+            }),
+        );
+        let s_req = serde_json::to_string(&req_create).unwrap();
+        let de_req: RpcRequest = serde_json::from_str(&s_req).unwrap();
+        assert_eq!(req_create, de_req);
+
+        let res_create = RpcResponse::ok(
+            "bk-create-1",
+            ResponsePayload::BackupCreated(BackupCreateResponse {
+                success: true,
+                size_bytes: 5242880,
+                checksum_sha256: "aabbcc112233".to_string(),
+                filepath: "/home/p_alice/backups/backup_mysite_1700000000.tar.zst".to_string(),
+                error: None,
+            }),
+        );
+        let s_res = serde_json::to_string(&res_create).unwrap();
+        let de_res: RpcResponse = serde_json::from_str(&s_res).unwrap();
+        assert_eq!(res_create, de_res);
+
+        let req_restore = RpcRequest::new(
+            "bk-restore-1",
+            RequestPayload::BackupRestore(BackupRestoreRequest {
+                site_id: 1,
+                tenant_username: "p_alice".to_string(),
+                tenant_uid: 10001,
+                backup_filepath: "/home/p_alice/backups/backup_mysite_1700000000.tar.zst"
+                    .to_string(),
+                target_site_dir: "/home/p_alice/sites/mysite".to_string(),
+                restore_files: true,
+                restore_databases: true,
+                databases: vec![],
+            }),
+        );
+        let s_res_r = serde_json::to_string(&req_restore).unwrap();
+        let de_res_r: RpcRequest = serde_json::from_str(&s_res_r).unwrap();
+        assert_eq!(req_restore, de_res_r);
+    }
+
+    #[test]
+    fn test_rpc_optimizer_payloads() {
+        let req_status = RpcRequest::new(
+            "opt-status-1",
+            RequestPayload::OptimizerGetStatus(OptimizerGetStatusRequest {}),
+        );
+        let s_status = serde_json::to_string(&req_status).unwrap();
+        let de_status: RpcRequest = serde_json::from_str(&s_status).unwrap();
+        assert_eq!(req_status, de_status);
+
+        let req_apply = RpcRequest::new(
+            "opt-apply-1",
+            RequestPayload::OptimizerApply(OptimizerApplyRequest {
+                profile: OptimizerProfileType::Standard,
+                custom_tuning: None,
+            }),
+        );
+        let s_apply = serde_json::to_string(&req_apply).unwrap();
+        let de_apply: RpcRequest = serde_json::from_str(&s_apply).unwrap();
+        assert_eq!(req_apply, de_apply);
+
+        let res_apply = RpcResponse::ok(
+            "opt-apply-1",
+            ResponsePayload::OptimizerApplied(OptimizerApplyResponse {
+                success: true,
+                applied_profile: OptimizerProfileType::Standard,
+                message: "Server tuning applied successfully".to_string(),
+                backup_path: Some("/var/lib/panel/optimizer/backup/snapshot_1.tar".to_string()),
+                nginx_reloaded: true,
+                sysctl_applied: true,
+            }),
+        );
+        let s_res_app = serde_json::to_string(&res_apply).unwrap();
+        let de_res_app: RpcResponse = serde_json::from_str(&s_res_app).unwrap();
+        assert_eq!(res_apply, de_res_app);
+
+        let req_rollback = RpcRequest::new(
+            "opt-rb-1",
+            RequestPayload::OptimizerRollback(OptimizerRollbackRequest {}),
+        );
+        let s_rb = serde_json::to_string(&req_rollback).unwrap();
+        let de_rb: RpcRequest = serde_json::from_str(&s_rb).unwrap();
+        assert_eq!(req_rollback, de_rb);
+
+        // P10-T4 Nftables payloads roundtrip tests
+        let req_nft_sync = RpcRequest::new(
+            "nft-sync-1",
+            RequestPayload::NftablesSync(NftablesSyncRequest {
+                bindings: vec![TenantPortBindingDto {
+                    site_id: 101,
+                    tenant_uid: 1001,
+                    port: 20005,
+                }],
+            }),
+        );
+        let s_nft_sync = serde_json::to_string(&req_nft_sync).unwrap();
+        let de_nft_sync: RpcRequest = serde_json::from_str(&s_nft_sync).unwrap();
+        assert_eq!(req_nft_sync, de_nft_sync);
+
+        let res_nft_sync = RpcResponse::ok(
+            "nft-sync-1",
+            ResponsePayload::NftablesSynced(NftablesSyncResponse {
+                success: true,
+                rules_count: 3,
+                message: "Rules synced".to_string(),
+            }),
+        );
+        let s_res_nft = serde_json::to_string(&res_nft_sync).unwrap();
+        let de_res_nft: RpcResponse = serde_json::from_str(&s_res_nft).unwrap();
+        assert_eq!(res_nft_sync, de_res_nft);
+
+        // P10-T5 Doctor, Reconcile, and Backup payloads roundtrip tests
+        let req_doc = RpcRequest::new(
+            "doc-req-1",
+            RequestPayload::SystemDoctorCheck(SystemDoctorCheckRequest {}),
+        );
+        let s_doc = serde_json::to_string(&req_doc).unwrap();
+        let de_doc: RpcRequest = serde_json::from_str(&s_doc).unwrap();
+        assert_eq!(req_doc, de_doc);
+
+        let res_doc = RpcResponse::ok(
+            "doc-req-1",
+            ResponsePayload::SystemDoctorChecked(SystemDoctorCheckResponse {
+                timestamp: 1720000000,
+                checks: vec![DoctorCheckItemDto {
+                    id: "nginx_syntax".to_string(),
+                    name: "Nginx Syntax".to_string(),
+                    category: "services".to_string(),
+                    status: "pass".to_string(),
+                    message: "Syntax is ok".to_string(),
+                    remediation_hint: None,
+                    fixable: false,
+                }],
+                total_passed: 1,
+                total_warnings: 0,
+                total_failures: 0,
+                overall_status: "pass".to_string(),
+                healthy: true,
+            }),
+        );
+        let s_res_doc = serde_json::to_string(&res_doc).unwrap();
+        let de_res_doc: RpcResponse = serde_json::from_str(&s_res_doc).unwrap();
+        assert_eq!(res_doc, de_res_doc);
+
+        let req_reconcile = RpcRequest::new(
+            "rec-1",
+            RequestPayload::SystemReconcile(SystemReconcileRequest {
+                dry_run: true,
+                desired_sites: vec![],
+                desired_nftables_ports: vec![],
+            }),
+        );
+        let s_rec = serde_json::to_string(&req_reconcile).unwrap();
+        let de_rec: RpcRequest = serde_json::from_str(&s_rec).unwrap();
+        assert_eq!(req_reconcile, de_rec);
+
+        let res_reconcile = RpcResponse::ok(
+            "rec-1",
+            ResponsePayload::SystemReconciled(SystemReconcileResponse {
+                timestamp: 1720000000,
+                total_resources_checked: 10,
+                drifts: vec![],
+                is_clean: true,
+                reconciled_count: 0,
+                failed_count: 0,
+                success: true,
+                message: "Synced".to_string(),
+            }),
+        );
+        let s_res_rec = serde_json::to_string(&res_reconcile).unwrap();
+        let de_res_rec: RpcResponse = serde_json::from_str(&s_res_rec).unwrap();
+        assert_eq!(res_reconcile, de_res_rec);
+
+        let req_backup = RpcRequest::new(
+            "bk-1",
+            RequestPayload::SystemBackupCreate(SystemBackupCreateRequest {
+                output_filename: Some("panel-backup-1.tar.gz".to_string()),
+                include_analytics: true,
+                db_path: None,
+                analytics_db_path: None,
+            }),
+        );
+        let s_bk = serde_json::to_string(&req_backup).unwrap();
+        let de_bk: RpcRequest = serde_json::from_str(&s_bk).unwrap();
+        assert_eq!(req_backup, de_bk);
     }
 }

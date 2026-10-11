@@ -102,6 +102,19 @@ import {
   TriggerMaintenanceRequest,
   RetentionMaintenanceReportDto,
   IntegrityCheckReportDto,
+  OptimizerStatusResponseDto,
+  ApplyOptimizerRequestDto,
+  OptimizerActionResponseDto,
+  PanelMemoryProfileReport,
+  SecurityHardeningOverviewResponse,
+  NftablesSyncPayload,
+  NftablesSyncResponseDto,
+  DoctorReport,
+  ReconcileReport,
+  SystemBackupSummary,
+  CreateSystemBackupPayload,
+  RestoreSystemBackupPayload,
+  SystemBackupVerificationResult,
 } from '../types/api';
 import type { FsListResponse, TrashListResponse } from '../types/files';
 
@@ -1980,3 +1993,84 @@ export async function checkAnalyticsIntegrity(): Promise<IntegrityCheckReportDto
   });
 }
 
+// Server Optimizer & Hardware Tuning (Phase 10 - P10-T2)
+export async function fetchOptimizerStatus(): Promise<OptimizerStatusResponseDto> {
+  return request<OptimizerStatusResponseDto>('/api/v1/system/optimizer');
+}
+
+export async function applyOptimizerProfile(
+  data: ApplyOptimizerRequestDto
+): Promise<OptimizerActionResponseDto> {
+  return request<OptimizerActionResponseDto>('/api/v1/system/optimizer/apply', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function rollbackOptimizerProfile(): Promise<OptimizerActionResponseDto> {
+  return request<OptimizerActionResponseDto>('/api/v1/system/optimizer/rollback', {
+    method: 'POST',
+  });
+}
+
+// Memory Profiling & PRD Section 9 RAM Validation (Phase 10 - P10-T3)
+export async function fetchMemoryProfile(): Promise<PanelMemoryProfileReport> {
+  return request<PanelMemoryProfileReport>('/api/v1/system/memory-profile');
+}
+
+// Security Hardening & OWASP ASVS L2 / nftables (Phase 10 - P10-T4)
+export async function fetchSecurityHardeningOverview(): Promise<SecurityHardeningOverviewResponse> {
+  return request<SecurityHardeningOverviewResponse>('/api/v1/system/security-hardening');
+}
+
+export async function syncNftablesLoopback(
+  payload: NftablesSyncPayload = {}
+): Promise<NftablesSyncResponseDto> {
+  return request<NftablesSyncResponseDto>('/api/v1/system/security-hardening/nftables/sync', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// System Reliability, Doctor, Reconcile, & Backups (Phase 10 - P10-T5)
+export async function fetchSystemDoctorReport(): Promise<DoctorReport> {
+  return request<DoctorReport>('/api/v1/system/doctor');
+}
+
+export async function fixSystemDoctor(): Promise<DoctorReport> {
+  return request<DoctorReport>('/api/v1/system/doctor/fix', {
+    method: 'POST',
+  });
+}
+
+export async function fetchSystemReconcileReport(): Promise<ReconcileReport> {
+  return request<ReconcileReport>('/api/v1/system/reconcile');
+}
+
+export async function applySystemReconcile(): Promise<ReconcileReport> {
+  return request<ReconcileReport>('/api/v1/system/reconcile', {
+    method: 'POST',
+  });
+}
+
+export async function fetchSystemBackups(): Promise<SystemBackupSummary[]> {
+  return request<SystemBackupSummary[]>('/api/v1/system/backups');
+}
+
+export async function createSystemBackup(
+  payload?: CreateSystemBackupPayload
+): Promise<SystemBackupSummary> {
+  return request<SystemBackupSummary>('/api/v1/system/backups', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function restoreSystemBackup(
+  payload: RestoreSystemBackupPayload
+): Promise<SystemBackupVerificationResult> {
+  return request<SystemBackupVerificationResult>('/api/v1/system/backups/restore', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

@@ -93,6 +93,47 @@ async fn handle_failure(runner: &Arc<JobRunner>, job: &Job, err: &str) -> Result
             message: Some(format!("Job failed permanently: {}", err)),
             timestamp: current_timestamp(),
         });
+
+        // Trigger notification for job failure or deploy failure
+        let notif_service =
+            crate::notifications::NotificationService::new(runner.pool.clone(), None);
+        let category = if job.name == "git.deploy" {
+            panel_core::notification::NotificationCategory::DeployFailed
+        } else if job.name.starts_with("backup.") {
+            panel_core::notification::NotificationCategory::BackupFailed
+        } else {
+            panel_core::notification::NotificationCategory::JobFailed
+        };
+
+        let title = match category {
+            panel_core::notification::NotificationCategory::DeployFailed => {
+                "Eksekusi deploy Git gagal".to_string()
+            }
+            panel_core::notification::NotificationCategory::BackupFailed => {
+                format!("Operasi cadangan '{}' gagal", job.name)
+            }
+            _ => format!("Pekerjaan sistem '{}' gagal", job.name),
+        };
+
+        let _ = notif_service
+            .dispatch(crate::notifications::DispatchNotificationEvent {
+                user_id: job.user_id,
+                site_id: None,
+                category,
+                severity: panel_core::notification::NotificationSeverity::Error,
+                title,
+                message: format!("Eksekusi job {} ('{}') gagal: {}", job.id, job.name, err),
+                metadata_json: Some(
+                    serde_json::json!({
+                        "job_id": job.id,
+                        "job_name": job.name,
+                        "error": err
+                    })
+                    .to_string(),
+                ),
+                action_url: Some("/jobs".to_string()),
+            })
+            .await;
     }
 
     Ok(())

@@ -1,0 +1,36 @@
+[Unit]
+Description=Vpanel Privileged System Daemon (Root Agent)
+Documentation=https://github.com/nusa-panel/panel
+After=network.target
+Before=panel-api.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/panel-agent
+Restart=always
+RestartSec=3s
+KillMode=mixed
+LimitNOFILE=65535
+
+# Systemd Security Hardening (systemd-analyze security target: score < 2.0 OK)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_CHOWN CAP_FOWNER CAP_DAC_OVERRIDE CAP_SETUID CAP_SETGID CAP_NET_ADMIN CAP_KILL CAP_SYS_RESOURCE
+PrivateDevices=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=false
+LockPersonality=true
+
+# Runtime & State directories for agent socket
+RuntimeDirectory=panel
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

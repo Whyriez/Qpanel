@@ -1,17 +1,23 @@
 //! `panel-agent`: Privileged root daemon executing typed system operations.
 
 pub mod audit;
+pub mod backups;
 pub mod cron;
 pub mod crypto;
+pub mod databases;
 pub mod fs_manager;
+pub mod git_deploy;
 pub mod hardening;
+pub mod nftables;
 pub mod node;
 pub mod node_site;
+pub mod optimizer;
 pub mod php;
 pub mod proxy;
 pub mod pty;
 pub mod python_site;
 pub mod quota;
+pub mod reliability;
 pub mod resource;
 pub mod slice;
 pub mod ssh;
@@ -83,6 +89,9 @@ pub struct AgentServer {
     fs_manager: Arc<fs_manager::FsManager>,
     pty_manager: Arc<pty::PtySessionManager>,
     ssh_manager: Arc<ssh::SshManager>,
+    optimizer_manager: Arc<optimizer::OptimizerManager>,
+    nftables_manager: Arc<nftables::NftablesManager>,
+    reliability_manager: Arc<reliability::ReliabilityManager>,
 }
 
 fn create_default_pty_manager() -> Arc<pty::PtySessionManager> {
@@ -125,6 +134,17 @@ impl AgentServer {
         let ssh_manager = Arc::new(ssh::SshManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let optimizer_manager = Arc::new(optimizer::OptimizerManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let nftables_manager = Arc::new(nftables::NftablesManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let reliability_manager = Arc::new(reliability::ReliabilityManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>,
+            "/etc/panel",
+            Arc::clone(&nftables_manager),
+        ));
         Self {
             config,
             runner,
@@ -137,6 +157,9 @@ impl AgentServer {
             fs_manager,
             pty_manager,
             ssh_manager,
+            optimizer_manager,
+            nftables_manager,
+            reliability_manager,
         }
     }
 
@@ -165,6 +188,17 @@ impl AgentServer {
         let ssh_manager = Arc::new(ssh::SshManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let optimizer_manager = Arc::new(optimizer::OptimizerManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let nftables_manager = Arc::new(nftables::NftablesManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let reliability_manager = Arc::new(reliability::ReliabilityManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>,
+            "/etc/panel",
+            Arc::clone(&nftables_manager),
+        ));
         Self {
             config,
             runner,
@@ -177,6 +211,9 @@ impl AgentServer {
             fs_manager,
             pty_manager,
             ssh_manager,
+            optimizer_manager,
+            nftables_manager,
+            reliability_manager,
         }
     }
 
@@ -199,6 +236,17 @@ impl AgentServer {
         let ssh_manager = Arc::new(ssh::SshManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let optimizer_manager = Arc::new(optimizer::OptimizerManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let nftables_manager = Arc::new(nftables::NftablesManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let reliability_manager = Arc::new(reliability::ReliabilityManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>,
+            "/etc/panel",
+            Arc::clone(&nftables_manager),
+        ));
         Self {
             config,
             runner,
@@ -211,6 +259,9 @@ impl AgentServer {
             fs_manager,
             pty_manager,
             ssh_manager,
+            optimizer_manager,
+            nftables_manager,
+            reliability_manager,
         }
     }
 
@@ -231,6 +282,17 @@ impl AgentServer {
         let ssh_manager = Arc::new(ssh::SshManager::new(
             Arc::clone(&runner) as Arc<dyn system::SystemRunner>
         ));
+        let optimizer_manager = Arc::new(optimizer::OptimizerManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let nftables_manager = Arc::new(nftables::NftablesManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>
+        ));
+        let reliability_manager = Arc::new(reliability::ReliabilityManager::new(
+            Arc::clone(&runner) as Arc<dyn system::SystemRunner>,
+            "/etc/panel",
+            Arc::clone(&nftables_manager),
+        ));
         Self {
             config,
             runner,
@@ -243,6 +305,9 @@ impl AgentServer {
             fs_manager,
             pty_manager,
             ssh_manager,
+            optimizer_manager,
+            nftables_manager,
+            reliability_manager,
         }
     }
 
@@ -264,6 +329,42 @@ impl AgentServer {
     pub fn with_ssh_manager(mut self, ssh_manager: Arc<ssh::SshManager>) -> Self {
         self.ssh_manager = ssh_manager;
         self
+    }
+
+    pub fn with_optimizer_manager(
+        mut self,
+        optimizer_manager: Arc<optimizer::OptimizerManager>,
+    ) -> Self {
+        self.optimizer_manager = optimizer_manager;
+        self
+    }
+
+    pub fn optimizer_manager(&self) -> &Arc<optimizer::OptimizerManager> {
+        &self.optimizer_manager
+    }
+
+    pub fn with_nftables_manager(
+        mut self,
+        nftables_manager: Arc<nftables::NftablesManager>,
+    ) -> Self {
+        self.nftables_manager = nftables_manager;
+        self
+    }
+
+    pub fn nftables_manager(&self) -> &Arc<nftables::NftablesManager> {
+        &self.nftables_manager
+    }
+
+    pub fn with_reliability_manager(
+        mut self,
+        reliability_manager: Arc<reliability::ReliabilityManager>,
+    ) -> Self {
+        self.reliability_manager = reliability_manager;
+        self
+    }
+
+    pub fn reliability_manager(&self) -> &Arc<reliability::ReliabilityManager> {
+        &self.reliability_manager
     }
 
     pub fn pty_manager(&self) -> &Arc<pty::PtySessionManager> {
@@ -732,6 +833,106 @@ impl AgentServer {
                 RequestPayload::CronJobLogsRead(d) => (
                     "cron.job_logs_read".to_string(),
                     format!("{}:{}", d.site_id, d.job_id),
+                ),
+                RequestPayload::SiteDeployKeyGenerate(d) => {
+                    ("git.key_generate".to_string(), d.site_id.clone())
+                }
+                RequestPayload::SiteGitDeploy(d) => (
+                    "git.deploy".to_string(),
+                    format!("{}:{}", d.site_id, d.release_id),
+                ),
+                RequestPayload::SiteGitRollback(d) => (
+                    "git.rollback".to_string(),
+                    format!("{}:{}", d.site_id, d.target_release_id),
+                ),
+                RequestPayload::SiteGitReleasesList(d) => {
+                    ("git.releases_list".to_string(), d.base_dir.clone())
+                }
+                RequestPayload::DatabaseServerStatus(_) => {
+                    ("database.server_status".to_string(), "host".to_string())
+                }
+                RequestPayload::DatabaseServerInstall(d) => {
+                    ("database.server_install".to_string(), d.engine.clone())
+                }
+                RequestPayload::DatabaseServerAction(d) => {
+                    (format!("database.server_{}", d.action), d.engine.clone())
+                }
+                RequestPayload::DatabaseCreate(d) => (
+                    "database.create".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::DatabaseDelete(d) => (
+                    "database.delete".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::DatabaseRotatePassword(d) => (
+                    "database.rotate_password".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::DatabaseUpdateRemoteAccess(d) => (
+                    "database.update_remote_access".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::DatabaseExport(d) => (
+                    "database.export".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::DatabaseImport(d) => (
+                    "database.import".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::DatabaseSizeCheck(d) => (
+                    "database.size_check".to_string(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
+                RequestPayload::BackupCreate(d) => (
+                    "backup.create".to_string(),
+                    format!("{}:{}", d.site_id, d.filename),
+                ),
+                RequestPayload::BackupRestore(d) => (
+                    "backup.restore".to_string(),
+                    format!("{}:{}", d.site_id, d.backup_filepath),
+                ),
+                RequestPayload::BackupDelete(d) => {
+                    ("backup.delete".to_string(), d.filepath.clone())
+                }
+                RequestPayload::OptimizerGetStatus(_) => {
+                    ("optimizer.get_status".to_string(), "system".to_string())
+                }
+                RequestPayload::OptimizerApply(d) => (
+                    "optimizer.apply".to_string(),
+                    d.profile.as_str().to_string(),
+                ),
+                RequestPayload::OptimizerRollback(_) => {
+                    ("optimizer.rollback".to_string(), "system".to_string())
+                }
+                RequestPayload::NftablesSync(_) => {
+                    ("nftables.sync".to_string(), "loopback_guard".to_string())
+                }
+                RequestPayload::NftablesStatus(_) => {
+                    ("nftables.status".to_string(), "loopback_guard".to_string())
+                }
+                RequestPayload::SystemDoctorCheck(_) => {
+                    ("system.doctor_check".to_string(), "system".to_string())
+                }
+                RequestPayload::SystemDoctorFix(_) => {
+                    ("system.doctor_fix".to_string(), "system".to_string())
+                }
+                RequestPayload::SystemReconcile(_) => {
+                    ("system.reconcile".to_string(), "system".to_string())
+                }
+                RequestPayload::SystemBackupCreate(d) => (
+                    "system.backup_create".to_string(),
+                    d.output_filename
+                        .clone()
+                        .unwrap_or_else(|| "auto".to_string()),
+                ),
+                RequestPayload::SystemBackupList(_) => {
+                    ("system.backup_list".to_string(), "system".to_string())
+                }
+                RequestPayload::SystemBackupRestore(d) => (
+                    "system.backup_restore".to_string(),
+                    d.backup_filepath.clone(),
                 ),
             };
 
@@ -1469,6 +1670,240 @@ impl AgentServer {
                         Ok(res) => {
                             RpcResponse::ok(&req.request_id, ResponsePayload::CronJobLogsRead(res))
                         }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteDeployKeyGenerate(data) => {
+                    match git_deploy::generate_deploy_key(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SiteDeployKeyGenerated(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteGitDeploy(data) => {
+                    match git_deploy::execute_git_deploy(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SiteGitDeployed(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteGitRollback(data) => {
+                    match git_deploy::execute_git_rollback(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SiteGitRollbacked(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SiteGitReleasesList(data) => {
+                    match git_deploy::list_git_releases(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SiteGitReleasesList(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseServerStatus(data) => {
+                    match databases::get_database_server_status(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabaseServerStatus(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseServerInstall(data) => {
+                    match databases::install_database_server(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabaseServerInstalled(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseServerAction(data) => {
+                    match databases::action_database_server(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabaseServerAction(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseCreate(data) => {
+                    match databases::create_database(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::DatabaseCreated(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseDelete(data) => {
+                    match databases::delete_database(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::DatabaseDeleted(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseRotatePassword(data) => {
+                    match databases::rotate_database_password(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabasePasswordRotated(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseUpdateRemoteAccess(data) => {
+                    match databases::update_remote_access(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabaseRemoteAccessUpdated(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseExport(data) => {
+                    match databases::export_database(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::DatabaseExported(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseImport(data) => {
+                    match databases::import_database(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::DatabaseImported(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseSizeCheck(data) => {
+                    match databases::check_database_size(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabaseSizeChecked(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::BackupCreate(data) => {
+                    match backups::create_backup(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::BackupCreated(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::BackupRestore(data) => {
+                    match backups::restore_backup(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::BackupRestored(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::BackupDelete(data) => {
+                    match backups::delete_backup(self.runner.as_ref(), &data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::BackupDeleted(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::OptimizerGetStatus(_) => {
+                    match self.optimizer_manager.get_status() {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::OptimizerStatus(Box::new(res)),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::OptimizerApply(data) => match self.optimizer_manager.apply(&data) {
+                    Ok(res) => {
+                        RpcResponse::ok(&req.request_id, ResponsePayload::OptimizerApplied(res))
+                    }
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
+                RequestPayload::OptimizerRollback(data) => {
+                    match self.optimizer_manager.rollback(&data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::OptimizerRollbacked(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NftablesSync(data) => {
+                    match self.nftables_manager.sync_from_proto(&data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::NftablesSynced(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::NftablesStatus(data) => {
+                    let res = self.nftables_manager.get_status_proto(&data);
+                    RpcResponse::ok(&req.request_id, ResponsePayload::NftablesStatus(res))
+                }
+                RequestPayload::SystemDoctorCheck(data) => {
+                    match self.reliability_manager.check_doctor(&data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SystemDoctorChecked(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SystemDoctorFix(data) => {
+                    match self.reliability_manager.fix_doctor(&data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SystemDoctorFixed(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SystemReconcile(data) => {
+                    match self.reliability_manager.reconcile(&data) {
+                        Ok(res) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SystemReconciled(res))
+                        }
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SystemBackupCreate(data) => {
+                    match self.reliability_manager.backup_create(&data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SystemBackupCreated(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SystemBackupList(data) => {
+                    match self.reliability_manager.backup_list(&data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SystemBackupListed(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::SystemBackupRestore(data) => {
+                    match self.reliability_manager.backup_restore(&data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::SystemBackupRestored(res),
+                        ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }

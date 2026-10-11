@@ -12,7 +12,6 @@ import {
   Settings,
   ChevronDown,
   Search,
-  Bell,
   Sun,
   Moon,
   Monitor,
@@ -28,6 +27,7 @@ import { useAuth } from '../../context/AuthContext';
 import { JobTray } from './JobTray';
 import { CommandPalette } from '../ui/CommandPalette';
 import { ImpersonationBanner } from './ImpersonationBanner';
+import { NotificationBell } from '../notifications/NotificationBell';
 
 export interface ShellProps {
   children: React.ReactNode;
@@ -202,13 +202,13 @@ export const Shell: React.FC<ShellProps> = ({
 
           {/* User & Actions */}
           <div className="flex items-center gap-3">
-            <button
-              className="p-1.5 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:bg-[var(--raised)] hover:text-[var(--ink)] relative cursor-pointer"
-              title="Notifikasi"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[var(--primary)] rounded-full" />
-            </button>
+            <NotificationBell
+              userRole={user?.role}
+              onNavigateUrl={(url) => {
+                const segment = url.replace(/^\//, '').split('/')[0];
+                if (segment) onNavigate(segment);
+              }}
+            />
 
             {/* Profile trigger */}
             <div

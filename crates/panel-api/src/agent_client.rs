@@ -2,9 +2,17 @@
 
 use panel_proto::{
     AcmeChallengeCleanedResponse, AcmeChallengeCleanupRequest, AcmeChallengeDeployRequest,
-    AcmeChallengeDeployedResponse, CronJobApplyRequest, CronJobApplyResponse,
-    CronJobLogsReadRequest, CronJobLogsReadResponse, CronJobRemoveRequest, CronJobRemoveResponse,
-    CronJobRunNowRequest, CronJobRunNowResponse, FsActionResponse, FsArchiveCompressRequest,
+    AcmeChallengeDeployedResponse, BackupCreateRequest, BackupCreateResponse, BackupDeleteRequest,
+    BackupDeleteResponse, BackupRestoreRequest, BackupRestoreResponse, CronJobApplyRequest,
+    CronJobApplyResponse, CronJobLogsReadRequest, CronJobLogsReadResponse, CronJobRemoveRequest,
+    CronJobRemoveResponse, CronJobRunNowRequest, CronJobRunNowResponse, DatabaseCreateRequest,
+    DatabaseCreateResponse, DatabaseDeleteRequest, DatabaseDeleteResponse, DatabaseExportRequest,
+    DatabaseExportResponse, DatabaseImportRequest, DatabaseImportResponse,
+    DatabaseRotatePasswordRequest, DatabaseRotatePasswordResponse, DatabaseServerActionRequest,
+    DatabaseServerActionResponse, DatabaseServerInstallRequest, DatabaseServerInstallResponse,
+    DatabaseServerStatusRequest, DatabaseServerStatusResponse, DatabaseSizeCheckRequest,
+    DatabaseSizeCheckResponse, DatabaseUpdateRemoteAccessRequest,
+    DatabaseUpdateRemoteAccessResponse, FsActionResponse, FsArchiveCompressRequest,
     FsArchiveCompressResponse, FsArchiveExtractRequest, FsArchiveExtractResponse,
     FsChmodRecursiveRequest, FsChmodRecursiveResponse, FsChmodRequest, FsChmodResponse,
     FsChownRequest, FsChownResponse, FsCopyRequest, FsDeleteRequest, FsListRequest, FsListResponse,
@@ -15,20 +23,23 @@ use panel_proto::{
     FsUploadAppendChunkRequest, FsUploadAppendChunkResponse, FsUploadGetSessionRequest,
     FsUploadGetSessionResponse, FsUploadInitRequest, FsUploadInitResponse, FsWriteAtomicRequest,
     FsWriteAtomicResponse, FsZipDirectoryRequest, FsZipDirectoryResponse, HardeningApplyRequest,
-    HardeningApplyResponse, HardeningStatus, NginxBaselineAppliedResponse,
+    HardeningApplyResponse, HardeningStatus, NftablesStatusRequest, NftablesStatusResponse,
+    NftablesSyncRequest, NftablesSyncResponse, NginxBaselineAppliedResponse,
     NginxBaselineApplyRequest, NodeRuntimeActionResponse, NodeRuntimeCorepackRequest,
     NodeRuntimeInstallRequest, NodeRuntimeListRequest, NodeRuntimeListResponse,
     NodeRuntimeRemoveRequest, NodeSiteActionRequest, NodeSiteActionResponse, NodeSiteApplyRequest,
     NodeSiteApplyResponse, NodeSiteJobRequest, NodeSiteJobResponse, NodeSiteRemoveRequest,
-    NodeSiteStatusRequest, NodeSiteStatusResponse, PhpExtensionActionResponse,
-    PhpExtensionInstallRequest, PhpExtensionListRequest, PhpExtensionListResponse,
-    PhpExtensionRemoveRequest, PhpExtensionToggleRequest, PhpFpmHealthCheckRequest,
-    PhpFpmHealthCheckResponse, PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest,
-    PhpFpmMasterEnsureResponse, PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest,
-    PhpFpmMasterStatusRequest, PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest,
-    PhpFpmPoolApplyResponse, PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse,
-    PhpFpmPoolStatusRequest, PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse,
-    PhpRepoSetupRequest, PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
+    NodeSiteStatusRequest, NodeSiteStatusResponse, OptimizerApplyRequest, OptimizerApplyResponse,
+    OptimizerGetStatusRequest, OptimizerRollbackRequest, OptimizerRollbackResponse,
+    OptimizerStatusResponse, PhpExtensionActionResponse, PhpExtensionInstallRequest,
+    PhpExtensionListRequest, PhpExtensionListResponse, PhpExtensionRemoveRequest,
+    PhpExtensionToggleRequest, PhpFpmHealthCheckRequest, PhpFpmHealthCheckResponse,
+    PhpFpmMasterActionResponse, PhpFpmMasterEnsureRequest, PhpFpmMasterEnsureResponse,
+    PhpFpmMasterReloadRequest, PhpFpmMasterRestartRequest, PhpFpmMasterStatusRequest,
+    PhpFpmMasterStatusResponse, PhpFpmPoolApplyRequest, PhpFpmPoolApplyResponse,
+    PhpFpmPoolRemoveRequest, PhpFpmPoolRemoveResponse, PhpFpmPoolStatusRequest,
+    PhpFpmPoolStatusResponse, PhpLogsReadRequest, PhpLogsReadResponse, PhpRepoSetupRequest,
+    PhpRepoSetupResponse, PhpRuntimeActionResponse, PhpRuntimeInstallRequest,
     PhpRuntimeListRequest, PhpRuntimeListResponse, PhpRuntimeRemoveRequest, ProtoError,
     ProxyUpstreamProbeRequest, ProxyUpstreamProbeResponse, PtyCloseRequest, PtyCloseResponse,
     PtyInputRequest, PtyInputResponse, PtyListRequest, PtyListResponse, PtyOpenRequest,
@@ -40,17 +51,23 @@ use panel_proto::{
     PythonSiteStatusRequest, PythonSiteStatusResponse, QuotaGetRequest, QuotaGetResponse,
     QuotaScanRequest, QuotaScanResponse, QuotaSetRequest, QuotaSetResponse, RequestPayload,
     ResourceReadRequest, ResponsePayload, RpcRequest, RpcStream, SiteAppliedResponse,
-    SiteApplyRequest, SiteEnvApplyRequest, SiteEnvApplyResponse, SiteEnvDecryptRequest,
-    SiteEnvDecryptResponse, SiteEnvEncryptRequest, SiteEnvEncryptResponse,
-    SiteHtpasswdDeployRequest, SiteHtpasswdDeployedResponse, SiteHtpasswdRemoveRequest,
-    SiteHtpasswdRemovedResponse, SiteLogsReadRequest, SiteLogsReadResponse, SiteProvisionRequest,
-    SiteProvisionResponse, SiteRemoveRequest, SiteRemovedResponse, SliceAppliedResponse,
-    SliceApplyRequest, SliceRemoveRequest, SliceRemovedResponse, SliceResourceMetrics,
-    SshDropinApplyRequest, SshDropinApplyResponse, SshKeysSyncRequest, SshKeysSyncResponse,
-    SshPolicyApplyRequest, SshPolicyApplyResponse, SslCertDeployRequest, SslCertDeployedResponse,
-    UserCreateRequest, UserCreatedResponse, UserDeleteRequest, UserDeletedResponse,
-    UserSuspendRequest, UserSuspendedResponse, UserUnsuspendRequest, UserUnsuspendedResponse,
-    VersionInfo,
+    SiteApplyRequest, SiteDeployKeyGenerateRequest, SiteDeployKeyGenerateResponse,
+    SiteEnvApplyRequest, SiteEnvApplyResponse, SiteEnvDecryptRequest, SiteEnvDecryptResponse,
+    SiteEnvEncryptRequest, SiteEnvEncryptResponse, SiteGitDeployRequest, SiteGitDeployResponse,
+    SiteGitReleasesListRequest, SiteGitReleasesListResponse, SiteGitRollbackRequest,
+    SiteGitRollbackResponse, SiteHtpasswdDeployRequest, SiteHtpasswdDeployedResponse,
+    SiteHtpasswdRemoveRequest, SiteHtpasswdRemovedResponse, SiteLogsReadRequest,
+    SiteLogsReadResponse, SiteProvisionRequest, SiteProvisionResponse, SiteRemoveRequest,
+    SiteRemovedResponse, SliceAppliedResponse, SliceApplyRequest, SliceRemoveRequest,
+    SliceRemovedResponse, SliceResourceMetrics, SshDropinApplyRequest, SshDropinApplyResponse,
+    SshKeysSyncRequest, SshKeysSyncResponse, SshPolicyApplyRequest, SshPolicyApplyResponse,
+    SslCertDeployRequest, SslCertDeployedResponse, SystemBackupCreateRequest,
+    SystemBackupCreateResponse, SystemBackupListRequest, SystemBackupListResponse,
+    SystemBackupRestoreRequest, SystemBackupRestoreResponse, SystemDoctorCheckRequest,
+    SystemDoctorCheckResponse, SystemDoctorFixRequest, SystemDoctorFixResponse,
+    SystemReconcileRequest, SystemReconcileResponse, UserCreateRequest, UserCreatedResponse,
+    UserDeleteRequest, UserDeletedResponse, UserSuspendRequest, UserSuspendedResponse,
+    UserUnsuspendRequest, UserUnsuspendedResponse, VersionInfo,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -3142,6 +3159,846 @@ impl AgentClient {
             ResponsePayload::CronJobLogsRead(data) => Ok(data),
             other => Err(AgentClientError::UnexpectedResponse {
                 expected: "CronJobLogsRead",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn generate_deploy_key(
+        &self,
+        req: SiteDeployKeyGenerateRequest,
+    ) -> Result<SiteDeployKeyGenerateResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "git-key-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteDeployKeyGenerate(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteDeployKeyGenerated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteDeployKeyGenerated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn git_deploy(
+        &self,
+        req: SiteGitDeployRequest,
+    ) -> Result<SiteGitDeployResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "git-deploy-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteGitDeploy(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteGitDeployed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteGitDeployed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn git_rollback(
+        &self,
+        req: SiteGitRollbackRequest,
+    ) -> Result<SiteGitRollbackResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "git-rollback-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteGitRollback(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteGitRollbacked(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteGitRollbacked",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn list_git_releases(
+        &self,
+        req: SiteGitReleasesListRequest,
+    ) -> Result<SiteGitReleasesListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "git-releases-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SiteGitReleasesList(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SiteGitReleasesList(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SiteGitReleasesList",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_server_status(
+        &self,
+        req: DatabaseServerStatusRequest,
+    ) -> Result<DatabaseServerStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-srv-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseServerStatus(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseServerStatus(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseServerStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_server_install(
+        &self,
+        req: DatabaseServerInstallRequest,
+    ) -> Result<DatabaseServerInstallResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-srv-inst-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseServerInstall(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseServerInstalled(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseServerInstalled",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_server_action(
+        &self,
+        req: DatabaseServerActionRequest,
+    ) -> Result<DatabaseServerActionResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-srv-act-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseServerAction(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseServerAction(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseServerAction",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_create(
+        &self,
+        req: DatabaseCreateRequest,
+    ) -> Result<DatabaseCreateResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-create-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseCreate(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseCreated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseCreated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_delete(
+        &self,
+        req: DatabaseDeleteRequest,
+    ) -> Result<DatabaseDeleteResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-del-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseDelete(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseDeleted(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseDeleted",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_rotate_password(
+        &self,
+        req: DatabaseRotatePasswordRequest,
+    ) -> Result<DatabaseRotatePasswordResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-rot-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseRotatePassword(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabasePasswordRotated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabasePasswordRotated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_update_remote_access(
+        &self,
+        req: DatabaseUpdateRemoteAccessRequest,
+    ) -> Result<DatabaseUpdateRemoteAccessResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-rem-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseUpdateRemoteAccess(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseRemoteAccessUpdated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseRemoteAccessUpdated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_export(
+        &self,
+        req: DatabaseExportRequest,
+    ) -> Result<DatabaseExportResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-exp-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseExport(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseExported(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseExported",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_import(
+        &self,
+        req: DatabaseImportRequest,
+    ) -> Result<DatabaseImportResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-imp-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseImport(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseImported(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseImported",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn database_size_check(
+        &self,
+        req: DatabaseSizeCheckRequest,
+    ) -> Result<DatabaseSizeCheckResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "db-size-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::DatabaseSizeCheck(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::DatabaseSizeChecked(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "DatabaseSizeChecked",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn backup_create(
+        &self,
+        req: BackupCreateRequest,
+    ) -> Result<BackupCreateResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "bk-create-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::BackupCreate(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::BackupCreated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "BackupCreated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn backup_restore(
+        &self,
+        req: BackupRestoreRequest,
+    ) -> Result<BackupRestoreResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "bk-restore-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::BackupRestore(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::BackupRestored(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "BackupRestored",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn backup_delete(
+        &self,
+        req: BackupDeleteRequest,
+    ) -> Result<BackupDeleteResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "bk-del-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::BackupDelete(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::BackupDeleted(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "BackupDeleted",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn optimizer_status(&self) -> Result<OptimizerStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "optimizer-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(
+            req_id,
+            RequestPayload::OptimizerGetStatus(OptimizerGetStatusRequest {}),
+        );
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::OptimizerStatus(data) => Ok(*data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "OptimizerStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn optimizer_apply(
+        &self,
+        req: OptimizerApplyRequest,
+    ) -> Result<OptimizerApplyResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "optimizer-apply-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::OptimizerApply(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::OptimizerApplied(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "OptimizerApplied",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn optimizer_rollback(
+        &self,
+        req: OptimizerRollbackRequest,
+    ) -> Result<OptimizerRollbackResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "optimizer-rollback-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::OptimizerRollback(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::OptimizerRollbacked(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "OptimizerRollbacked",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn nftables_sync(
+        &self,
+        req: NftablesSyncRequest,
+    ) -> Result<NftablesSyncResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "nftables-sync-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NftablesSync(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NftablesSynced(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NftablesSynced",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn nftables_status(
+        &self,
+        req: NftablesStatusRequest,
+    ) -> Result<NftablesStatusResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "nftables-status-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::NftablesStatus(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::NftablesStatus(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "NftablesStatus",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn system_doctor_check(
+        &self,
+        req: SystemDoctorCheckRequest,
+    ) -> Result<SystemDoctorCheckResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "doctor-check-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SystemDoctorCheck(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SystemDoctorChecked(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SystemDoctorChecked",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn system_doctor_fix(
+        &self,
+        req: SystemDoctorFixRequest,
+    ) -> Result<SystemDoctorFixResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "doctor-fix-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SystemDoctorFix(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SystemDoctorFixed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SystemDoctorFixed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn system_reconcile(
+        &self,
+        req: SystemReconcileRequest,
+    ) -> Result<SystemReconcileResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "reconcile-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SystemReconcile(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SystemReconciled(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SystemReconciled",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn system_backup_create(
+        &self,
+        req: SystemBackupCreateRequest,
+    ) -> Result<SystemBackupCreateResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "backup-create-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SystemBackupCreate(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SystemBackupCreated(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SystemBackupCreated",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn system_backup_list(
+        &self,
+        req: SystemBackupListRequest,
+    ) -> Result<SystemBackupListResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "backup-list-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SystemBackupList(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SystemBackupListed(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SystemBackupListed",
+                got: format!("{other:?}"),
+            }),
+        }
+    }
+
+    pub async fn system_backup_restore(
+        &self,
+        req: SystemBackupRestoreRequest,
+    ) -> Result<SystemBackupRestoreResponse, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req_id = format!(
+            "backup-restore-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+        let rpc_req = RpcRequest::new(req_id, RequestPayload::SystemBackupRestore(req));
+        rpc.send_request(&rpc_req).await?;
+        let res = rpc.recv_response().await?;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error
+                    .unwrap_or_else(|| "Unknown agent error".to_string()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::SystemBackupRestored(data) => Ok(data),
+            other => Err(AgentClientError::UnexpectedResponse {
+                expected: "SystemBackupRestored",
                 got: format!("{other:?}"),
             }),
         }

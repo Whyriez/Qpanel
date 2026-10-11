@@ -859,7 +859,27 @@ impl JobRegistry {
             "files.archive.extract",
             FileArchiveExtractHandler::new(Arc::clone(&agent_client)),
         );
-        reg.register("files.search", FileSearchHandler::new(agent_client));
+        reg.register(
+            "files.search",
+            FileSearchHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "database.server.install",
+            DatabaseServerInstallHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "database.export",
+            DatabaseExportHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "database.import",
+            DatabaseImportHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "backup.create",
+            BackupCreateHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register("backup.restore", BackupRestoreHandler::new(agent_client));
         reg
     }
 
@@ -869,5 +889,560 @@ impl JobRegistry {
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn JobHandler>> {
         self.handlers.get(name).cloned()
+    }
+}
+
+/// Database engine server installation job handler.
+pub struct DatabaseServerInstallHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl DatabaseServerInstallHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for DatabaseServerInstallHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let engine = payload
+                .get("engine")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'engine' wajib disertakan dalam payload".to_string())?
+                .to_string();
+
+            let _ = ctx
+                .report_progress(
+                    15,
+                    Some(&format!("Memulai instalasi paket database {engine}...")),
+                )
+                .await;
+
+            let res = self
+                .agent_client
+                .database_server_install(panel_proto::DatabaseServerInstallRequest {
+                    engine: engine.clone(),
+                })
+                .await
+                .map_err(|e| format!("Instalasi database gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(80, Some("Memperbarui status server database..."))
+                .await;
+
+            let db_repo = panel_db::repositories::SqliteDatabaseRepository::new(ctx.pool.clone());
+            let port = if engine == "postgresql" { 5432 } else { 3306 };
+            let socket = if engine == "postgresql" {
+                "/var/run/postgresql/.s.PGSQL.5432"
+            } else {
+                "/run/mysqld/mysqld.sock"
+            };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+
+            let _ = db_repo
+                .upsert_server(&panel_db::models::DatabaseServer {
+                    engine: engine.clone(),
+                    is_installed: true,
+                    is_running: true,
+                    version: None,
+                    port,
+                    socket_path: Some(socket.to_string()),
+                    updated_at: now,
+                })
+                .await;
+
+            let _ = ctx
+                .report_progress(100, Some("Instalasi database selesai"))
+                .await;
+
+            let result = serde_json::json!({
+                "engine": res.engine,
+                "success": res.success,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// Database export dump job handler.
+pub struct DatabaseExportHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl DatabaseExportHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for DatabaseExportHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let database_id = payload
+                .get("database_id")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            let engine = payload
+                .get("engine")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'engine' wajib disertakan dalam payload".to_string())?
+                .to_string();
+            let name = payload
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'name' wajib disertakan dalam payload".to_string())?
+                .to_string();
+            let db_user = payload
+                .get("db_user")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            let export_file_path = payload
+                .get("export_file_path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'export_file_path' wajib disertakan".to_string())?
+                .to_string();
+            let tenant_username = payload
+                .get("tenant_username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'tenant_username' wajib disertakan".to_string())?
+                .to_string();
+            let tenant_uid = payload
+                .get("tenant_uid")
+                .and_then(Value::as_u64)
+                .unwrap_or(10001) as u32;
+
+            let _ = ctx
+                .report_progress(20, Some(&format!("Mengekspor basis data {name}...")))
+                .await;
+
+            let res = self
+                .agent_client
+                .database_export(panel_proto::DatabaseExportRequest {
+                    engine,
+                    name,
+                    db_user,
+                    export_file_path,
+                    tenant_username,
+                    tenant_uid,
+                })
+                .await
+                .map_err(|e| format!("Ekspor basis data gagal: {e}"))?;
+
+            if database_id > 0 && res.size_bytes > 0 {
+                let db_repo =
+                    panel_db::repositories::SqliteDatabaseRepository::new(ctx.pool.clone());
+                let _ = db_repo
+                    .update_size(database_id, res.size_bytes as i64)
+                    .await;
+            }
+
+            let _ = ctx
+                .report_progress(100, Some("Ekspor basis data berhasil"))
+                .await;
+
+            let result = serde_json::json!({
+                "engine": res.engine,
+                "name": res.name,
+                "file_path": res.file_path,
+                "size_bytes": res.size_bytes,
+                "success": res.success,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// Database import dump job handler.
+pub struct DatabaseImportHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl DatabaseImportHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for DatabaseImportHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let database_id = payload
+                .get("database_id")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            let engine = payload
+                .get("engine")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'engine' wajib disertakan dalam payload".to_string())?
+                .to_string();
+            let name = payload
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'name' wajib disertakan dalam payload".to_string())?
+                .to_string();
+            let db_user = payload
+                .get("db_user")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            let import_file_path = payload
+                .get("import_file_path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'import_file_path' wajib disertakan".to_string())?
+                .to_string();
+            let tenant_username = payload
+                .get("tenant_username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'tenant_username' wajib disertakan".to_string())?
+                .to_string();
+            let tenant_uid = payload
+                .get("tenant_uid")
+                .and_then(Value::as_u64)
+                .unwrap_or(10001) as u32;
+
+            let _ = ctx
+                .report_progress(
+                    20,
+                    Some(&format!("Mengimpor berkas SQL ke database {name}...")),
+                )
+                .await;
+
+            let res = self
+                .agent_client
+                .database_import(panel_proto::DatabaseImportRequest {
+                    engine: engine.clone(),
+                    name: name.clone(),
+                    db_user,
+                    import_file_path,
+                    tenant_username,
+                    tenant_uid,
+                })
+                .await
+                .map_err(|e| format!("Impor database gagal: {e}"))?;
+
+            let _ = ctx
+                .report_progress(80, Some("Menghitung ukuran basis data terbaru..."))
+                .await;
+
+            if database_id > 0
+                && let Ok(size_res) = self
+                    .agent_client
+                    .database_size_check(panel_proto::DatabaseSizeCheckRequest { engine, name })
+                    .await
+            {
+                let db_repo =
+                    panel_db::repositories::SqliteDatabaseRepository::new(ctx.pool.clone());
+                let _ = db_repo
+                    .update_size(database_id, size_res.size_bytes as i64)
+                    .await;
+            }
+
+            let _ = ctx
+                .report_progress(100, Some("Impor basis data berhasil"))
+                .await;
+
+            let result = serde_json::json!({
+                "engine": res.engine,
+                "name": res.name,
+                "file_path": res.file_path,
+                "success": res.success,
+                "message": res.message,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// Site backup snapshot creation job handler.
+pub struct BackupCreateHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl BackupCreateHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for BackupCreateHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let site_id = payload
+                .get("site_id")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Field 'site_id' wajib disertakan dalam payload".to_string())?;
+            let backup_id = payload
+                .get("backup_id")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            let tenant_username = payload
+                .get("tenant_username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'tenant_username' wajib disertakan".to_string())?
+                .to_string();
+            let tenant_uid = payload
+                .get("tenant_uid")
+                .and_then(Value::as_u64)
+                .unwrap_or(10001) as u32;
+            let site_dir = payload
+                .get("site_dir")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'site_dir' wajib disertakan".to_string())?
+                .to_string();
+            let backup_dir = payload
+                .get("backup_dir")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'backup_dir' wajib disertakan".to_string())?
+                .to_string();
+            let filename = payload
+                .get("filename")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'filename' wajib disertakan".to_string())?
+                .to_string();
+            let include_files = payload
+                .get("include_files")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let include_databases = payload
+                .get("include_databases")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let format = payload
+                .get("format")
+                .and_then(Value::as_str)
+                .unwrap_or("tar.zst")
+                .to_string();
+            let retention_count = payload
+                .get("retention_count")
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+
+            let mut databases = Vec::new();
+            if let Some(dbs_val) = payload.get("databases").and_then(Value::as_array) {
+                for d in dbs_val {
+                    if let (Some(eng), Some(nm), Some(usr)) = (
+                        d.get("engine").and_then(Value::as_str),
+                        d.get("name").and_then(Value::as_str),
+                        d.get("username").and_then(Value::as_str),
+                    ) {
+                        databases.push(panel_proto::BackupDatabaseInfo {
+                            engine: eng.to_string(),
+                            name: nm.to_string(),
+                            username: usr.to_string(),
+                            password: d
+                                .get("password")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string),
+                        });
+                    }
+                }
+            }
+
+            let _ = ctx
+                .report_progress(15, Some("Memulai pembuatan snapshot cadangan..."))
+                .await;
+
+            let res = self
+                .agent_client
+                .backup_create(panel_proto::BackupCreateRequest {
+                    site_id,
+                    tenant_username: tenant_username.clone(),
+                    tenant_uid,
+                    site_dir,
+                    backup_dir,
+                    filename: filename.clone(),
+                    include_files,
+                    include_databases,
+                    databases,
+                    format,
+                })
+                .await
+                .map_err(|e| format!("Pembuatan cadangan gagal: {e}"))?;
+
+            if !res.success {
+                let err_msg = res
+                    .error
+                    .unwrap_or_else(|| "Gagal membuat arsip cadangan".to_string());
+                if backup_id > 0 {
+                    let backup_repo =
+                        panel_db::repositories::SqliteBackupRepository::new(ctx.pool.clone());
+                    let _ = backup_repo
+                        .update_backup_status(backup_id, "failed", None, None, Some(&err_msg))
+                        .await;
+                }
+                return Err(err_msg);
+            }
+
+            let _ = ctx
+                .report_progress(80, Some("Memperbarui status cadangan di basis data..."))
+                .await;
+
+            let backup_repo = panel_db::repositories::SqliteBackupRepository::new(ctx.pool.clone());
+            if backup_id > 0 {
+                let _ = backup_repo
+                    .update_backup_status(
+                        backup_id,
+                        "completed",
+                        Some(res.size_bytes as i64),
+                        Some(&res.checksum_sha256),
+                        None,
+                    )
+                    .await;
+            }
+
+            // Prune old backups exceeding retention if configured
+            if retention_count > 0
+                && let Ok(pruned) = backup_repo
+                    .prune_old_backups(site_id, retention_count)
+                    .await
+            {
+                for p in pruned {
+                    let _ = self
+                        .agent_client
+                        .backup_delete(panel_proto::BackupDeleteRequest {
+                            filepath: p.filepath,
+                            tenant_username: tenant_username.clone(),
+                        })
+                        .await;
+                }
+            }
+
+            let _ = ctx
+                .report_progress(100, Some("Pembuatan cadangan situs berhasil"))
+                .await;
+
+            let result = serde_json::json!({
+                "site_id": site_id,
+                "backup_id": backup_id,
+                "filepath": res.filepath,
+                "size_bytes": res.size_bytes,
+                "checksum_sha256": res.checksum_sha256,
+                "success": true,
+            });
+
+            Ok(Some(result.to_string()))
+        })
+    }
+}
+
+/// Site backup restoration job handler.
+pub struct BackupRestoreHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl BackupRestoreHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for BackupRestoreHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
+            let site_id = payload
+                .get("site_id")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Field 'site_id' wajib disertakan dalam payload".to_string())?;
+            let tenant_username = payload
+                .get("tenant_username")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'tenant_username' wajib disertakan".to_string())?
+                .to_string();
+            let tenant_uid = payload
+                .get("tenant_uid")
+                .and_then(Value::as_u64)
+                .unwrap_or(10001) as u32;
+            let backup_filepath = payload
+                .get("backup_filepath")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'backup_filepath' wajib disertakan".to_string())?
+                .to_string();
+            let target_site_dir = payload
+                .get("target_site_dir")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Field 'target_site_dir' wajib disertakan".to_string())?
+                .to_string();
+            let restore_files = payload
+                .get("restore_files")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let restore_databases = payload
+                .get("restore_databases")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+
+            let mut databases = Vec::new();
+            if let Some(dbs_val) = payload.get("databases").and_then(Value::as_array) {
+                for d in dbs_val {
+                    if let (Some(eng), Some(nm), Some(usr)) = (
+                        d.get("engine").and_then(Value::as_str),
+                        d.get("name").and_then(Value::as_str),
+                        d.get("username").and_then(Value::as_str),
+                    ) {
+                        databases.push(panel_proto::BackupDatabaseInfo {
+                            engine: eng.to_string(),
+                            name: nm.to_string(),
+                            username: usr.to_string(),
+                            password: d
+                                .get("password")
+                                .and_then(Value::as_str)
+                                .map(ToString::to_string),
+                        });
+                    }
+                }
+            }
+
+            let _ = ctx
+                .report_progress(20, Some("Mengekstrak dan memverifikasi arsip cadangan..."))
+                .await;
+
+            let res = self
+                .agent_client
+                .backup_restore(panel_proto::BackupRestoreRequest {
+                    site_id,
+                    tenant_username,
+                    tenant_uid,
+                    backup_filepath,
+                    target_site_dir,
+                    restore_files,
+                    restore_databases,
+                    databases,
+                })
+                .await
+                .map_err(|e| format!("Pemulihan cadangan gagal: {e}"))?;
+
+            if !res.success {
+                let err_msg = res
+                    .error
+                    .unwrap_or_else(|| "Gagal memulihkan arsip cadangan".to_string());
+                return Err(err_msg);
+            }
+
+            let _ = ctx
+                .report_progress(100, Some("Pemulihan cadangan situs berhasil"))
+                .await;
+
+            let result = serde_json::json!({
+                "site_id": site_id,
+                "restored_files_count": res.restored_files_count,
+                "restored_databases_count": res.restored_databases_count,
+                "success": true,
+            });
+
+            Ok(Some(result.to_string()))
+        })
     }
 }

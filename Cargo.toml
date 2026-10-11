@@ -87,6 +87,7 @@ zip = { version = "2.2", default-features = false, features = ["deflate"] }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
 libc = "0.2"
+mimalloc = { version = "0.1", default-features = false }
 
 
 [workspace.lints.rust]
@@ -100,7 +101,8 @@ clone_on_ref_ptr = "warn"
 cognitive_complexity = "warn"
 
 [profile.release]
+opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "unwind"
+panic = "abort"

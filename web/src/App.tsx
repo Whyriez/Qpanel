@@ -1,24 +1,61 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { Shell } from './components/layout/Shell';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
-import { FirstRunWizardPage } from './pages/FirstRunWizardPage';
-import { SecurityProfilePage } from './pages/SecurityProfilePage';
-import { AuditLogPage } from './pages/AuditLogPage';
-import { JobsPage } from './pages/JobsPage';
-import { TenantsPage } from './pages/TenantsPage';
-import { TenantDetailPage } from './pages/TenantDetailPage';
-import { PlansPage } from './pages/PlansPage';
-import { SitesPage } from './pages/SitesPage';
-import { SiteDetailPage } from './pages/SiteDetailPage';
-import { RuntimePage } from './pages/RuntimePage';
-import { FileManagerPage } from './pages/FileManagerPage';
-import { TerminalPage } from './pages/TerminalPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
 import { ToastProvider } from './components/ui/Toast';
 import { ThemeMode } from './types/api';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import './i18n';
+
+const FirstRunWizardPage = lazy(() =>
+  import('./pages/FirstRunWizardPage').then((m) => ({ default: m.FirstRunWizardPage }))
+);
+const SecurityProfilePage = lazy(() =>
+  import('./pages/SecurityProfilePage').then((m) => ({ default: m.SecurityProfilePage }))
+);
+const AuditLogPage = lazy(() =>
+  import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage }))
+);
+const JobsPage = lazy(() =>
+  import('./pages/JobsPage').then((m) => ({ default: m.JobsPage }))
+);
+const TenantsPage = lazy(() =>
+  import('./pages/TenantsPage').then((m) => ({ default: m.TenantsPage }))
+);
+const TenantDetailPage = lazy(() =>
+  import('./pages/TenantDetailPage').then((m) => ({ default: m.TenantDetailPage }))
+);
+const PlansPage = lazy(() =>
+  import('./pages/PlansPage').then((m) => ({ default: m.PlansPage }))
+);
+const SitesPage = lazy(() =>
+  import('./pages/SitesPage').then((m) => ({ default: m.SitesPage }))
+);
+const SiteDetailPage = lazy(() =>
+  import('./pages/SiteDetailPage').then((m) => ({ default: m.SiteDetailPage }))
+);
+const RuntimePage = lazy(() =>
+  import('./pages/RuntimePage').then((m) => ({ default: m.RuntimePage }))
+);
+const FileManagerPage = lazy(() =>
+  import('./pages/FileManagerPage').then((m) => ({ default: m.FileManagerPage }))
+);
+const TerminalPage = lazy(() =>
+  import('./pages/TerminalPage').then((m) => ({ default: m.TerminalPage }))
+);
+const AnalyticsPage = lazy(() =>
+  import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage }))
+);
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+
+const PageFallback: React.FC = () => (
+  <div className="p-8 flex flex-col items-center justify-center space-y-2 text-xs text-[var(--ink-muted)]">
+    <div className="w-5 h-5 rounded-full border-2 border-[var(--primary)] border-t-transparent animate-spin" />
+    <span>Memuat modul halaman...</span>
+  </div>
+);
 
 const MainApp: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -72,10 +109,12 @@ const MainApp: React.FC = () => {
   // First-run wizard view
   if (isWizardOpen) {
     return (
-      <FirstRunWizardPage
-        onFinish={() => setIsWizardOpen(false)}
-        onBackToLogin={() => setIsWizardOpen(false)}
-      />
+      <Suspense fallback={<PageFallback />}>
+        <FirstRunWizardPage
+          onFinish={() => setIsWizardOpen(false)}
+          onBackToLogin={() => setIsWizardOpen(false)}
+        />
+      </Suspense>
     );
   }
 
@@ -108,54 +147,52 @@ const MainApp: React.FC = () => {
         onThemeChange={setTheme}
       >
         {activeNav === 'dashboard' && <DashboardPage />}
-        {activeNav === 'audit' && <AuditLogPage />}
-        {activeNav === 'jobs' && <JobsPage />}
-        {activeNav === 'profile' && <SecurityProfilePage />}
-        {activeNav === 'sites' && (
-          <SitesPage
-            onSelectSite={(id) => {
-              setSelectedSiteId(id);
-              setActiveNav('site-detail');
-            }}
-          />
-        )}
-        {activeNav === 'site-detail' && selectedSiteId && (
-          <SiteDetailPage
-            siteId={selectedSiteId}
-            onBack={() => {
-              setSelectedSiteId(null);
-              setActiveNav('sites');
-            }}
-          />
-        )}
-        {(activeNav === 'tenants' || activeNav === 'users') && (
-          <TenantsPage
-            onSelectTenant={(id) => {
-              setSelectedTenantId(id);
-              setActiveNav('tenant-detail');
-            }}
-            onNavigateToPlans={() => setActiveNav('plans')}
-          />
-        )}
-        {activeNav === 'tenant-detail' && selectedTenantId && (
-          <TenantDetailPage
-            tenantId={selectedTenantId}
-            onBack={() => {
-              setSelectedTenantId(null);
-              setActiveNav('tenants');
-            }}
-          />
-        )}
-        {activeNav === 'plans' && <PlansPage />}
-        {activeNav === 'runtime' && <RuntimePage />}
-        {activeNav === 'files' && <FileManagerPage />}
-        {activeNav === 'terminal' && <TerminalPage />}
-        {activeNav === 'analytics' && <AnalyticsPage />}
-        {activeNav === 'settings' && (
-          <div className="p-8 text-center text-xs text-[var(--ink-muted)] border border-[var(--line)] rounded-[var(--radius-md)] bg-[var(--surface)]">
-            Halaman <span className="font-semibold text-[var(--ink)]">{activeNav}</span> akan diimplementasikan pada fase berikutnya sesuai roadmap PRD.
-          </div>
-        )}
+        <Suspense fallback={<PageFallback />}>
+          {activeNav === 'audit' && <AuditLogPage />}
+          {activeNav === 'jobs' && <JobsPage />}
+          {activeNav === 'profile' && <SecurityProfilePage />}
+          {activeNav === 'sites' && (
+            <SitesPage
+              onSelectSite={(id) => {
+                setSelectedSiteId(id);
+                setActiveNav('site-detail');
+              }}
+            />
+          )}
+          {activeNav === 'site-detail' && selectedSiteId && (
+            <SiteDetailPage
+              siteId={selectedSiteId}
+              onBack={() => {
+                setSelectedSiteId(null);
+                setActiveNav('sites');
+              }}
+            />
+          )}
+          {(activeNav === 'tenants' || activeNav === 'users') && (
+            <TenantsPage
+              onSelectTenant={(id) => {
+                setSelectedTenantId(id);
+                setActiveNav('tenant-detail');
+              }}
+              onNavigateToPlans={() => setActiveNav('plans')}
+            />
+          )}
+          {activeNav === 'tenant-detail' && selectedTenantId && (
+            <TenantDetailPage
+              tenantId={selectedTenantId}
+              onBack={() => {
+                setSelectedTenantId(null);
+                setActiveNav('tenants');
+              }}
+            />
+          )}
+          {activeNav === 'plans' && <PlansPage />}
+          {activeNav === 'runtime' && <RuntimePage />}
+          {activeNav === 'files' && <FileManagerPage />}
+          {activeNav === 'terminal' && <TerminalPage />}
+          {activeNav === 'analytics' && <AnalyticsPage />}
+          {activeNav === 'settings' && <SettingsPage />}
+        </Suspense>
       </Shell>
       <ToastProvider />
     </>

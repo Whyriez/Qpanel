@@ -3,10 +3,12 @@
 use clap::{Parser, Subcommand};
 use panel_cli::{
     BenchmarkComparison, BenchmarkOptions, BenchmarkRunResult, BenchmarkTarget, BenchmarkTool,
-    MeasuredSystemMetrics, SetupStatus, TuningProfile, create_admin, detect_available_tools,
-    export_results_to_json, generate_markdown_report, generate_setup_token, get_setup_status,
-    list_admins, reset_2fa, reset_password, run_builtin_benchmark, validate_non_functional_targets,
-    verify_setup_token,
+    DoctorCliOptions, MeasuredSystemMetrics, MemoryProfileOptions, ReconcileCliOptions,
+    SetupStatus, SystemBackupCommands, TuningProfile, UninstallCliOptions, UpgradeCliOptions,
+    create_admin, detect_available_tools, export_results_to_json, generate_markdown_report,
+    generate_setup_token, get_setup_status, handle_system_backup_command, list_admins, reset_2fa,
+    reset_password, run_builtin_benchmark, run_doctor, run_memory_profile, run_reconcile,
+    run_uninstall, run_upgrade, validate_non_functional_targets, verify_setup_token,
 };
 use panel_db::pool::{init_pool, run_migrations};
 use serde::Deserialize;
@@ -14,6 +16,9 @@ use std::error::Error;
 use std::io::{self, Write};
 use std::path::Path;
 use std::str::FromStr;
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -46,6 +51,90 @@ enum Commands {
     Benchmark {
         #[command(subcommand)]
         command: BenchmarkCommands,
+    },
+    /// Memory profiling and PRD Section 9 RAM target validation (P10-T3)
+    #[command(alias = "optimize-check")]
+    MemoryProfile {
+        /// Export report as JSON to stdout
+        #[arg(long)]
+        json: bool,
+
+        /// Export report as Markdown to the specified file path
+        #[arg(long)]
+        export_report: Option<String>,
+
+        /// Cold start latency in ms (optional override)
+        #[arg(long)]
+        cold_start_ms: Option<u64>,
+
+        /// API read latency p95 in ms (optional override)
+        #[arg(long)]
+        api_latency_p95_ms: Option<f64>,
+    },
+    /// System health check and diagnostic tool (P10-T5)
+    Doctor {
+        /// Export report as JSON to stdout
+        #[arg(long)]
+        json: bool,
+
+        /// Automatically resolve fixable issues
+        #[arg(long)]
+        fix: bool,
+    },
+    /// Reconcile actual host state with database desired state (P10-T5)
+    Reconcile {
+        /// Report state drifts without applying changes
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Export report as JSON to stdout
+        #[arg(long)]
+        json: bool,
+    },
+    /// System panel database and configuration backup operations (P10-T5)
+    Backup {
+        #[command(subcommand)]
+        command: SystemBackupCommands,
+    },
+    /// Automated panel upgrade with database migrations and rollback (P10-T6)
+    Upgrade {
+        /// Directory containing newer binaries (e.g. ./bin or /tmp/nusa-update/bin)
+        #[arg(long)]
+        binary_dir: Option<String>,
+
+        /// Skip pre-upgrade safety backup snapshot
+        #[arg(long)]
+        skip_backup: bool,
+
+        /// Automatically restart systemd services after successful upgrade
+        #[arg(long, default_value_t = true)]
+        restart_services: bool,
+
+        /// Target version string override
+        #[arg(long)]
+        target_version: Option<String>,
+
+        /// Simulate upgrade without modifying filesystem or database
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output result as formatted JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Clean uninstallation of Nusa Panel services and optional data purge (P10-T6)
+    Uninstall {
+        /// Purge all panel databases, configuration files, and backup snapshots
+        #[arg(long)]
+        purge: bool,
+
+        /// Automatically confirm uninstallation prompt without prompting
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Output result as formatted JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -186,6 +275,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     match cli.command {
         Commands::Benchmark { command } => handle_benchmark_command(command).await,
+        Commands::MemoryProfile {
+            json,
+            export_report,
+            cold_start_ms,
+            api_latency_p95_ms,
+        } => {
+            let opts = MemoryProfileOptions {
+                json,
+                export_report,
+                simulate_load: false,
+                cold_start_ms: cold_start_ms.or(Some(420)),
+                api_latency_p95_ms: api_latency_p95_ms.or(Some(14.8)),
+            };
+            run_memory_profile(&opts)?;
+            Ok(())
+        }
         Commands::Admin { command } => {
             let db_url = normalize_db_url(&cli.db_path);
             let pool = init_pool(&db_url).await?;
@@ -197,6 +302,68 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let pool = init_pool(&db_url).await?;
             run_migrations(&pool).await?;
             handle_setup_token_command(command, &pool).await
+        }
+        Commands::Doctor { json, fix } => {
+            let db_url = normalize_db_url(&cli.db_path);
+            let pool = init_pool(&db_url).await?;
+            run_migrations(&pool).await?;
+            let opts = DoctorCliOptions { json, fix };
+            run_doctor(&opts, &pool, &cli.db_path).await?;
+            Ok(())
+        }
+        Commands::Reconcile { dry_run, json } => {
+            let db_url = normalize_db_url(&cli.db_path);
+            let pool = init_pool(&db_url).await?;
+            run_migrations(&pool).await?;
+            let opts = ReconcileCliOptions { dry_run, json };
+            run_reconcile(&opts, &pool, &cli.db_path).await?;
+            Ok(())
+        }
+        Commands::Backup { command } => {
+            let db_url = normalize_db_url(&cli.db_path);
+            let pool = init_pool(&db_url).await?;
+            run_migrations(&pool).await?;
+            handle_system_backup_command(command, &pool, &cli.db_path).await?;
+            Ok(())
+        }
+        Commands::Upgrade {
+            binary_dir,
+            skip_backup,
+            restart_services,
+            target_version,
+            dry_run,
+            json,
+        } => {
+            let db_url = normalize_db_url(&cli.db_path);
+            let pool = init_pool(&db_url).await?;
+            let opts = UpgradeCliOptions {
+                binary_dir,
+                skip_backup,
+                restart_services,
+                target_version,
+                dry_run,
+                json,
+            };
+            run_upgrade(&opts, &pool, &cli.db_path).await?;
+            Ok(())
+        }
+        Commands::Uninstall { purge, yes, json } => {
+            if !yes && !json {
+                print!(
+                    "Peringatan: Tindakan ini akan menghentikan dan mencopot instalasi Nusa Panel. Lanjutkan? (y/N): "
+                );
+                io::stdout().flush()?;
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let trimmed = input.trim().to_lowercase();
+                if trimmed != "y" && trimmed != "yes" {
+                    println!("Pencopotan pemasangan dibatalkan.");
+                    return Ok(());
+                }
+            }
+            let opts = UninstallCliOptions { purge, yes, json };
+            run_uninstall(&opts).await?;
+            Ok(())
         }
     }
 }

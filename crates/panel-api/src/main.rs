@@ -7,6 +7,9 @@ use panel_api::routes::AppState;
 use std::sync::Arc;
 use tracing::{error, info};
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()

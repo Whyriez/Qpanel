@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Nusa Panel - Clean Uninstallation Script
+# https://github.com/nusa-panel/panel
+# ==============================================================================
+
+set -euo pipefail
+
+PURGE=false
+ASSUME_YES=false
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_help() {
+    cat << EOF
+Penggunaan: $0 [OPSI]
+
+Opsi yang tersedia:
+  --purge       Hapus seluruh berkas basis data, konfigurasi, log, dan cadangan sistem
+  -y, --yes     Konfirmasi pencopotan secara otomatis tanpa prompt interaktif
+  -h, --help    Tampilkan pesan bantuan ini
+
+Contoh:
+  sudo ./uninstall.sh
+  sudo ./uninstall.sh --purge -y
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --purge)
+            PURGE=true
+            shift
+            ;;
+        -y|--yes)
+            ASSUME_YES=true
+            shift
+            ;;
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}[ERROR] Opsi tidak dikenal: $1${NC}" >&2
+            print_help
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$(id -u)" -ne 0 ]]; then
+    echo -e "${RED}[ERROR] Skrip ini harus dijalankan dengan hak akses root (sudo).${NC}" >&2
+    exit 1
+fi
+
+if [[ "$ASSUME_YES" == "false" ]]; then
+    echo -e "${YELLOW}PERINGATAN: Skrip ini akan menghentikan dan mencopot layanan Nusa Panel.${NC}"
+    if [[ "$PURGE" == "true" ]]; then
+        echo -e "${RED}Mode --purge aktif: SEMUA basis data (/var/lib/panel), cadangan, dan konfigurasi AKAN DIHAPUS.${NC}"
+    else
+        echo -e "Direktori data (/var/lib/panel) dan cadangan akan tetap dipertahankan."
+    fi
+    read -r -p "Apakah Anda yakin ingin melanjutkan pencopotan? (y/N): " CONFIRM
+    if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" && "$CONFIRM" != "yes" ]]; then
+        echo "Pencopotan dibatalkan."
+        exit 0
+    fi
+fi
+
+echo -e "${BLUE}[1/4] Menghentikan dan menonaktifkan layanan systemd...${NC}"
+systemctl stop panel-api.service panel-agent.service >/dev/null 2>&1 || true
+systemctl disable panel-api.service panel-agent.service >/dev/null 2>&1 || true
+
+echo -e "${BLUE}[2/4] Menghapus unit file systemd...${NC}"
+rm -f /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service
+systemctl daemon-reload
+
+echo -e "${BLUE}[3/4] Menghapus biner Nusa Panel dari /usr/local/bin...${NC}"
+rm -f /usr/local/bin/panel-api /usr/local/bin/panel-agent /usr/local/bin/panelctl
+rm -rf /run/panel
+
+if [[ "$PURGE" == "true" ]]; then
+    echo -e "${BLUE}[4/4] Membersihkan seluruh data dan pengguna sistem (--purge)...${NC}"
+    rm -rf /var/lib/panel /var/backups/panel /etc/panel /var/log/panel
+    userdel panel-api >/dev/null 2>&1 || true
+    groupdel panel >/dev/null 2>&1 || true
+    echo -e "      ${GREEN}[OK] Seluruh data, konfigurasi, dan pengguna dibersihkan.${NC}"
+else
+    echo -e "${BLUE}[4/4] Mempertahankan berkas data (/var/lib/panel, /var/backups/panel)...${NC}"
+fi
+
+echo ""
+echo "================================================================================"
+echo -e "         ${GREEN}[SUKSES] Pencopotan pemasangan Nusa Panel telah selesai.${NC}       "
+echo "================================================================================"
