@@ -80,7 +80,13 @@ async fn setup_test_context() -> TestContext {
     let group_path = tmp.path().join("group");
     fs::write(&group_path, "root:x:0:\n").expect("write group");
 
+    let nginx_dir = tmp.path().join("etc/nginx");
     let runner = Arc::new(MockSystemRunner::new());
+    runner.set_response("nginx", 0, b"syntax is ok", b"");
+    runner.set_response("setfacl", 0, b"", b"");
+    runner.set_response("chown", 0, b"", b"");
+    runner.set_response("chmod", 0, b"", b"");
+    runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
     runner.set_response("systemctl", 0, b"", b"");
     runner.set_response(
         "journalctl",
@@ -105,8 +111,9 @@ async fn setup_test_context() -> TestContext {
         &mounts_path,
         &group_path,
     ));
-    let webserver_manager = Arc::new(NginxManager::new(
-        Arc::clone(&runner) as Arc<dyn SystemRunner>
+    let webserver_manager = Arc::new(NginxManager::with_base_dir(
+        Arc::clone(&runner) as Arc<dyn SystemRunner>,
+        &nginx_dir,
     ));
 
     let agent_cfg = AgentConfig {
@@ -285,8 +292,14 @@ async fn create_alice_site(ctx: &TestContext, name: &str) -> i64 {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let status = res.status();
     let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
+    if status != StatusCode::CREATED {
+        panic!(
+            "create site failed: status={status}, body={}",
+            String::from_utf8_lossy(&body_bytes)
+        );
+    }
     let site_res: SiteResponse = serde_json::from_slice(&body_bytes).unwrap();
     site_res.id
 }

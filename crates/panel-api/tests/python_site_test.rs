@@ -82,6 +82,7 @@ async fn setup_test_context() -> TestContext {
     let group_path = tmp.path().join("group");
     fs::write(&group_path, "root:x:0:\n").expect("write group");
 
+    let nginx_dir = tmp.path().join("etc/nginx");
     let runner = Arc::new(MockSystemRunner::new());
     // Configure mock responses for system binaries
     runner.set_response("nginx", 0, b"syntax is ok", b"");
@@ -108,8 +109,9 @@ async fn setup_test_context() -> TestContext {
         &mounts_path,
         &group_path,
     ));
-    let webserver_manager = Arc::new(NginxManager::new(
-        Arc::clone(&runner) as Arc<dyn SystemRunner>
+    let webserver_manager = Arc::new(NginxManager::with_base_dir(
+        Arc::clone(&runner) as Arc<dyn SystemRunner>,
+        &nginx_dir,
     ));
 
     let agent_cfg = AgentConfig {
