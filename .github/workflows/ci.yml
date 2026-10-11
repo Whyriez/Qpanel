@@ -10,7 +10,20 @@ jobs:
   backend:
     name: Backend (Rust)
     runs-on: ubuntu-24.04
+    env:
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+      CARGO_INCREMENTAL: "0"
     steps:
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold
+
       - name: Checkout repository
         uses: actions/checkout@v4
 

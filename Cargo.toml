@@ -101,9 +101,16 @@ expect_used = "warn"
 clone_on_ref_ptr = "warn"
 cognitive_complexity = "warn"
 
+[profile.dev]
+debug = 1
+
+[profile.test]
+debug = 1
+
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
 panic = "abort"
+
