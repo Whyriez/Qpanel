@@ -97,6 +97,11 @@ import {
   BannedIpDto,
   BanIpRequest,
   UnbanIpResponse,
+  AnalyticsRetentionResponse,
+  UpdateRetentionRequest,
+  TriggerMaintenanceRequest,
+  RetentionMaintenanceReportDto,
+  IntegrityCheckReportDto,
 } from '../types/api';
 import type { FsListResponse, TrashListResponse } from '../types/files';
 
@@ -1944,5 +1949,34 @@ export async function unbanSiteIp(
       method: 'DELETE',
     }
   );
+}
+
+// Data Lifecycle & Retention Management (Phase 9 - P9-T9)
+export async function fetchAnalyticsRetention(): Promise<AnalyticsRetentionResponse> {
+  return request<AnalyticsRetentionResponse>('/api/v1/system/analytics/retention');
+}
+
+export async function updateAnalyticsRetention(
+  data: UpdateRetentionRequest
+): Promise<AnalyticsRetentionResponse> {
+  return request<AnalyticsRetentionResponse>('/api/v1/system/analytics/retention', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function triggerAnalyticsMaintenance(
+  data: TriggerMaintenanceRequest = {}
+): Promise<RetentionMaintenanceReportDto> {
+  return request<RetentionMaintenanceReportDto>('/api/v1/system/analytics/maintenance', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function checkAnalyticsIntegrity(): Promise<IntegrityCheckReportDto> {
+  return request<IntegrityCheckReportDto>('/api/v1/system/analytics/integrity-check', {
+    method: 'POST',
+  });
 }
 

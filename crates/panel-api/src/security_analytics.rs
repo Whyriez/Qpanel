@@ -298,7 +298,10 @@ pub async fn get_site_banned_ips_handler(
     let banned_repo = SqliteSiteBannedIpRepository::new(state.pool.clone());
 
     // 1. Deactivate expired bans
-    let expired = banned_repo.deactivate_expired(now).await.unwrap_or_default();
+    let expired = banned_repo
+        .deactivate_expired(now)
+        .await
+        .unwrap_or_default();
     if !expired.is_empty() {
         // Synchronize with site rules to remove expired deny rules from Nginx
         let mut settings: serde_json::Value =

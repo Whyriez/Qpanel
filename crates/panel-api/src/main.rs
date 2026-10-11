@@ -72,6 +72,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         panel_api::jobs::run_worker(worker_runner, worker_shutdown_rx).await;
     });
 
+    // Spawn background analytics retention worker loop (Phase 9 - P9-T9)
+    let (retention_shutdown_tx, retention_shutdown_rx) = tokio::sync::watch::channel(false);
+    let retention_pool = state.pool.clone();
+    let retention_storage = Arc::clone(&state.analytics_storage);
+    let retention_handle = tokio::spawn(async move {
+        panel_api::retention::run_retention_worker(
+            retention_pool,
+            retention_storage,
+            retention_shutdown_rx,
+        )
+        .await;
+    });
+
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.server.listen_addr).await?;
@@ -84,9 +97,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    info!("Initiating shutdown: stopping background job worker...");
+    info!("Initiating shutdown: stopping background workers...");
     let _ = worker_shutdown_tx.send(true);
+    let _ = retention_shutdown_tx.send(true);
     let _ = worker_handle.await;
+    let _ = retention_handle.await;
 
     info!("Panel API shutdown gracefully.");
     Ok(())

@@ -1825,5 +1825,78 @@ export interface UnbanIpResponse {
   unbanned_count: number;
 }
 
+// Analytics Retention & Data Lifecycle (Phase 9 - P9-T9)
+export interface RetentionConfigDto {
+  raw_retention_secs: number;
+  rollup_1m_retention_secs: number;
+  rollup_1h_retention_secs: number;
+  rollup_1d_retention_secs?: number | null;
+  security_events_retention_secs: number;
+  max_db_size_bytes?: number | null;
+  auto_vacuum: boolean;
+}
+
+export interface DatabaseTableStatDto {
+  table_name: string;
+  row_count: number;
+}
+
+export interface DatabaseStorageStatsDto {
+  main_db_size_bytes: number;
+  wal_size_bytes: number;
+  total_size_bytes: number;
+  page_size: number;
+  page_count: number;
+  freelist_count: number;
+  free_bytes: number;
+  fragmentation_ratio: number;
+  tables: DatabaseTableStatDto[];
+}
+
+export interface RetentionMaintenanceReportDto {
+  started_at: number;
+  completed_at: number;
+  pruned_raw_records: number;
+  pruned_rollup_1m_records: number;
+  pruned_rollup_1h_records: number;
+  pruned_rollup_1d_records: number;
+  pruned_security_events: number;
+  pruned_stale_tailer_records: number;
+  initial_db_size_bytes: number;
+  final_db_size_bytes: number;
+  bytes_reclaimed: number;
+  vacuum_performed: boolean;
+  wal_checkpoint_performed: boolean;
+  is_emergency_pruning: boolean;
+}
+
+export interface IntegrityCheckReportDto {
+  is_healthy: boolean;
+  checked_at: number;
+  errors: string[];
+}
+
+export interface AnalyticsRetentionResponse {
+  config: RetentionConfigDto;
+  storage: DatabaseStorageStatsDto;
+  last_report?: RetentionMaintenanceReportDto | null;
+  integrity?: IntegrityCheckReportDto | null;
+}
+
+export interface UpdateRetentionRequest {
+  raw_retention_secs?: number | null;
+  rollup_1m_retention_secs?: number | null;
+  rollup_1h_retention_secs?: number | null;
+  rollup_1d_retention_secs?: number | null;
+  security_events_retention_secs?: number | null;
+  max_db_size_bytes?: number | null;
+  auto_vacuum?: boolean | null;
+}
+
+export interface TriggerMaintenanceRequest {
+  force_vacuum?: boolean | null;
+  force_wal_checkpoint?: boolean | null;
+}
+
 
 

@@ -418,6 +418,7 @@ async fn test_storage_php_fpm_and_app_metrics_lifecycle() {
         one_minute_retention_secs: 10,
         one_hour_retention_secs: 10,
         one_day_retention_secs: None,
+        ..Default::default()
     };
     let pruned = storage
         .prune_expired(base_ts + 200, &retention)

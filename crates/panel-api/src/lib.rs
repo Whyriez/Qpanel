@@ -21,6 +21,7 @@ pub mod plans;
 pub mod processes;
 pub mod proxy_site;
 pub mod python_site;
+pub mod retention;
 pub mod routes;
 pub mod security_analytics;
 pub mod site_rules;
@@ -608,6 +609,20 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/sites/{id}/security/ban-ip/{ip}",
             axum::routing::delete(security_analytics::unban_ip_handler),
+        )
+        // Analytics Data Lifecycle & Retention (Phase 9 - P9-T9)
+        .route(
+            "/api/v1/system/analytics/retention",
+            get(retention::get_analytics_retention_handler)
+                .put(retention::update_analytics_retention_handler),
+        )
+        .route(
+            "/api/v1/system/analytics/maintenance",
+            post(retention::trigger_analytics_maintenance_handler),
+        )
+        .route(
+            "/api/v1/system/analytics/integrity-check",
+            post(retention::check_analytics_integrity_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

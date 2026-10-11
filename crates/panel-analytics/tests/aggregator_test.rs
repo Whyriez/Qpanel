@@ -402,6 +402,7 @@ async fn test_storage_site_metrics_lifecycle_and_rollups() {
         one_minute_retention_secs: 10,
         one_hour_retention_secs: 10,
         one_day_retention_secs: None,
+        ..Default::default()
     };
     let (p_1m, p_1h) = storage
         .prune_expired_site_metrics(base_ts + 100, &test_retention)

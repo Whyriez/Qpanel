@@ -121,6 +121,10 @@ use panel_db::pool::DbPool;
         crate::security_analytics::get_site_banned_ips_handler,
         crate::security_analytics::ban_ip_handler,
         crate::security_analytics::unban_ip_handler,
+        crate::retention::get_analytics_retention_handler,
+        crate::retention::update_analytics_retention_handler,
+        crate::retention::trigger_analytics_maintenance_handler,
+        crate::retention::check_analytics_integrity_handler,
     ),
     components(
         schemas(
@@ -257,6 +261,14 @@ use panel_db::pool::DbPool;
             crate::security_analytics::BruteForceIncidentDto,
             crate::security_analytics::SecurityOverviewResponse,
             crate::security_analytics::UnbanIpResponse,
+            crate::retention::AnalyticsRetentionResponse,
+            crate::retention::RetentionConfigDto,
+            crate::retention::DatabaseStorageStatsDto,
+            crate::retention::DatabaseTableStatDto,
+            crate::retention::RetentionMaintenanceReportDto,
+            crate::retention::IntegrityCheckReportDto,
+            crate::retention::UpdateRetentionRequest,
+            crate::retention::TriggerMaintenanceRequest,
         )
     ),
     tags(

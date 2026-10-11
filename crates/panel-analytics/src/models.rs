@@ -134,23 +134,105 @@ pub struct ServiceMetricsRollup {
 /// - 1m rollups: 14 days (14 * 86400s)
 /// - 1h rollups: 400 days (400 * 86400s)
 /// - 1d rollups: indefinite
+/// - Security events: 7 days (7 * 86400s)
+/// - Database size limit: 1024 MB
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetentionConfig {
     pub raw_retention_secs: i64,
     pub one_minute_retention_secs: i64,
     pub one_hour_retention_secs: i64,
     pub one_day_retention_secs: Option<i64>,
+    #[serde(default = "default_security_events_retention_secs")]
+    pub security_events_retention_secs: i64,
+    #[serde(default = "default_max_db_size_bytes")]
+    pub max_db_size_bytes: Option<i64>,
+    #[serde(default)]
+    pub auto_vacuum: bool,
+}
+
+fn default_security_events_retention_secs() -> i64 {
+    7 * 86400
+}
+
+fn default_max_db_size_bytes() -> Option<i64> {
+    Some(1024 * 1024 * 1024)
 }
 
 impl Default for RetentionConfig {
     fn default() -> Self {
         Self {
-            raw_retention_secs: 2 * 3600,          // 2 hours
-            one_minute_retention_secs: 14 * 86400, // 14 days
-            one_hour_retention_secs: 400 * 86400,  // 400 days
-            one_day_retention_secs: None,          // Indefinite
+            raw_retention_secs: 2 * 3600,                // 2 hours
+            one_minute_retention_secs: 14 * 86400,       // 14 days
+            one_hour_retention_secs: 400 * 86400,        // 400 days
+            one_day_retention_secs: None,                // Indefinite
+            security_events_retention_secs: 7 * 86400,   // 7 days (PRD 5.6)
+            max_db_size_bytes: Some(1024 * 1024 * 1024), // 1024 MB
+            auto_vacuum: false,
         }
     }
+}
+
+/// Single table row count statistic.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DatabaseTableStat {
+    pub table_name: String,
+    pub row_count: i64,
+}
+
+/// Detailed storage and fragmentation metrics for analytics SQLite database.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DatabaseStorageStats {
+    pub db_size_bytes: i64,
+    pub wal_size_bytes: i64,
+    pub total_file_size_bytes: i64,
+    pub page_size: i64,
+    pub page_count: i64,
+    pub freelist_count: i64,
+    pub free_bytes: i64,
+    pub fragmentation_ratio: f64,
+    pub max_db_size_bytes: Option<i64>,
+    pub is_healthy: bool,
+    pub integrity_message: String,
+    pub table_stats: Vec<DatabaseTableStat>,
+}
+
+/// Comprehensive report after executing a retention maintenance cycle.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetentionMaintenanceReport {
+    pub timestamp: i64,
+    pub raw_records_pruned: usize,
+    pub one_minute_records_pruned: usize,
+    pub one_hour_records_pruned: usize,
+    pub one_day_records_pruned: usize,
+    pub security_events_pruned: usize,
+    pub checkpoints_pruned: usize,
+    pub total_records_pruned: usize,
+    pub wal_checkpoint_executed: bool,
+    pub vacuum_executed: bool,
+    pub db_size_bytes_before: i64,
+    pub db_size_bytes_after: i64,
+    pub wal_size_bytes_before: i64,
+    pub wal_size_bytes_after: i64,
+    pub duration_ms: u64,
+    pub emergency_pruning_triggered: bool,
+}
+
+/// Report after performing SQLite PRAGMA quick_check / integrity_check.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IntegrityCheckReport {
+    pub is_healthy: bool,
+    pub status: String,
+    pub checked_at: i64,
+    pub details: Vec<String>,
+}
+
+/// Report after database corruption recovery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecoveryReport {
+    pub recovered_at: i64,
+    pub backup_path: Option<String>,
+    pub success: bool,
+    pub message: String,
 }
 
 /// Report after performing a metrics collection iteration.

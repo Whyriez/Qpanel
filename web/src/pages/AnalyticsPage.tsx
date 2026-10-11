@@ -14,6 +14,7 @@ import { fetchSites, fetchSystemAnalyticsTimeseries, fetchSystemInsights } from 
 import { Site, SystemTimeseriesResponse, SystemInsightsResponse } from '../types/api';
 import { SiteAnalyticsTab } from '../components/sites/SiteAnalyticsTab';
 import { ServerSystemMetrics } from '../components/analytics/ServerSystemMetrics';
+import { AnalyticsRetentionCard } from '../components/analytics/AnalyticsRetentionCard';
 
 type AnalyticsScope = 'site' | 'server';
 
@@ -323,6 +324,9 @@ export const AnalyticsPage: React.FC = () => {
           {serverMetrics && (
             <ServerSystemMetrics points={serverMetrics.points} />
           )}
+
+          {/* Retention & Database Storage Lifecycle (Phase 9 - P9-T9) */}
+          <AnalyticsRetentionCard onRefreshParent={loadServerMetrics} />
         </div>
       )}
     </div>

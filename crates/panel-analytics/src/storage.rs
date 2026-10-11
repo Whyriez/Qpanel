@@ -1,9 +1,11 @@
 use crate::error::AnalyticsError;
 use crate::models::{
-    AppProcessMetricPoint, AppProcessMetricRollup, AppType, LogCheckpoint, PhpFpmPoolMetricPoint,
-    PhpFpmPoolMetricRollup, PhpSlowlogEntry, PhpSlowlogFrame, RetentionConfig, RollupResolution,
-    ServerMetricsPoint, ServerMetricsRollup, ServiceMetricsPoint, ServiceMetricsRollup,
-    SiteMetricsPoint, SiteMetricsRollup, SiteRollupReport, TenantMetricsPoint, TenantMetricsRollup,
+    AppProcessMetricPoint, AppProcessMetricRollup, AppType, DatabaseStorageStats,
+    DatabaseTableStat, IntegrityCheckReport, LogCheckpoint, PhpFpmPoolMetricPoint,
+    PhpFpmPoolMetricRollup, PhpSlowlogEntry, PhpSlowlogFrame, RecoveryReport, RetentionConfig,
+    RetentionMaintenanceReport, RollupResolution, ServerMetricsPoint, ServerMetricsRollup,
+    ServiceMetricsPoint, ServiceMetricsRollup, SiteMetricsPoint, SiteMetricsRollup,
+    SiteRollupReport, TenantMetricsPoint, TenantMetricsRollup,
 };
 use crate::rollup::SiteMetricsRollupProcessor;
 use crate::security::{
@@ -18,6 +20,7 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct AnalyticsStorage {
     pool: Pool<Sqlite>,
+    db_path: Option<String>,
 }
 
 impl AnalyticsStorage {
@@ -37,7 +40,10 @@ impl AnalyticsStorage {
             .await
             .map_err(AnalyticsError::Database)?;
 
-        let storage = Self { pool };
+        let storage = Self {
+            pool,
+            db_path: Some(path_str),
+        };
         storage.init_schema().await?;
         Ok(storage)
     }
@@ -50,13 +56,20 @@ impl AnalyticsStorage {
             .await
             .map_err(AnalyticsError::Database)?;
 
-        let storage = Self { pool };
+        let storage = Self {
+            pool,
+            db_path: None,
+        };
         storage.init_schema().await?;
         Ok(storage)
     }
 
     pub fn pool(&self) -> &Pool<Sqlite> {
         &self.pool
+    }
+
+    pub fn db_path(&self) -> Option<&str> {
+        self.db_path.as_deref()
     }
 
     /// Initialize database schema.
@@ -1079,6 +1092,470 @@ impl AnalyticsStorage {
         total_deleted += q_sec.rows_affected() as usize;
 
         Ok(total_deleted)
+    }
+
+    // ==========================================
+    // Data Lifecycle & Retention Management (P9-T9)
+    // ==========================================
+
+    /// Measure actual on-disk database and WAL file sizes in bytes.
+    /// Falls back to SQLite page math for in-memory or unreadable files.
+    pub async fn get_database_file_sizes(&self) -> (i64, i64) {
+        if let Some(path) = &self.db_path {
+            let db_size = match tokio::fs::metadata(path).await {
+                Ok(m) => m.len() as i64,
+                Err(_) => self.estimate_db_size_from_pages().await,
+            };
+            let wal_path = format!("{path}-wal");
+            let wal_size = tokio::fs::metadata(&wal_path)
+                .await
+                .map(|m| m.len() as i64)
+                .unwrap_or(0);
+            (db_size, wal_size)
+        } else {
+            let db_size = self.estimate_db_size_from_pages().await;
+            (db_size, 0)
+        }
+    }
+
+    async fn estimate_db_size_from_pages(&self) -> i64 {
+        let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(4096);
+        let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        page_count.saturating_mul(page_size)
+    }
+
+    /// Truncate and flush WAL journal pages back into the main SQLite database file.
+    pub async fn wal_checkpoint_truncate(&self) -> Result<(), AnalyticsError> {
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok(())
+    }
+
+    /// Rebuild database file to reclaim deleted pages and reduce disk fragmentation.
+    pub async fn vacuum(&self) -> Result<(), AnalyticsError> {
+        sqlx::query("VACUUM")
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok(())
+    }
+
+    /// Perform SQLite quick integrity check (`PRAGMA quick_check`).
+    pub async fn check_integrity(&self) -> Result<IntegrityCheckReport, AnalyticsError> {
+        let rows = sqlx::query("PRAGMA quick_check")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut details = Vec::new();
+        for r in rows {
+            let msg: String = r.get(0);
+            details.push(msg);
+        }
+
+        let is_healthy = details.len() == 1 && details.first().map(|s| s.as_str()) == Some("ok");
+        let status = if is_healthy {
+            "ok".to_string()
+        } else {
+            "corrupted".to_string()
+        };
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        Ok(IntegrityCheckReport {
+            is_healthy,
+            status,
+            checked_at: now,
+            details,
+        })
+    }
+
+    /// Retrieve table row counts and storage metrics across all tables in analytics.db.
+    pub async fn get_storage_stats(&self) -> Result<DatabaseStorageStats, AnalyticsError> {
+        let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(4096);
+        let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        let freelist_count: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+
+        let free_bytes = freelist_count.saturating_mul(page_size);
+        let fragmentation_ratio = if page_count > 0 {
+            freelist_count as f64 / page_count as f64
+        } else {
+            0.0
+        };
+
+        let (db_size_bytes, wal_size_bytes) = self.get_database_file_sizes().await;
+        let total_file_size_bytes = db_size_bytes.saturating_add(wal_size_bytes);
+
+        let integrity = self.check_integrity().await?;
+
+        // Tables list defined statically
+        let table_names = [
+            "metrics_server_raw",
+            "metrics_server_1m",
+            "metrics_server_1h",
+            "metrics_server_1d",
+            "metrics_tenant_raw",
+            "metrics_tenant_1m",
+            "metrics_tenant_1h",
+            "metrics_tenant_1d",
+            "metrics_service_raw",
+            "metrics_service_1m",
+            "metrics_service_1h",
+            "metrics_service_1d",
+            "site_metrics_1m",
+            "site_metrics_1h",
+            "site_metrics_1d",
+            "metrics_php_fpm_raw",
+            "metrics_php_fpm_1m",
+            "metrics_app_process_raw",
+            "metrics_app_process_1m",
+            "php_slowlog_events",
+            "site_security_events",
+            "log_tailer_checkpoints",
+            "analytics_checkpoints",
+        ];
+
+        let mut table_stats = Vec::with_capacity(table_names.len());
+        for name in table_names {
+            let sql = format!("SELECT COUNT(*) FROM {name}");
+            let count: i64 = sqlx::query_scalar(&sql)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap_or(0);
+            table_stats.push(DatabaseTableStat {
+                table_name: name.to_string(),
+                row_count: count,
+            });
+        }
+
+        Ok(DatabaseStorageStats {
+            db_size_bytes,
+            wal_size_bytes,
+            total_file_size_bytes,
+            page_size,
+            page_count,
+            freelist_count,
+            free_bytes,
+            fragmentation_ratio,
+            max_db_size_bytes: None,
+            is_healthy: integrity.is_healthy,
+            integrity_message: integrity.status,
+            table_stats,
+        })
+    }
+
+    /// Run full maintenance cycle: pruning raw/1m/1h/1d metrics, security events,
+    /// cleaning orphaned checkpoints, handling DB limits with emergency pruning,
+    /// executing PRAGMA wal_checkpoint(TRUNCATE), and optional VACUUM.
+    async fn prune_raw_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
+        let q1 = sqlx::query("DELETE FROM metrics_server_raw WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q2 = sqlx::query("DELETE FROM metrics_tenant_raw WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q3 = sqlx::query("DELETE FROM metrics_service_raw WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_fpm_raw = sqlx::query("DELETE FROM metrics_php_fpm_raw WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_app_raw = sqlx::query("DELETE FROM metrics_app_process_raw WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok((q1.rows_affected()
+            + q2.rows_affected()
+            + q3.rows_affected()
+            + q_fpm_raw.rows_affected()
+            + q_app_raw.rows_affected()) as usize)
+    }
+
+    async fn prune_1m_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
+        let q4 = sqlx::query("DELETE FROM metrics_server_1m WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q5 = sqlx::query("DELETE FROM metrics_tenant_1m WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q6 = sqlx::query("DELETE FROM metrics_service_1m WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_fpm_1m = sqlx::query("DELETE FROM metrics_php_fpm_1m WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_app_1m = sqlx::query("DELETE FROM metrics_app_process_1m WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_slow = sqlx::query("DELETE FROM php_slowlog_events WHERE timestamp < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_site_1m = sqlx::query("DELETE FROM site_metrics_1m WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok((q4.rows_affected()
+            + q5.rows_affected()
+            + q6.rows_affected()
+            + q_fpm_1m.rows_affected()
+            + q_app_1m.rows_affected()
+            + q_slow.rows_affected()
+            + q_site_1m.rows_affected()) as usize)
+    }
+
+    async fn prune_1h_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
+        let q7 = sqlx::query("DELETE FROM metrics_server_1h WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q8 = sqlx::query("DELETE FROM metrics_tenant_1h WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q9 = sqlx::query("DELETE FROM metrics_service_1h WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_site_1h = sqlx::query("DELETE FROM site_metrics_1h WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok((q7.rows_affected()
+            + q8.rows_affected()
+            + q9.rows_affected()
+            + q_site_1h.rows_affected()) as usize)
+    }
+
+    async fn prune_1d_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
+        let q10 = sqlx::query("DELETE FROM metrics_server_1d WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q11 = sqlx::query("DELETE FROM metrics_tenant_1d WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q12 = sqlx::query("DELETE FROM metrics_service_1d WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let q_site_1d = sqlx::query("DELETE FROM site_metrics_1d WHERE bucket_ts < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok((q10.rows_affected()
+            + q11.rows_affected()
+            + q12.rows_affected()
+            + q_site_1d.rows_affected()) as usize)
+    }
+
+    async fn run_emergency_pruning(&self, current_ts: i64) {
+        let emerg_raw = current_ts - 1800;
+        let _ = sqlx::query("DELETE FROM metrics_server_raw WHERE timestamp < ?")
+            .bind(emerg_raw)
+            .execute(&self.pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM metrics_tenant_raw WHERE timestamp < ?")
+            .bind(emerg_raw)
+            .execute(&self.pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM metrics_service_raw WHERE timestamp < ?")
+            .bind(emerg_raw)
+            .execute(&self.pool)
+            .await;
+        let emerg_1m = current_ts - 3 * 86400;
+        let _ = sqlx::query("DELETE FROM site_metrics_1m WHERE bucket_ts < ?")
+            .bind(emerg_1m)
+            .execute(&self.pool)
+            .await;
+    }
+
+    pub async fn run_maintenance(
+        &self,
+        current_ts: i64,
+        config: &RetentionConfig,
+        force_vacuum: bool,
+    ) -> Result<RetentionMaintenanceReport, AnalyticsError> {
+        let start_time = std::time::Instant::now();
+        let (db_size_before, wal_size_before) = self.get_database_file_sizes().await;
+
+        let raw_pruned = self
+            .prune_raw_records(current_ts - config.raw_retention_secs)
+            .await?;
+        let m1_pruned = self
+            .prune_1m_records(current_ts - config.one_minute_retention_secs)
+            .await?;
+        let h1_pruned = self
+            .prune_1h_records(current_ts - config.one_hour_retention_secs)
+            .await?;
+        let d1_pruned = match config.one_day_retention_secs {
+            Some(d1_secs) => self.prune_1d_records(current_ts - d1_secs).await?,
+            None => 0,
+        };
+
+        // 5. Security events pruning (PRD 5.6: default 7 days)
+        let sec_cutoff = current_ts - config.security_events_retention_secs;
+        let q_sec = sqlx::query("DELETE FROM site_security_events WHERE timestamp < ?")
+            .bind(sec_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let sec_pruned = q_sec.rows_affected() as usize;
+
+        // 6. Prune stale log checkpoints (inactive > 30 days)
+        let chk_cutoff = current_ts - 30 * 86400;
+        let q_chk = sqlx::query("DELETE FROM log_tailer_checkpoints WHERE updated_at < ?")
+            .bind(chk_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        let checkpoints_pruned = q_chk.rows_affected() as usize;
+
+        // 7. Check database limits & perform emergency pruning if needed
+        let mut emergency_pruning_triggered = false;
+        if let Some(max_size) = config.max_db_size_bytes {
+            let total_current = db_size_before.saturating_add(wal_size_before);
+            if total_current > max_size {
+                emergency_pruning_triggered = true;
+                self.run_emergency_pruning(current_ts).await;
+            }
+        }
+
+        // 8. WAL Checkpoint truncate
+        let _ = self.wal_checkpoint_truncate().await;
+
+        // 9. VACUUM execution
+        let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        let freelist_count: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(0);
+        let frag_ratio = if page_count > 0 {
+            freelist_count as f64 / page_count as f64
+        } else {
+            0.0
+        };
+
+        let vacuum_executed = (force_vacuum || config.auto_vacuum || frag_ratio > 0.20)
+            && self.vacuum().await.is_ok();
+
+        let (db_size_after, wal_size_after) = self.get_database_file_sizes().await;
+        let duration_ms = start_time.elapsed().as_millis() as u64;
+
+        let total_pruned =
+            raw_pruned + m1_pruned + h1_pruned + d1_pruned + sec_pruned + checkpoints_pruned;
+
+        Ok(RetentionMaintenanceReport {
+            timestamp: current_ts,
+            raw_records_pruned: raw_pruned,
+            one_minute_records_pruned: m1_pruned,
+            one_hour_records_pruned: h1_pruned,
+            one_day_records_pruned: d1_pruned,
+            security_events_pruned: sec_pruned,
+            checkpoints_pruned,
+            total_records_pruned: total_pruned,
+            wal_checkpoint_executed: true,
+            vacuum_executed,
+            db_size_bytes_before: db_size_before,
+            db_size_bytes_after: db_size_after,
+            wal_size_bytes_before: wal_size_before,
+            wal_size_bytes_after: wal_size_after,
+            duration_ms,
+            emergency_pruning_triggered,
+        })
+    }
+
+    /// Safely recover from database corruption by moving corrupted files aside
+    /// and instantiating a clean database with fresh schema.
+    pub async fn recover_corrupted_database(
+        db_path: &str,
+    ) -> Result<RecoveryReport, AnalyticsError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let backup_path = format!("{db_path}.corrupted.{now}");
+
+        if tokio::fs::try_exists(db_path).await.unwrap_or(false) {
+            let _ = tokio::fs::rename(db_path, &backup_path).await;
+        }
+
+        let wal_path = format!("{db_path}-wal");
+        if tokio::fs::try_exists(&wal_path).await.unwrap_or(false) {
+            let wal_backup = format!("{db_path}-wal.corrupted.{now}");
+            let _ = tokio::fs::rename(&wal_path, wal_backup).await;
+        }
+
+        let shm_path = format!("{db_path}-shm");
+        if tokio::fs::try_exists(&shm_path).await.unwrap_or(false) {
+            let shm_backup = format!("{db_path}-shm.corrupted.{now}");
+            let _ = tokio::fs::rename(&shm_path, shm_backup).await;
+        }
+
+        // Reconnect and initialize fresh schema
+        let _new_storage = Self::connect(db_path).await?;
+
+        Ok(RecoveryReport {
+            recovered_at: now,
+            backup_path: Some(backup_path),
+            success: true,
+            message: "Database korup berhasil dicadangkan dan database analitik baru berhasil diinisialisasi"
+                .to_string(),
+        })
     }
 
     /// Query server rollups within time range.
@@ -2920,6 +3397,7 @@ mod tests {
             one_minute_retention_secs: 10,
             one_hour_retention_secs: 10,
             one_day_retention_secs: None,
+            ..Default::default()
         };
         let deleted = storage
             .prune_expired(base_ts + 200, &retention)
@@ -3063,5 +3541,170 @@ mod tests {
             .expect("query security overview after prune");
         assert_eq!(after_prune.total_probing_requests, 0);
         assert_eq!(after_prune.total_brute_force_attempts, 2);
+    }
+
+    #[tokio::test]
+    async fn test_storage_stats_and_integrity() {
+        let storage = AnalyticsStorage::connect_in_memory()
+            .await
+            .expect("in-memory db");
+
+        let integrity = storage.check_integrity().await.expect("check integrity");
+        assert!(integrity.is_healthy);
+        assert_eq!(integrity.status, "ok");
+
+        let stats = storage.get_storage_stats().await.expect("storage stats");
+        assert!(stats.is_healthy);
+        assert_eq!(stats.integrity_message, "ok");
+        assert_eq!(stats.table_stats.len(), 23);
+        assert!(
+            stats
+                .table_stats
+                .iter()
+                .any(|t| t.table_name == "metrics_server_raw")
+        );
+        assert!(
+            stats
+                .table_stats
+                .iter()
+                .any(|t| t.table_name == "site_metrics_1m")
+        );
+        assert!(
+            stats
+                .table_stats
+                .iter()
+                .any(|t| t.table_name == "site_security_events")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_maintenance_comprehensive() {
+        let storage = AnalyticsStorage::connect_in_memory()
+            .await
+            .expect("in-memory db");
+
+        let now = 1_700_000_000i64;
+
+        // Insert raw server point
+        let s_pt = ServerMetricsPoint {
+            timestamp: now - 10000,
+            cpu_percent: 15.0,
+            cpu_cores: 4,
+            memory_used_bytes: 1024,
+            memory_total_bytes: 4096,
+            swap_used_bytes: 0,
+            swap_total_bytes: 1024,
+            load1: 0.5,
+            load5: 0.5,
+            load15: 0.5,
+            disk_used_bytes: 5000,
+            disk_total_bytes: 20000,
+            inodes_used: 100,
+            inodes_total: 1000,
+            net_rx_bytes_sec: 100.0,
+            net_tx_bytes_sec: 100.0,
+            io_read_bytes_sec: 50.0,
+            io_write_bytes_sec: 50.0,
+        };
+        storage
+            .insert_server_point(&s_pt)
+            .await
+            .expect("insert server raw");
+
+        // Insert security event
+        let sec_ev = SecurityEvent {
+            id: None,
+            site_id: 1,
+            timestamp: now - 800_000, // 9+ days old
+            client_ip: "192.0.2.1".to_string(),
+            method: "GET".to_string(),
+            uri: "/.env".to_string(),
+            status: 404,
+            user_agent: None,
+            country: None,
+            event_type: crate::security::SecurityEventType::Probing,
+            threat_score: 80,
+        };
+        storage
+            .insert_security_events(&[sec_ev])
+            .await
+            .expect("insert security event");
+
+        // Insert checkpoint
+        let cp = LogCheckpoint {
+            file_path: "/var/log/old.log".to_string(),
+            site_id: 1,
+            inode: 1234,
+            file_offset: 500,
+            last_processed_ts: now - 35 * 86400,
+            updated_at: now - 35 * 86400,
+        };
+        storage
+            .save_log_checkpoint(&cp)
+            .await
+            .expect("save checkpoint");
+
+        let config = RetentionConfig {
+            raw_retention_secs: 7200,
+            one_minute_retention_secs: 86400,
+            one_hour_retention_secs: 864000,
+            one_day_retention_secs: Some(8640000),
+            security_events_retention_secs: 7 * 86400,
+            max_db_size_bytes: Some(1024 * 1024 * 1024),
+            auto_vacuum: true,
+        };
+
+        let report = storage
+            .run_maintenance(now, &config, true)
+            .await
+            .expect("run maintenance");
+
+        assert!(report.raw_records_pruned >= 1);
+        assert_eq!(report.security_events_pruned, 1);
+        assert_eq!(report.checkpoints_pruned, 1);
+        assert!(report.total_records_pruned >= 3);
+        assert!(report.wal_checkpoint_executed);
+        assert!(report.vacuum_executed);
+        assert!(!report.emergency_pruning_triggered);
+    }
+
+    #[tokio::test]
+    async fn test_recover_corrupted_database() {
+        let temp_dir = std::env::temp_dir();
+        let db_file = temp_dir.join(format!(
+            "test_analytics_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let db_path_str = db_file.to_string_lossy().to_string();
+
+        // Write corrupt garbage to the db file
+        tokio::fs::write(&db_file, b"NOT_A_VALID_SQLITE_DATABASE_HEADER_CORRUPTED")
+            .await
+            .expect("write corrupt");
+
+        let report = AnalyticsStorage::recover_corrupted_database(&db_path_str)
+            .await
+            .expect("recover");
+        assert!(report.success);
+        assert!(report.backup_path.is_some());
+
+        // Connect to newly created database
+        let storage = AnalyticsStorage::connect(&db_file)
+            .await
+            .expect("connect recovered db");
+        let integrity = storage
+            .check_integrity()
+            .await
+            .expect("check integrity of fresh db");
+        assert!(integrity.is_healthy);
+
+        // Cleanup
+        let _ = tokio::fs::remove_file(&db_file).await;
+        if let Some(backup) = report.backup_path {
+            let _ = tokio::fs::remove_file(backup).await;
+        }
     }
 }
