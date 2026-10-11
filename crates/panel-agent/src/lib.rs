@@ -410,11 +410,9 @@ impl AgentServer {
     }
 
     #[cfg(unix)]
-    async fn run_listener(
-        self: Arc<Self>,
-        mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
-    ) -> Result<(), AgentError> {
-        let socket_path = &self.config.socket_path;
+    fn bind_unix_listener(
+        socket_path: &std::path::Path,
+    ) -> Result<tokio::net::UnixListener, AgentError> {
         if socket_path.exists() {
             let _ = std::fs::remove_file(socket_path);
         }
@@ -432,6 +430,18 @@ impl AgentServer {
         if let Err(e) = std::fs::set_permissions(socket_path, permissions) {
             warn!("Failed to set permissions on agent socket: {}", e);
         }
+
+        Ok(listener)
+    }
+
+    #[cfg(unix)]
+    #[allow(clippy::cognitive_complexity)]
+    async fn run_listener(
+        self: Arc<Self>,
+        mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    ) -> Result<(), AgentError> {
+        let socket_path = &self.config.socket_path;
+        let listener = Self::bind_unix_listener(socket_path)?;
 
         loop {
             tokio::select! {
@@ -460,6 +470,7 @@ impl AgentServer {
     }
 
     #[cfg(not(unix))]
+    #[allow(clippy::cognitive_complexity)]
     async fn run_listener(
         self: Arc<Self>,
         mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
