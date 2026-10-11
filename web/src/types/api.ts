@@ -1752,4 +1752,78 @@ export interface SystemInsightsResponse {
   evaluated_at: number;
 }
 
+// ==========================================
+// Security Analytics & IP Banning (P9-T8)
+// ==========================================
+
+export type SecurityRiskLevel = 'low' | 'suspicious' | 'high_risk' | 'critical';
+
+export interface TopSecurityIpDto {
+  ip: string;
+  total_requests: number;
+  error_4xx: number;
+  error_5xx: number;
+  probing_count: number;
+  auth_failures: number;
+  country?: string | null;
+  top_path?: string | null;
+  risk_level: SecurityRiskLevel | string;
+  last_seen: number;
+}
+
+export interface ProbingPathStatDto {
+  path: string;
+  category: string;
+  count: number;
+  unique_ips: number;
+}
+
+export interface BruteForceIncidentDto {
+  ip: string;
+  target_path: string;
+  failed_attempts: number;
+  first_attempt_ts: number;
+  last_attempt_ts: number;
+  country?: string | null;
+  risk_score: number;
+}
+
+export interface SecurityOverviewResponse {
+  site_id: number;
+  from: number;
+  to: number;
+  total_probing_requests: number;
+  total_brute_force_attempts: number;
+  unique_suspicious_ips: number;
+  top_ips: TopSecurityIpDto[];
+  probing_paths: ProbingPathStatDto[];
+  brute_force_incidents: BruteForceIncidentDto[];
+  active_banned_ips_count: number;
+}
+
+export interface BannedIpDto {
+  id: string;
+  site_id: number;
+  ip_address: string;
+  reason: string;
+  banned_at: number;
+  expires_at?: number | null;
+  remaining_ttl_secs?: number | null;
+  is_active: boolean;
+  banned_by: string;
+}
+
+export interface BanIpRequest {
+  ip: string;
+  ttl_secs?: number | null;
+  reason?: string | null;
+}
+
+export interface UnbanIpResponse {
+  success: boolean;
+  message: string;
+  unbanned_count: number;
+}
+
+
 

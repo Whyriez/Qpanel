@@ -41,7 +41,7 @@ pub struct ValidateSnippetResponse {
 }
 
 /// Helper to verify user permissions for a given site.
-async fn verify_site_access(
+pub async fn verify_site_access(
     pool: &panel_db::DbPool,
     auth_user: &AuthenticatedUser,
     site_id: i64,

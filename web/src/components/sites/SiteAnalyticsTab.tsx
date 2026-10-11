@@ -33,6 +33,7 @@ import { BreakdownTable } from '../analytics/BreakdownTable';
 import { SlowlogExplorer } from '../analytics/SlowlogExplorer';
 import { AppMetricsCard } from '../analytics/AppMetricsCard';
 import { SiteInsightsCard } from '../analytics/SiteInsightsCard';
+import { SecurityAnalyticsTab } from '../analytics/SecurityAnalyticsTab';
 
 export interface SiteAnalyticsTabProps {
   siteId: number;
@@ -77,7 +78,7 @@ export const SiteAnalyticsTab: React.FC<SiteAnalyticsTabProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'traffic' | 'breakdowns' | 'runtime' | 'slowlog'>('traffic');
+  const [activeSubTab, setActiveSubTab] = useState<'traffic' | 'breakdowns' | 'runtime' | 'slowlog' | 'security'>('traffic');
 
   // Compute timestamps based on preset
   const getTimeRange = useCallback(() => {
@@ -447,6 +448,17 @@ export const SiteAnalyticsTab: React.FC<SiteAnalyticsTabProps> = ({
                 )}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('security')}
+              className={`px-4 py-2 border-b-2 transition-colors ${
+                activeSubTab === 'security'
+                  ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+                  : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+              }`}
+            >
+              Keamanan & Proteksi IP
+            </button>
           </div>
 
           {/* Sub Tab: Traffic & Latency */}
@@ -490,6 +502,15 @@ export const SiteAnalyticsTab: React.FC<SiteAnalyticsTabProps> = ({
           {/* Sub Tab: Slowlog */}
           {activeSubTab === 'slowlog' && (
             <SlowlogExplorer events={slowlog?.events || []} />
+          )}
+
+          {/* Sub Tab: Security Analytics */}
+          {activeSubTab === 'security' && (
+            <SecurityAnalyticsTab
+              siteId={siteId}
+              siteDomain={siteDomain}
+              timeRange={getTimeRange()}
+            />
           )}
         </>
       )}

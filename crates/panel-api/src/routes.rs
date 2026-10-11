@@ -117,6 +117,10 @@ use panel_db::pool::DbPool;
         crate::analytics::evaluate_site_insights_handler,
         crate::analytics::get_system_analytics_timeseries_handler,
         crate::analytics::get_system_insights_handler,
+        crate::security_analytics::get_site_security_overview_handler,
+        crate::security_analytics::get_site_banned_ips_handler,
+        crate::security_analytics::ban_ip_handler,
+        crate::security_analytics::unban_ip_handler,
     ),
     components(
         schemas(
@@ -246,6 +250,13 @@ use panel_db::pool::DbPool;
             crate::analytics::AnalyticsInsightDto,
             crate::analytics::SiteInsightsResponse,
             crate::analytics::SystemInsightsResponse,
+            crate::security_analytics::BanIpRequest,
+            crate::security_analytics::BannedIpDto,
+            crate::security_analytics::TopSecurityIpDto,
+            crate::security_analytics::ProbingPathStatDto,
+            crate::security_analytics::BruteForceIncidentDto,
+            crate::security_analytics::SecurityOverviewResponse,
+            crate::security_analytics::UnbanIpResponse,
         )
     ),
     tags(

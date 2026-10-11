@@ -93,6 +93,10 @@ import {
   SystemTimeseriesResponse,
   SiteInsightsResponse,
   SystemInsightsResponse,
+  SecurityOverviewResponse,
+  BannedIpDto,
+  BanIpRequest,
+  UnbanIpResponse,
 } from '../types/api';
 import type { FsListResponse, TrashListResponse } from '../types/files';
 
@@ -1896,5 +1900,49 @@ export async function evaluateSiteInsights(
 
 export async function fetchSystemInsights(): Promise<SystemInsightsResponse> {
   return request<SystemInsightsResponse>('/api/v1/system/analytics/insights');
+}
+
+// Security Analytics & IP Banning (Phase 9 - P9-T8)
+export async function fetchSiteSecurityOverview(
+  siteId: number,
+  params?: { from?: number; to?: number; limit?: number }
+): Promise<SecurityOverviewResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.limit !== undefined) query.set('limit', params.limit.toString());
+
+  const qs = query.toString();
+  return request<SecurityOverviewResponse>(
+    `/api/v1/sites/${siteId}/analytics/security/overview${qs ? `?${qs}` : ''}`
+  );
+}
+
+export async function fetchSiteBannedIps(
+  siteId: number
+): Promise<BannedIpDto[]> {
+  return request<BannedIpDto[]>(`/api/v1/sites/${siteId}/security/banned-ips`);
+}
+
+export async function banSiteIp(
+  siteId: number,
+  data: BanIpRequest
+): Promise<BannedIpDto> {
+  return request<BannedIpDto>(`/api/v1/sites/${siteId}/security/ban-ip`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function unbanSiteIp(
+  siteId: number,
+  ip: string
+): Promise<UnbanIpResponse> {
+  return request<UnbanIpResponse>(
+    `/api/v1/sites/${siteId}/security/ban-ip/${encodeURIComponent(ip)}`,
+    {
+      method: 'DELETE',
+    }
+  );
 }
 

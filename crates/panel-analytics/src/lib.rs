@@ -17,6 +17,7 @@ pub mod models;
 pub mod normalizer;
 pub mod proc;
 pub mod rollup;
+pub mod security;
 pub mod slowlog;
 pub mod space_saving;
 pub mod storage;
@@ -47,6 +48,11 @@ pub use models::*;
 pub use normalizer::PathNormalizer;
 pub use proc::ProcReader;
 pub use rollup::SiteMetricsRollupProcessor;
+pub use security::{
+    BruteForceIncident, ProbingPathStat, SecurityEvent, SecurityEventType, SecurityOverviewSummary,
+    SecurityRiskLevel, TopSecurityIp, analyze_log_entry, calculate_ip_risk_level,
+    classify_probing_path, is_auth_endpoint,
+};
 pub use slowlog::PhpSlowlogParser;
 pub use space_saving::SpaceSavingCounter;
 pub use storage::AnalyticsStorage;

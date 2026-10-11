@@ -22,6 +22,7 @@ pub mod processes;
 pub mod proxy_site;
 pub mod python_site;
 pub mod routes;
+pub mod security_analytics;
 pub mod site_rules;
 pub mod sites;
 pub mod ssh;
@@ -590,6 +591,23 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/v1/system/analytics/insights",
             get(analytics::get_system_insights_handler),
+        )
+        // Security Analytics & IP Banning (Phase 9 - P9-T8)
+        .route(
+            "/api/v1/sites/{id}/analytics/security/overview",
+            get(security_analytics::get_site_security_overview_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/security/banned-ips",
+            get(security_analytics::get_site_banned_ips_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/security/ban-ip",
+            post(security_analytics::ban_ip_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/security/ban-ip/{ip}",
+            axum::routing::delete(security_analytics::unban_ip_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())

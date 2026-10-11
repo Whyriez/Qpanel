@@ -6,6 +6,10 @@ use crate::models::{
     SiteMetricsPoint, SiteMetricsRollup, SiteRollupReport, TenantMetricsPoint, TenantMetricsRollup,
 };
 use crate::rollup::SiteMetricsRollupProcessor;
+use crate::security::{
+    BruteForceIncident, ProbingPathStat, SecurityEvent, SecurityOverviewSummary, TopSecurityIp,
+    calculate_ip_risk_level, classify_probing_path,
+};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Row, Sqlite};
 use std::path::Path;
@@ -522,6 +526,24 @@ impl AnalyticsStorage {
         CREATE INDEX IF NOT EXISTS idx_slowlog_pool_ts ON php_slowlog_events (pool, timestamp);
         CREATE INDEX IF NOT EXISTS idx_slowlog_site_ts ON php_slowlog_events (site_id, timestamp);
         CREATE INDEX IF NOT EXISTS idx_slowlog_user_ts ON php_slowlog_events (tenant_user, timestamp);
+
+        -- 21. Site security events (P9-T8)
+        CREATE TABLE IF NOT EXISTS site_security_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site_id INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            client_ip TEXT NOT NULL,
+            method TEXT NOT NULL,
+            uri TEXT NOT NULL,
+            status INTEGER NOT NULL,
+            user_agent TEXT,
+            country TEXT,
+            event_type TEXT NOT NULL,
+            threat_score INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sec_events_site_ts ON site_security_events (site_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_sec_events_site_ip ON site_security_events (site_id, client_ip);
+        CREATE INDEX IF NOT EXISTS idx_sec_events_site_type ON site_security_events (site_id, event_type);
         "#;
 
         sqlx::query(schema)
@@ -1046,6 +1068,15 @@ impl AnalyticsStorage {
             total_deleted +=
                 (q10.rows_affected() + q11.rows_affected() + q12.rows_affected()) as usize;
         }
+
+        // 5. Security events (default 7 days)
+        let sec_cutoff = current_timestamp - 7 * 86400;
+        let q_sec = sqlx::query("DELETE FROM site_security_events WHERE timestamp < ?")
+            .bind(sec_cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        total_deleted += q_sec.rows_affected() as usize;
 
         Ok(total_deleted)
     }
@@ -2486,11 +2517,287 @@ impl AnalyticsStorage {
 
         Ok(rollups)
     }
+
+    /// Insert a single security event.
+    pub async fn insert_security_event(&self, ev: &SecurityEvent) -> Result<i64, AnalyticsError> {
+        let query = r#"
+        INSERT INTO site_security_events (
+            site_id, timestamp, client_ip, method, uri, status, user_agent, country, event_type, threat_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let res = sqlx::query(query)
+            .bind(ev.site_id)
+            .bind(ev.timestamp)
+            .bind(&ev.client_ip)
+            .bind(&ev.method)
+            .bind(&ev.uri)
+            .bind(ev.status as i64)
+            .bind(&ev.user_agent)
+            .bind(&ev.country)
+            .bind(ev.event_type.as_str())
+            .bind(ev.threat_score as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        Ok(res.last_insert_rowid())
+    }
+
+    /// Insert a batch of security events inside a transaction.
+    pub async fn insert_security_events(
+        &self,
+        events: &[SecurityEvent],
+    ) -> Result<usize, AnalyticsError> {
+        if events.is_empty() {
+            return Ok(0);
+        }
+
+        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let query = r#"
+        INSERT INTO site_security_events (
+            site_id, timestamp, client_ip, method, uri, status, user_agent, country, event_type, threat_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        for ev in events {
+            sqlx::query(query)
+                .bind(ev.site_id)
+                .bind(ev.timestamp)
+                .bind(&ev.client_ip)
+                .bind(&ev.method)
+                .bind(&ev.uri)
+                .bind(ev.status as i64)
+                .bind(&ev.user_agent)
+                .bind(&ev.country)
+                .bind(ev.event_type.as_str())
+                .bind(ev.threat_score as i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(AnalyticsError::Database)?;
+        }
+
+        tx.commit().await.map_err(AnalyticsError::Database)?;
+        Ok(events.len())
+    }
+
+    /// Query comprehensive security overview for a given site within time window.
+    pub async fn query_security_overview(
+        &self,
+        site_id: i64,
+        from_ts: i64,
+        to_ts: i64,
+        limit: usize,
+    ) -> Result<SecurityOverviewSummary, AnalyticsError> {
+        let limit = limit.clamp(1, 100);
+
+        // 1. High-level aggregates
+        let agg_query = r#"
+        SELECT
+            COALESCE(SUM(CASE WHEN event_type = 'probing' THEN 1 ELSE 0 END), 0) AS total_probing,
+            COALESCE(SUM(CASE WHEN event_type = 'brute_force' THEN 1 ELSE 0 END), 0) AS total_brute_force,
+            COUNT(DISTINCT client_ip) AS unique_ips
+        FROM site_security_events
+        WHERE site_id = ? AND timestamp >= ? AND timestamp <= ?
+        "#;
+
+        let agg_row = sqlx::query(agg_query)
+            .bind(site_id)
+            .bind(from_ts)
+            .bind(to_ts)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let total_probing: i64 = agg_row.try_get("total_probing").unwrap_or(0);
+        let total_brute_force: i64 = agg_row.try_get("total_brute_force").unwrap_or(0);
+        let unique_suspicious_ips: i64 = agg_row.try_get("unique_ips").unwrap_or(0);
+
+        // 2. Top Client IPs
+        let top_ips_query = r#"
+        SELECT
+            client_ip,
+            COUNT(*) AS total_reqs,
+            COALESCE(SUM(CASE WHEN status >= 400 AND status < 500 THEN 1 ELSE 0 END), 0) AS error_4xx,
+            COALESCE(SUM(CASE WHEN status >= 500 AND status < 600 THEN 1 ELSE 0 END), 0) AS error_5xx,
+            COALESCE(SUM(CASE WHEN event_type = 'probing' THEN 1 ELSE 0 END), 0) AS probing_cnt,
+            COALESCE(SUM(CASE WHEN event_type = 'brute_force' THEN 1 ELSE 0 END), 0) AS auth_failures,
+            MAX(country) AS country,
+            MAX(uri) AS top_path,
+            MAX(timestamp) AS last_seen
+        FROM site_security_events
+        WHERE site_id = ? AND timestamp >= ? AND timestamp <= ?
+        GROUP BY client_ip
+        ORDER BY (COALESCE(SUM(CASE WHEN event_type = 'probing' THEN 1 ELSE 0 END), 0) * 5 +
+                  COALESCE(SUM(CASE WHEN event_type = 'brute_force' THEN 1 ELSE 0 END), 0) * 3 +
+                  COUNT(*)) DESC
+        LIMIT ?
+        "#;
+
+        let ip_rows = sqlx::query(top_ips_query)
+            .bind(site_id)
+            .bind(from_ts)
+            .bind(to_ts)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut top_ips = Vec::with_capacity(ip_rows.len());
+        for row in ip_rows {
+            let total_reqs: i64 = row
+                .try_get("total_reqs")
+                .map_err(AnalyticsError::Database)?;
+            let error_4xx: i64 = row.try_get("error_4xx").unwrap_or(0);
+            let error_5xx: i64 = row.try_get("error_5xx").unwrap_or(0);
+            let probing_cnt: i64 = row.try_get("probing_cnt").unwrap_or(0);
+            let auth_failures: i64 = row.try_get("auth_failures").unwrap_or(0);
+            let client_ip: String = row.try_get("client_ip").map_err(AnalyticsError::Database)?;
+            let country: Option<String> = row.try_get("country").ok();
+            let top_path: Option<String> = row.try_get("top_path").ok();
+            let last_seen: i64 = row.try_get("last_seen").map_err(AnalyticsError::Database)?;
+
+            let risk_level = calculate_ip_risk_level(
+                total_reqs.max(0) as u64,
+                error_4xx.max(0) as u64,
+                probing_cnt.max(0) as u64,
+                auth_failures.max(0) as u64,
+            );
+
+            top_ips.push(TopSecurityIp {
+                ip: client_ip,
+                total_requests: total_reqs.max(0) as u64,
+                error_4xx: error_4xx.max(0) as u64,
+                error_5xx: error_5xx.max(0) as u64,
+                probing_count: probing_cnt.max(0) as u64,
+                auth_failures: auth_failures.max(0) as u64,
+                country,
+                top_path,
+                risk_level,
+                last_seen,
+            });
+        }
+
+        // 3. Probing paths statistics
+        let probing_query = r#"
+        SELECT
+            uri,
+            COUNT(*) AS cnt,
+            COUNT(DISTINCT client_ip) AS unique_ips
+        FROM site_security_events
+        WHERE site_id = ? AND timestamp >= ? AND timestamp <= ? AND event_type = 'probing'
+        GROUP BY uri
+        ORDER BY cnt DESC
+        LIMIT ?
+        "#;
+
+        let probing_rows = sqlx::query(probing_query)
+            .bind(site_id)
+            .bind(from_ts)
+            .bind(to_ts)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut probing_paths = Vec::with_capacity(probing_rows.len());
+        for row in probing_rows {
+            let uri: String = row.try_get("uri").map_err(AnalyticsError::Database)?;
+            let cnt: i64 = row.try_get("cnt").map_err(AnalyticsError::Database)?;
+            let u_ips: i64 = row
+                .try_get("unique_ips")
+                .map_err(AnalyticsError::Database)?;
+            let category = classify_probing_path(&uri)
+                .map(|(c, _)| c.to_string())
+                .unwrap_or_else(|| "unknown_probe".to_string());
+
+            probing_paths.push(ProbingPathStat {
+                path: uri,
+                category,
+                count: cnt.max(0) as u64,
+                unique_ips: u_ips.max(0) as u64,
+            });
+        }
+
+        // 4. Brute force incidents
+        let bf_query = r#"
+        SELECT
+            client_ip,
+            uri,
+            COUNT(*) AS failed_attempts,
+            MIN(timestamp) AS first_attempt_ts,
+            MAX(timestamp) AS last_attempt_ts,
+            MAX(country) AS country,
+            MAX(threat_score) AS max_threat
+        FROM site_security_events
+        WHERE site_id = ? AND timestamp >= ? AND timestamp <= ? AND event_type = 'brute_force'
+        GROUP BY client_ip, uri
+        ORDER BY failed_attempts DESC
+        LIMIT ?
+        "#;
+
+        let bf_rows = sqlx::query(bf_query)
+            .bind(site_id)
+            .bind(from_ts)
+            .bind(to_ts)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut brute_force_incidents = Vec::with_capacity(bf_rows.len());
+        for row in bf_rows {
+            let ip: String = row.try_get("client_ip").map_err(AnalyticsError::Database)?;
+            let uri: String = row.try_get("uri").map_err(AnalyticsError::Database)?;
+            let attempts: i64 = row
+                .try_get("failed_attempts")
+                .map_err(AnalyticsError::Database)?;
+            let first_ts: i64 = row
+                .try_get("first_attempt_ts")
+                .map_err(AnalyticsError::Database)?;
+            let last_ts: i64 = row
+                .try_get("last_attempt_ts")
+                .map_err(AnalyticsError::Database)?;
+            let country: Option<String> = row.try_get("country").ok();
+            let max_threat: i64 = row.try_get("max_threat").unwrap_or(70);
+
+            brute_force_incidents.push(BruteForceIncident {
+                ip,
+                target_path: uri,
+                failed_attempts: attempts.max(0) as u64,
+                first_attempt_ts: first_ts,
+                last_attempt_ts: last_ts,
+                country,
+                risk_score: max_threat.max(0) as u32,
+            });
+        }
+
+        Ok(SecurityOverviewSummary {
+            total_probing_requests: total_probing.max(0) as u64,
+            total_brute_force_attempts: total_brute_force.max(0) as u64,
+            unique_suspicious_ips: unique_suspicious_ips.max(0) as u64,
+            top_ips,
+            probing_paths,
+            brute_force_incidents,
+        })
+    }
+
+    /// Prune old security events older than `cutoff_ts`.
+    pub async fn prune_security_events(&self, cutoff_ts: i64) -> Result<u64, AnalyticsError> {
+        let res = sqlx::query("DELETE FROM site_security_events WHERE timestamp < ?")
+            .bind(cutoff_ts)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        Ok(res.rows_affected())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::SecurityEventType;
 
     #[tokio::test]
     async fn test_storage_lifecycle_and_rollups() {
@@ -2620,5 +2927,141 @@ mod tests {
             .expect("prune");
         // 6 server raw + 6 tenant raw + 6 service raw + 1 server 1m + 1 tenant 1m + 1 svc 1m + 1 server 1h + 1 tenant 1h + 1 svc 1h = 24
         assert!(deleted >= 18);
+    }
+
+    #[tokio::test]
+    async fn test_security_events_storage_and_overview() {
+        let storage = AnalyticsStorage::connect_in_memory()
+            .await
+            .expect("in-memory db");
+
+        let site_id = 42;
+        let now = 1770001000;
+
+        let events = vec![
+            SecurityEvent {
+                id: None,
+                site_id,
+                timestamp: now - 300,
+                client_ip: "198.51.100.1".to_string(),
+                method: "GET".to_string(),
+                uri: "/.env".to_string(),
+                status: 404,
+                user_agent: Some("curl/7.81".to_string()),
+                country: Some("ID".to_string()),
+                event_type: SecurityEventType::Probing,
+                threat_score: 85,
+            },
+            SecurityEvent {
+                id: None,
+                site_id,
+                timestamp: now - 200,
+                client_ip: "198.51.100.1".to_string(),
+                method: "GET".to_string(),
+                uri: "/.git/config".to_string(),
+                status: 404,
+                user_agent: Some("curl/7.81".to_string()),
+                country: Some("ID".to_string()),
+                event_type: SecurityEventType::Probing,
+                threat_score: 80,
+            },
+            SecurityEvent {
+                id: None,
+                site_id,
+                timestamp: now - 100,
+                client_ip: "203.0.113.50".to_string(),
+                method: "POST".to_string(),
+                uri: "/wp-login.php".to_string(),
+                status: 401,
+                user_agent: Some("python-requests/2.28".to_string()),
+                country: Some("RU".to_string()),
+                event_type: SecurityEventType::BruteForce,
+                threat_score: 70,
+            },
+            SecurityEvent {
+                id: None,
+                site_id,
+                timestamp: now - 50,
+                client_ip: "203.0.113.50".to_string(),
+                method: "POST".to_string(),
+                uri: "/wp-login.php".to_string(),
+                status: 401,
+                user_agent: Some("python-requests/2.28".to_string()),
+                country: Some("RU".to_string()),
+                event_type: SecurityEventType::BruteForce,
+                threat_score: 70,
+            },
+        ];
+
+        let inserted = storage
+            .insert_security_events(&events)
+            .await
+            .expect("insert security events");
+        assert_eq!(inserted, 4);
+
+        let overview = storage
+            .query_security_overview(site_id, now - 600, now, 10)
+            .await
+            .expect("query security overview");
+
+        assert_eq!(overview.total_probing_requests, 2);
+        assert_eq!(overview.total_brute_force_attempts, 2);
+        assert_eq!(overview.unique_suspicious_ips, 2);
+
+        // Top IPs
+        assert_eq!(overview.top_ips.len(), 2);
+        let top_ip_1 = overview
+            .top_ips
+            .iter()
+            .find(|i| i.ip == "198.51.100.1")
+            .expect("found ip 1");
+        assert_eq!(top_ip_1.probing_count, 2);
+        assert_eq!(top_ip_1.country.as_deref(), Some("ID"));
+
+        let top_ip_2 = overview
+            .top_ips
+            .iter()
+            .find(|i| i.ip == "203.0.113.50")
+            .expect("found ip 2");
+        assert_eq!(top_ip_2.auth_failures, 2);
+        assert_eq!(top_ip_2.country.as_deref(), Some("RU"));
+
+        // Probing paths
+        assert_eq!(overview.probing_paths.len(), 2);
+        assert!(
+            overview
+                .probing_paths
+                .iter()
+                .any(|p| p.path == "/.env" && p.category == "env_credentials")
+        );
+        assert!(
+            overview
+                .probing_paths
+                .iter()
+                .any(|p| p.path == "/.git/config" && p.category == "vcs_leak")
+        );
+
+        // Brute force incidents
+        assert_eq!(overview.brute_force_incidents.len(), 1);
+        assert_eq!(overview.brute_force_incidents[0].ip, "203.0.113.50");
+        assert_eq!(
+            overview.brute_force_incidents[0].target_path,
+            "/wp-login.php"
+        );
+        assert_eq!(overview.brute_force_incidents[0].failed_attempts, 2);
+
+        // Pruning
+        let pruned = storage
+            .prune_security_events(now - 150)
+            .await
+            .expect("prune");
+        assert_eq!(pruned, 2); // 2 events older than now - 150 removed
+
+        let after_prune = storage
+            .query_security_overview(site_id, now - 600, now, 10)
+            .await
+            .expect("query security overview after prune");
+        assert_eq!(after_prune.total_probing_requests, 0);
+        assert_eq!(after_prune.total_brute_force_attempts, 2);
     }
 }
