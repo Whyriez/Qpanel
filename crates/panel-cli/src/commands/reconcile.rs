@@ -143,19 +143,19 @@ pub async fn run_reconcile(
         #[cfg(unix)]
         let socket_path = Path::new("/run/panel/agent.sock");
         #[cfg(unix)]
-        if socket_path.exists() {
-            if let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await {
-                let mut rpc = RpcStream::new(stream);
-                let rec_req = RpcRequest::new(
-                    "cli-rec-1",
-                    RequestPayload::SystemReconcile(SystemReconcileRequest {
-                        dry_run: false,
-                        desired_sites: desired_sites_dto,
-                        desired_nftables_ports: vec![],
-                    }),
-                );
-                let _ = rpc.send_request(&rec_req).await;
-            }
+        if socket_path.exists()
+            && let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await
+        {
+            let mut rpc = RpcStream::new(stream);
+            let rec_req = RpcRequest::new(
+                "cli-rec-1",
+                RequestPayload::SystemReconcile(SystemReconcileRequest {
+                    dry_run: false,
+                    desired_sites: desired_sites_dto,
+                    desired_nftables_ports: vec![],
+                }),
+            );
+            let _ = rpc.send_request(&rec_req).await;
         }
     }
 

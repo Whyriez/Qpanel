@@ -590,12 +590,12 @@ fn read_current_process_rss_mb() -> Option<f64> {
     {
         if let Ok(statm) = std::fs::read_to_string("/proc/self/statm") {
             let parts: Vec<&str> = statm.split_whitespace().collect();
-            if parts.len() >= 2 {
-                if let Ok(resident_pages) = parts[1].parse::<u64>() {
-                    let page_size_kb = 4u64; // typical x86_64/arm page size
-                    let rss_mb = (resident_pages * page_size_kb) as f64 / 1024.0;
-                    return Some(rss_mb);
-                }
+            if parts.len() >= 2
+                && let Ok(resident_pages) = parts[1].parse::<u64>()
+            {
+                let page_size_kb = 4u64; // typical x86_64/arm page size
+                let rss_mb = (resident_pages * page_size_kb) as f64 / 1024.0;
+                return Some(rss_mb);
             }
         }
     }

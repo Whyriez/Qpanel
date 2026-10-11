@@ -111,18 +111,18 @@ async fn check_agent_socket_cli() -> DoctorCheckItem {
     let socket_path = Path::new("/run/panel/agent.sock");
 
     #[cfg(unix)]
-    if socket_path.exists() {
-        if let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await {
-            let mut rpc = RpcStream::new(stream);
-            let req = RpcRequest::new(
-                "cli-doc-1",
-                RequestPayload::SystemDoctorCheck(SystemDoctorCheckRequest {}),
-            );
-            if rpc.send_request(&req).await.is_ok() {
-                let _ = rpc.recv_request().await;
-            }
-            agent_connected = true;
+    if socket_path.exists()
+        && let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await
+    {
+        let mut rpc = RpcStream::new(stream);
+        let req = RpcRequest::new(
+            "cli-doc-1",
+            RequestPayload::SystemDoctorCheck(SystemDoctorCheckRequest {}),
+        );
+        if rpc.send_request(&req).await.is_ok() {
+            let _ = rpc.recv_request().await;
         }
+        agent_connected = true;
     }
 
     let is_linux = cfg!(target_os = "linux");
@@ -227,17 +227,17 @@ async fn apply_doctor_fixes_cli(
     #[cfg(unix)]
     {
         let socket_path = Path::new("/run/panel/agent.sock");
-        if socket_path.exists() {
-            if let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await {
-                let mut rpc = RpcStream::new(stream);
-                let fix_req = RpcRequest::new(
-                    "cli-fix-1",
-                    RequestPayload::SystemDoctorFix(SystemDoctorFixRequest {
-                        target_checks: vec![],
-                    }),
-                );
-                let _ = rpc.send_request(&fix_req).await;
-            }
+        if socket_path.exists()
+            && let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await
+        {
+            let mut rpc = RpcStream::new(stream);
+            let fix_req = RpcRequest::new(
+                "cli-fix-1",
+                RequestPayload::SystemDoctorFix(SystemDoctorFixRequest {
+                    target_checks: vec![],
+                }),
+            );
+            let _ = rpc.send_request(&fix_req).await;
         }
     }
     Ok(())
