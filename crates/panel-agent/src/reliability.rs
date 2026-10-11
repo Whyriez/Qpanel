@@ -196,7 +196,7 @@ impl ReliabilityManager {
         });
 
         let sock_path = Path::new("/run/panel/agent.sock");
-        let sock_exists = sock_path.exists() || !is_linux;
+        let sock_exists = self.runner.path_exists(sock_path) || !is_linux;
         checks.push(DoctorCheckItem {
             id: "agent_ipc_socket".to_string(),
             name: "Soket IPC Agent Panel".to_string(),
@@ -226,7 +226,7 @@ impl ReliabilityManager {
         let mut checks = Vec::new();
         let panel_state_dir = self.base_dir.clone();
         let backups_dir = self.base_dir.join("backups");
-        let dir_ok = backups_dir.exists();
+        let dir_ok = self.runner.path_exists(&backups_dir);
         checks.push(DoctorCheckItem {
             id: "panel_state_directories".to_string(),
             name: "Direktori Kerja Panel".to_string(),
@@ -908,6 +908,7 @@ mod tests {
     #[test]
     fn test_reliability_doctor_diagnostics_clean() {
         let runner = Arc::new(MockSystemRunner::new());
+        runner.add_existing_path(PathBuf::from("/run/panel/agent.sock"));
         let temp = tempdir().unwrap();
         let base_dir = temp.path().to_path_buf();
         let nft = Arc::new(NftablesManager::new(
@@ -920,6 +921,31 @@ mod tests {
         assert!(res.checks.len() >= 7);
         assert!(res.healthy);
         assert_eq!(res.total_failures, 0);
+    }
+
+    #[test]
+    fn test_reliability_doctor_diagnostics_socket_missing_fails() {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        let runner = Arc::new(MockSystemRunner::new());
+        let temp = tempdir().unwrap();
+        let base_dir = temp.path().to_path_buf();
+        let nft = Arc::new(NftablesManager::new(
+            Arc::clone(&runner) as Arc<dyn SystemRunner>
+        ));
+
+        let mgr = ReliabilityManager::new(runner, &base_dir, nft);
+        let res = mgr.check_doctor(&SystemDoctorCheckRequest {}).unwrap();
+
+        assert!(!res.healthy);
+        assert!(res.total_failures >= 1);
+        let sock_check = res
+            .checks
+            .iter()
+            .find(|c| c.id == "agent_ipc_socket")
+            .unwrap();
+        assert_eq!(sock_check.status, "fail");
     }
 
     #[test]

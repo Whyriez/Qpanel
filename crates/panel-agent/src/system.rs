@@ -309,6 +309,21 @@ pub enum MockAction {
 
 pub type MockCommandResponse = (i32, Vec<u8>, Vec<u8>);
 
+/// Helper to determine if a path refers to a host system directory that should
+/// never leak into test mocks.
+pub fn is_mock_system_path(path: &Path) -> bool {
+    let p = path.to_string_lossy();
+    p.starts_with("/etc")
+        || p.starts_with("/usr")
+        || p.starts_with("/var")
+        || p.starts_with("/run")
+        || p.starts_with("/sys")
+        || p.starts_with("/proc")
+        || p.starts_with("/bin")
+        || p.starts_with("/sbin")
+        || p.starts_with("/dev")
+}
+
 /// In-memory mock runner for test assertions and safe non-root validation.
 #[derive(Debug, Clone, Default)]
 pub struct MockSystemRunner {
@@ -530,7 +545,7 @@ impl SystemRunner for MockSystemRunner {
                 path: path.to_path_buf(),
             });
         }
-        if path.exists() {
+        if !is_mock_system_path(path) && path.exists() {
             let _ = std::fs::remove_dir_all(path);
         }
         Ok(())
@@ -552,6 +567,9 @@ impl SystemRunner for MockSystemRunner {
             .is_some_and(|lock| lock.contains_key(path))
         {
             return true;
+        }
+        if is_mock_system_path(path) {
+            return false;
         }
         path.exists()
     }
@@ -579,7 +597,7 @@ impl SystemRunner for MockSystemRunner {
         {
             return Ok(content);
         }
-        if path.exists() {
+        if !is_mock_system_path(path) && path.exists() {
             std::fs::read(path).map_err(AgentError::Io)
         } else {
             Err(AgentError::Io(std::io::Error::new(
@@ -601,6 +619,9 @@ impl SystemRunner for MockSystemRunner {
                 path: path.to_path_buf(),
             });
         }
+        if !is_mock_system_path(path) && path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
         Ok(())
     }
 
@@ -613,7 +634,9 @@ impl SystemRunner for MockSystemRunner {
                 }
             }
         }
-        if let Ok(entries) = std::fs::read_dir(path) {
+        if !is_mock_system_path(path)
+            && let Ok(entries) = std::fs::read_dir(path)
+        {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if !results.contains(&p) {
