@@ -1100,3 +1100,623 @@ export interface ValidateSnippetResponse {
   error?: string | null;
 }
 
+export interface SiteGitConfig {
+  id?: number | null;
+  site_id: number;
+  repo_url: string;
+  branch: string;
+  build_cmd?: string | null;
+  post_deploy_cmd?: string | null;
+  docroot_subpath?: string | null;
+  auto_deploy: boolean;
+  keep_releases: number;
+  deploy_key_public?: string | null;
+  webhook_url: string;
+  webhook_secret?: string | null;
+  has_webhook_secret: boolean;
+  last_deployed_at?: number | null;
+  created_at?: number | null;
+  updated_at?: number | null;
+}
+
+export interface UpsertGitConfigRequest {
+  repo_url: string;
+  branch: string;
+  build_cmd?: string | null;
+  post_deploy_cmd?: string | null;
+  docroot_subpath?: string | null;
+  auto_deploy?: boolean;
+  keep_releases?: number;
+  webhook_secret?: string | null;
+  rotate_webhook_secret?: boolean;
+}
+
+export interface TriggerDeployRequest {
+  branch?: string;
+  commit_hash?: string;
+}
+
+export interface RollbackDeployRequest {
+  target_release_id: string;
+}
+
+export interface SiteDeployment {
+  id: number;
+  site_id: number;
+  release_id: string;
+  commit_hash?: string | null;
+  commit_author?: string | null;
+  commit_message?: string | null;
+  branch: string;
+  status: 'queued' | 'running' | 'success' | 'failed' | string;
+  duration_ms?: number | null;
+  trigger_type: 'manual' | 'webhook' | 'rollback' | string;
+  log?: string | null;
+  error_message?: string | null;
+  is_current: boolean;
+  created_at: number;
+  finished_at?: number | null;
+}
+
+export interface GenerateDeployKeyResponse {
+  site_id: number;
+  public_key: string;
+}
+
+// ==========================================
+// Database Provisioner Types (Phase 8 - P8-T5)
+// ==========================================
+
+export type DatabaseEngine = 'mariadb' | 'postgresql';
+
+export interface DatabaseServer {
+  engine: DatabaseEngine;
+  is_installed: boolean;
+  is_running: boolean;
+  version?: string | null;
+  port: number;
+  socket_path?: string | null;
+  updated_at: number;
+}
+
+export interface DatabaseQuotaInfo {
+  used: number;
+  limit: number;
+  remaining: number;
+}
+
+export interface DatabaseItem {
+  id: number;
+  user_id: number;
+  site_id?: number | null;
+  engine: DatabaseEngine;
+  name: string;
+  db_user: string;
+  remote_access: boolean;
+  allowed_hosts: string;
+  collation: string;
+  character_set: string;
+  size_bytes: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface DatabaseListResponse {
+  databases: DatabaseItem[];
+  total: number;
+  quota: DatabaseQuotaInfo;
+}
+
+export interface CreateDatabaseRequest {
+  engine: DatabaseEngine;
+  name: string;
+  db_user?: string | null;
+  password?: string | null;
+  site_id?: number | null;
+  remote_access?: boolean;
+  allowed_hosts?: string | null;
+  collation?: string | null;
+  character_set?: string | null;
+}
+
+export interface CreateDatabaseResponse {
+  database: DatabaseItem;
+  generated_password?: string | null;
+}
+
+export interface RotatePasswordRequest {
+  password?: string | null;
+}
+
+export interface RotatePasswordResponse {
+  success: boolean;
+  new_password: string;
+  message: string;
+}
+
+export interface UpdateRemoteAccessRequest {
+  remote_access: boolean;
+  allowed_hosts: string;
+}
+
+export interface DatabaseActionResponse {
+  success: boolean;
+  message: string;
+  job_id?: string | null;
+}
+
+export interface ExportDatabaseRequest {
+  export_file_path?: string;
+}
+
+export interface ImportDatabaseRequest {
+  import_file_path: string;
+}
+
+// Site Backup & Snapshot Restore Types (Phase 8 - P8-T6)
+export type BackupFormat = 'tar.zst' | 'tar.gz';
+export type BackupStatus = 'pending' | 'running' | 'completed' | 'failed' | 'restoring';
+export type BackupScheduleFrequency = 'daily' | 'weekly' | 'monthly';
+export type BackupStorageType = 'local' | 's3';
+
+export interface BackupItem {
+  id: number;
+  site_id: number;
+  user_id: number;
+  filename: string;
+  filepath: string;
+  size_bytes: number;
+  label?: string | null;
+  includes_files: boolean;
+  includes_databases: boolean;
+  status: BackupStatus;
+  error_message?: string | null;
+  storage_type: BackupStorageType;
+  s3_key?: string | null;
+  checksum_sha256?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface BackupListResponse {
+  backups: BackupItem[];
+  total_bytes_used: number;
+  count: number;
+}
+
+export interface CreateBackupRequest {
+  label?: string | null;
+  include_files?: boolean;
+  include_databases?: boolean;
+  format?: BackupFormat;
+}
+
+export interface RestoreBackupRequest {
+  target_subpath?: string | null;
+  restore_files?: boolean;
+  restore_databases?: boolean;
+}
+
+export interface BackupSchedule {
+  site_id: number;
+  is_enabled: boolean;
+  frequency: BackupScheduleFrequency;
+  time_hour: number;
+  time_minute: number;
+  retention_count: number;
+  include_files: boolean;
+  include_databases: boolean;
+  last_run_at?: number | null;
+  next_run_at?: number | null;
+  storage_destination: BackupStorageType;
+  s3_endpoint?: string | null;
+  s3_bucket?: string | null;
+  s3_region?: string | null;
+  s3_access_key?: string | null;
+  s3_secret_key_enc?: string | null;
+  s3_prefix?: string | null;
+  updated_at: number;
+}
+
+export interface UpdateScheduleRequest {
+  is_enabled: boolean;
+  frequency: BackupScheduleFrequency;
+  time_hour: number;
+  time_minute: number;
+  retention_count: number;
+  include_files: boolean;
+  include_databases: boolean;
+  storage_destination?: string | null;
+  s3_endpoint?: string | null;
+  s3_bucket?: string | null;
+  s3_region?: string | null;
+  s3_access_key?: string | null;
+  s3_secret_key?: string | null;
+  s3_prefix?: string | null;
+}
+
+export type NotificationCategory =
+  | 'ssl_expiring'
+  | 'quota_warning'
+  | 'job_failed'
+  | 'deploy_failed'
+  | 'backup_failed'
+  | 'security_alert'
+  | 'system';
+
+export type NotificationSeverity = 'info' | 'warning' | 'critical';
+
+export interface NotificationItem {
+  id: string;
+  user_id: number | null;
+  category: NotificationCategory;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  action_url: string | null;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface ListNotificationsResponse {
+  items: NotificationItem[];
+  total: number;
+  unread_count: number;
+  page: number;
+  per_page: number;
+}
+
+export interface NotificationSettings {
+  id: number;
+  smtp_enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_username: string | null;
+  smtp_password_masked: string | null;
+  smtp_has_password: boolean;
+  smtp_encryption: string;
+  from_address: string;
+  from_name: string;
+  admin_email: string;
+  ssl_warning_days: number;
+  quota_warning_percent: number;
+  notify_ssl_expiring: boolean;
+  notify_quota_warning: boolean;
+  notify_job_failed: boolean;
+  notify_deploy_failed: boolean;
+  updated_at: string;
+}
+
+export interface UpdateNotificationSettingsRequest {
+  smtp_enabled?: boolean;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_username?: string | null;
+  smtp_password?: string;
+  smtp_encryption?: string;
+  from_address?: string;
+  from_name?: string;
+  admin_email?: string;
+  ssl_warning_days?: number;
+  quota_warning_percent?: number;
+  notify_ssl_expiring?: boolean;
+  notify_quota_warning?: boolean;
+  notify_job_failed?: boolean;
+  notify_deploy_failed?: boolean;
+}
+
+export interface TestSmtpRequest {
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  encryption?: string;
+  to_address?: string;
+}
+
+export interface TestSmtpResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export interface EvaluateAlertsResponse {
+  success: boolean;
+  triggered_count: number;
+  notifications: NotificationItem[];
+}
+
+export interface SiteLiveStatus {
+  webserver_status: 'active' | 'suspended' | string;
+  runtime_status: 'running' | 'inactive' | 'failed' | 'not_applicable' | string;
+  healthy: boolean;
+  uptime_secs?: number | null;
+  pid?: number | null;
+}
+
+export interface SiteResourceMetrics {
+  cpu_usage_usec: number;
+  cpu_percent: number;
+  memory_bytes: number;
+  memory_limit_bytes: number;
+  pids_current: number;
+  pids_limit: number;
+}
+
+export interface SiteSslSummary {
+  has_certificate: boolean;
+  issuer?: string | null;
+  valid_until?: number | null;
+  days_remaining?: number | null;
+  auto_renew: boolean;
+  status: 'valid' | 'expiring_soon' | 'expired' | 'none' | string;
+  force_https: boolean;
+}
+
+export interface SiteRuntimeSummary {
+  kind: 'php' | 'nodejs' | 'python' | 'static' | 'proxy' | string;
+  version: string;
+  preset?: string | null;
+  entrypoint_or_target: string;
+  framework?: string | null;
+}
+
+export interface SiteStorageBreakdown {
+  docroot_bytes: number;
+  databases_bytes: number;
+  backups_bytes: number;
+  total_site_bytes: number;
+  plan_disk_limit_bytes: number;
+  usage_percentage: number;
+}
+
+export interface SiteContextualWarning {
+  id: string;
+  level: 'warning' | 'danger' | 'info';
+  title: string;
+  message: string;
+  action_tab?: string | null;
+}
+
+export interface LatestDeploymentSummary {
+  deployment_id: number;
+  release_id: string;
+  commit_hash: string;
+  commit_message: string;
+  commit_author: string;
+  branch: string;
+  trigger_type: string;
+  status: string;
+  duration_ms?: number | null;
+  created_at: number;
+  finished_at?: number | null;
+  can_rollback: boolean;
+}
+
+export interface LatestBackupSummary {
+  backup_id: number;
+  filename: string;
+  size_bytes: number;
+  status: string;
+  includes_files: boolean;
+  includes_databases: boolean;
+  created_at: number;
+}
+
+export interface SiteOverviewResponse {
+  site_id: number;
+  domain: string;
+  status: SiteLiveStatus;
+  quick_actions_available: string[];
+  resources: SiteResourceMetrics;
+  ssl: SiteSslSummary;
+  runtime: SiteRuntimeSummary;
+  storage: SiteStorageBreakdown;
+  warnings: SiteContextualWarning[];
+  latest_deployment?: LatestDeploymentSummary | null;
+  latest_backup?: LatestBackupSummary | null;
+}
+
+export interface SiteQuickActionRequest {
+  action: 'start' | 'stop' | 'restart' | 'reload' | 'clear_cache' | string;
+}
+
+export interface SiteQuickActionResponse {
+  success: boolean;
+  action: string;
+  message: string;
+}
+
+// ==========================================
+// Analytics & Timeseries Types (Phase 9 - P9-T5 & P9-T6)
+// ==========================================
+
+export interface AnalyticsTimeRangeQuery {
+  from?: number;
+  to?: number;
+  interval?: 'auto' | '1m' | '1h' | '1d' | string;
+  compare?: boolean;
+  prev_from?: number;
+  prev_to?: number;
+}
+
+export interface AnalyticsBreakdownsQuery {
+  from?: number;
+  to?: number;
+  dimension?: string;
+  limit?: number;
+}
+
+export interface AnalyticsSlowlogQuery {
+  from?: number;
+  to?: number;
+  limit?: number;
+}
+
+export interface AnalyticsExportQuery {
+  from?: number;
+  to?: number;
+  interval?: string;
+}
+
+export interface SiteAnalyticsSummaryDto {
+  total_requests: number;
+  total_bytes: number;
+  unique_visitors: number;
+  status_2xx: number;
+  status_3xx: number;
+  status_4xx: number;
+  status_5xx: number;
+  cache_hit_ratio: number;
+  latency_avg_ms: number;
+  latency_p50_ms: number;
+  latency_p95_ms: number;
+  latency_p99_ms: number;
+  error_rate_percent: number;
+}
+
+export interface PeriodChangeDto {
+  requests_change_percent: number;
+  bytes_change_percent: number;
+  visitors_change_percent: number;
+  avg_latency_change_percent: number;
+  error_rate_change_percent: number;
+}
+
+export interface SiteAnalyticsOverviewResponse {
+  site_id: number;
+  from_ts: number;
+  to_ts: number;
+  interval_used: string;
+  current: SiteAnalyticsSummaryDto;
+  previous?: SiteAnalyticsSummaryDto | null;
+  comparison?: PeriodChangeDto | null;
+}
+
+export interface SiteTimeseriesPointDto {
+  timestamp: number;
+  requests: number;
+  bytes: number;
+  status_2xx: number;
+  status_3xx: number;
+  status_4xx: number;
+  status_5xx: number;
+  visitors: number;
+  cache_hit: number;
+  cache_miss: number;
+  latency_p50_ms: number;
+  latency_p95_ms: number;
+  latency_p99_ms: number;
+  latency_avg_ms: number;
+}
+
+export interface SiteTimeseriesResponse {
+  site_id: number;
+  from_ts: number;
+  to_ts: number;
+  interval: string;
+  points: SiteTimeseriesPointDto[];
+}
+
+export interface BreakdownItemDto {
+  name: string;
+  count: number;
+  percentage: number;
+}
+
+export interface SiteBreakdownsResponse {
+  site_id: number;
+  from_ts: number;
+  to_ts: number;
+  paths: BreakdownItemDto[];
+  referrers: BreakdownItemDto[];
+  countries: BreakdownItemDto[];
+  browsers: BreakdownItemDto[];
+  os: BreakdownItemDto[];
+  devices: BreakdownItemDto[];
+  slow_urls: BreakdownItemDto[];
+  error_urls: BreakdownItemDto[];
+}
+
+export interface PhpFpmPoolOverviewDto {
+  pool_name: string;
+  active_avg: number;
+  active_max: number;
+  idle_avg: number;
+  total_max: number;
+  listen_queue_max: number;
+  max_children_reached_max: number;
+  slow_requests_total: number;
+  accepted_conn_total: number;
+}
+
+export interface AppProcessOverviewDto {
+  site_id: number;
+  app_type: string;
+  cpu_avg: number;
+  cpu_max: number;
+  memory_current_avg_bytes: number;
+  memory_current_max_bytes: number;
+  memory_peak_max_bytes?: number | null;
+  pids_max: number;
+  io_read_avg_bytes_sec: number;
+  io_write_avg_bytes_sec: number;
+}
+
+export interface SiteAppMetricsResponse {
+  site_id: number;
+  runtime: string;
+  php_fpm?: PhpFpmPoolOverviewDto | null;
+  app_process?: AppProcessOverviewDto | null;
+}
+
+export interface PhpSlowlogFrameDto {
+  frame_index: number;
+  function: string;
+  file: string;
+  line: number;
+  address?: string | null;
+}
+
+export interface PhpSlowlogEntryDto {
+  id?: number | null;
+  timestamp: number;
+  pool: string;
+  pid: number;
+  script_filename: string;
+  top_function?: string | null;
+  frames: PhpSlowlogFrameDto[];
+  duration_secs?: number | null;
+  site_id?: number | null;
+  tenant_user?: string | null;
+}
+
+export interface SiteSlowlogResponse {
+  site_id: number;
+  events: PhpSlowlogEntryDto[];
+}
+
+export interface ServerTimeseriesPointDto {
+  timestamp: number;
+  cpu_avg: number;
+  cpu_max: number;
+  memory_used_avg_bytes: number;
+  memory_used_max_bytes: number;
+  swap_used_avg_bytes: number;
+  load1_avg: number;
+  load1_max: number;
+  disk_used_avg_bytes: number;
+  net_rx_avg_bytes_sec: number;
+  net_tx_avg_bytes_sec: number;
+  io_read_avg_bytes_sec: number;
+  io_write_avg_bytes_sec: number;
+}
+
+export interface SystemTimeseriesResponse {
+  from_ts: number;
+  to_ts: number;
+  interval: string;
+  points: ServerTimeseriesPointDto[];
+}
+

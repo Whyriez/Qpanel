@@ -9,8 +9,6 @@ import {
   Terminal,
   Settings as SettingsIcon,
   RefreshCw,
-  Copy,
-  Check,
   Plus,
   AlertCircle,
   CheckCircle2,
@@ -26,6 +24,10 @@ import {
   Key,
   Network,
   Clock,
+  GitBranch,
+  Database,
+  Archive,
+  BarChart3,
 } from 'lucide-react';
 import { FileManager } from '../components/files/FileManager';
 import { PhpSettingsCard } from '../components/sites/PhpSettingsCard';
@@ -39,6 +41,12 @@ import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { SiteEnvironmentTab } from '../components/sites/SiteEnvironmentTab';
 import { SiteCronTab } from '../components/sites/SiteCronTab';
 import { SiteRulesTab } from '../components/sites/SiteRulesTab';
+import { SiteDeployTab } from '../components/sites/SiteDeployTab';
+import { SiteDatabaseTab } from '../components/sites/SiteDatabaseTab';
+import { SiteBackupsTab } from '../components/sites/SiteBackupsTab';
+import { SiteOverviewTab } from '../components/sites/SiteOverviewTab';
+import { SiteAnalyticsTab } from '../components/sites/SiteAnalyticsTab';
+import { PulseStrip } from '../components/ui/PulseStrip';
 import { SshConnectModal } from '../components/ssh/SshConnectModal';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from 'react-i18next';
@@ -78,7 +86,7 @@ export interface SiteDetailPageProps {
   onBack: () => void;
 }
 
-type TabType = 'overview' | 'domains' | 'files' | 'environment' | 'ssl' | 'rules' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'cron' | 'settings';
+type TabType = 'overview' | 'analytics' | 'domains' | 'files' | 'environment' | 'database' | 'ssl' | 'rules' | 'deploy' | 'backups' | 'logs' | 'php' | 'node' | 'python' | 'proxy' | 'cron' | 'settings';
 
 export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }) => {
   const { t } = useTranslation();
@@ -88,7 +96,6 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const [site, setSite] = useState<Site | null>(null);
   const [sslStatus, setSslStatus] = useState<SslStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [copiedDocroot, setCopiedDocroot] = useState(false);
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
 
   // Global toast
@@ -253,14 +260,6 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       setIsDeletingSite(false);
       setIsDeleteDialogOpen(false);
     }
-  };
-
-  // Copy docroot
-  const handleCopyDocroot = () => {
-    if (!site) return;
-    navigator.clipboard.writeText(site.docroot);
-    setCopiedDocroot(true);
-    setTimeout(() => setCopiedDocroot(false), 2000);
   };
 
   // =========================================================================
@@ -607,6 +606,9 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 variant={isActive ? 'success' : 'neutral'}
                 label={isActive ? 'Aktif' : 'Nonaktif'}
               />
+              <div className="hidden sm:inline-flex items-center ml-2" title="Aktivitas Real-time (Permintaan)">
+                <PulseStrip siteId={site.id} showTooltip={true} width={100} height={20} />
+              </div>
             </div>
             <div className="text-xs text-[var(--ink-muted)] flex items-center gap-2 mt-0.5">
               <span>Tenant #{site.user_id}</span>
@@ -641,6 +643,19 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             <Key className="w-3.5 h-3.5 text-blue-500" />
             <span>SSH / SFTP</span>
           </button>
+
+          {/* PHP Version Switcher Button */}
+          {site.kind === 'php' && (
+            <button
+              type="button"
+              onClick={handleOpenSwitchPhpModal}
+              className="px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--raised)] transition-colors flex items-center gap-1.5"
+              title="Ganti Versi PHP"
+            >
+              <Code2 className="w-3.5 h-3.5 text-purple-400" />
+              <span>Ganti PHP</span>
+            </button>
+          )}
 
           {/* External visit site */}
           <a
@@ -692,6 +707,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         </button>
 
         <button
+          onClick={() => setActiveTab('analytics')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'analytics'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-blue-500" />
+          Analitik
+        </button>
+
+        <button
           onClick={() => setActiveTab('domains')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'domains'
@@ -728,6 +755,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         </button>
 
         <button
+          onClick={() => setActiveTab('database')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'database'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          {t('sites.tabs.database', 'Basis Data')}
+        </button>
+
+        <button
           onClick={() => setActiveTab('ssl')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'ssl'
@@ -752,6 +791,30 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         >
           <Sliders className="w-4 h-4" />
           {t('sites.tabs.rules', 'Aturan')}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('deploy')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'deploy'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <GitBranch className="w-4 h-4" />
+          {t('sites.tabs.deploy', 'Deploy')}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('backups')}
+          className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
+            activeTab === 'backups'
+              ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
+              : 'border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]'
+          }`}
+        >
+          <Archive className="w-4 h-4" />
+          {t('sites.tabs.backups', 'Cadangan')}
         </button>
 
         <button
@@ -848,201 +911,25 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       </div>
 
       {/* ===================================================================== */}
-      {/* TAB 1: OVERVIEW (RINGKASAN)                                           */}
+      {/* TAB 1: OVERVIEW (RINGKASAN FINAL)                                     */}
       {/* ===================================================================== */}
       {activeTab === 'overview' && (
-        <div className="space-y-6">
-          {/* Quick Metrics Grid */}
-          <div className={`grid grid-cols-1 ${site.kind === 'php' || site.kind === 'nodejs' || site.runtime === 'nodejs' ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4`}>
-            {/* Docroot Card */}
-            <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
-              <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
-                {t('sites.detail.docrootPath')}
-              </div>
-              <div className="flex items-center justify-between gap-2 mt-2">
-                <span className="font-mono text-xs bg-[var(--raised)] px-2 py-1.5 rounded border border-[var(--line)] text-[var(--ink)] truncate select-all flex-1">
-                  {site.docroot}
-                </span>
-                <button
-                  onClick={handleCopyDocroot}
-                  className="p-1.5 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--ink-muted)] transition-colors shrink-0"
-                  title={t('sites.detail.copyDocroot')}
-                >
-                  {copiedDocroot ? (
-                    <Check className="w-4 h-4 text-[var(--success)]" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsSshModalOpen(true)}
-                  className="p-1.5 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--ink-muted)] hover:text-blue-500 transition-colors shrink-0"
-                  title="Salin Perintah SSH / SFTP"
-                >
-                  <Key className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+        <SiteOverviewTab
+          site={site}
+          onNavigateTab={(tab) => setActiveTab(tab as TabType)}
+          onOpenTerminal={() => setIsSshModalOpen(true)}
+        />
+      )}
 
-            {/* Vhost Nginx Status */}
-            <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
-              <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
-                {t('sites.detail.serverStatus')}
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                <StatusPill
-                  variant={isActive ? 'success' : 'neutral'}
-                  label={isActive ? 'Vhost Nginx Berjalan (Active)' : 'Vhost Dinonaktifkan'}
-                />
-              </div>
-            </div>
-
-            {/* PHP Runtime Card (if site.kind === 'php') */}
-            {site.kind === 'php' && (
-              <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
-                <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
-                  Runtime PHP
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold text-xs text-[var(--ink)] flex items-center gap-1.5">
-                      <Code2 className="w-3.5 h-3.5 text-[var(--primary)]" />
-                      PHP {site.version || '8.3'}
-                    </div>
-                    <div className="text-[11px] text-[var(--ink-muted)] capitalize">
-                      Preset: {site.preset || 'standard'}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setActiveTab('php')}
-                      className="px-2 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--raised)] text-[var(--ink)] transition-colors"
-                      title="Buka Pengaturan PHP"
-                    >
-                      Pengaturan
-                    </button>
-                    <button
-                      onClick={handleOpenSwitchPhpModal}
-                      className="px-2 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--raised)] hover:bg-[var(--surface)] text-[var(--primary)] hover:text-[var(--primary-hover)] transition-colors"
-                    >
-                      Ganti Versi
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Node.js Runtime Card (if site.kind === 'nodejs' || site.runtime === 'nodejs') */}
-            {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
-              <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
-                <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
-                  Runtime Node.js
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold text-xs text-[var(--ink)] flex items-center gap-1.5">
-                      <Terminal className="w-3.5 h-3.5 text-[var(--primary)]" />
-                      Node.js v{site.version || '22.14.0'}
-                    </div>
-                    <div className="text-[11px] text-[var(--ink-muted)]">
-                      Systemd: site-{site.id}.service
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab('node')}
-                    className="px-2.5 py-1 text-xs font-semibold rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface)] hover:bg-[var(--raised)] text-[var(--ink)] transition-colors"
-                  >
-                    Kelola Layanan
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* SSL Overview Card */}
-            <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-xs">
-              <div className="text-xs text-[var(--ink-muted)] font-medium mb-1">
-                {t('sites.detail.sslStatus')}
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                {cert ? (
-                  <div className="flex items-center gap-2 text-xs">
-                    <CheckCircle2 className="w-4 h-4 text-[var(--success)] shrink-0" />
-                    <div>
-                      <div className="font-semibold text-[var(--ink)]">
-                        {cert.issuer}
-                      </div>
-                      <div className="text-[11px] text-[var(--ink-muted)]">
-                        Sisa {cert.days_remaining} hari
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-xs text-[var(--ink-muted)]">
-                    {t('sites.detail.sslNone')}
-                  </div>
-                )}
-                <button
-                  onClick={() => setActiveTab('ssl')}
-                  className="text-xs font-semibold text-[var(--primary)] hover:underline"
-                >
-                  Kelola SSL &rarr;
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Node.js Live Process Status Card on Overview */}
-          {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
-            <NodeStatusCard siteId={site.id} />
-          )}
-
-          {/* Python Live Process Status Card on Overview */}
-          {(site.kind === 'python' || site.runtime === 'python') && (
-            <PythonStatusCard siteId={site.id} />
-          )}
-
-          {/* Details Table */}
-          <div className="border border-[var(--line)] rounded-[var(--radius-md)] bg-[var(--surface)] overflow-hidden shadow-xs">
-            <div className="px-4 py-3 border-b border-[var(--line)] bg-[var(--raised)] font-semibold text-xs text-[var(--ink)]">
-              Informasi Konfigurasi Situs
-            </div>
-            <div className="divide-y divide-[var(--line)] text-xs">
-              <div className="flex items-center justify-between p-3.5">
-                <span className="text-[var(--ink-muted)]">Domain Utama:</span>
-                <span className="font-mono font-semibold text-[var(--ink)]">{site.primary_domain}</span>
-              </div>
-              <div className="flex items-center justify-between p-3.5">
-                <span className="text-[var(--ink-muted)]">Jenis Runtime:</span>
-                <span className="font-semibold text-[var(--ink)]">
-                  {site.kind === 'nodejs' || site.runtime === 'nodejs'
-                    ? `Node.js v${site.version || '22.14.0'} (Reverse Proxy)`
-                    : site.kind === 'php'
-                    ? `PHP ${site.version || '8.3'} (Preset: ${site.preset || 'standard'})`
-                    : 'Static HTML/SPA'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-3.5">
-                <span className="text-[var(--ink-muted)]">Mode Fallback SPA:</span>
-                <span className="text-[var(--ink)]">
-                  {site.spa_fallback ? 'Aktif (404 dialihkan ke index.html)' : 'Nonaktif'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-3.5">
-                <span className="text-[var(--ink-muted)]">Paksa Enkripsi HTTPS:</span>
-                <span className="text-[var(--ink)]">
-                  {site.force_https ? 'Aktif (HTTP diarahkan ke HTTPS 301)' : 'Fleksibel'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between p-3.5">
-                <span className="text-[var(--ink-muted)]">{t('sites.detail.createdAt')}</span>
-                <span className="text-[var(--ink-muted)] font-mono">
-                  {new Date(site.created_at * 1000).toLocaleString('id-ID')}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* ===================================================================== */}
+      {/* TAB 1.5: ANALYTICS & PULSESTRIP (PHASE 9 - P9-T6)                     */}
+      {/* ===================================================================== */}
+      {activeTab === 'analytics' && (
+        <SiteAnalyticsTab
+          siteId={site.id}
+          siteDomain={site.primary_domain}
+          siteRuntime={site.kind}
+        />
       )}
 
       {/* ===================================================================== */}
@@ -1535,6 +1422,36 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           site={site}
           userRole={user?.role}
           onSiteUpdated={loadSiteData}
+        />
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5g: GIT DEPLOY & WEBHOOK (P8-T4)                                  */}
+      {/* ===================================================================== */}
+      {activeTab === 'deploy' && (
+        <SiteDeployTab
+          siteId={site.id}
+          onSiteUpdated={loadSiteData}
+        />
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5h: DATABASE PROVISIONER (P8-T5)                                  */}
+      {/* ===================================================================== */}
+      {activeTab === 'database' && (
+        <SiteDatabaseTab
+          siteId={site.id}
+          siteDomain={site.primary_domain}
+        />
+      )}
+
+      {/* ===================================================================== */}
+      {/* TAB 5i: BACKUPS & SNAPSHOT RESTORE (P8-T6)                            */}
+      {/* ===================================================================== */}
+      {activeTab === 'backups' && (
+        <SiteBackupsTab
+          siteId={site.id}
+          siteDomain={site.primary_domain}
         />
       )}
 

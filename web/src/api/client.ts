@@ -32,6 +32,8 @@ import {
   AddDomainRequest,
   UpdateDomainRequest,
   SiteMessageResponse,
+  SiteOverviewResponse,
+  SiteQuickActionResponse,
   SslStatus,
   IssueSslRequest,
   CustomCertRequest,
@@ -49,6 +51,46 @@ import {
   SiteRulesConfig,
   HashPasswordResponse,
   ValidateSnippetResponse,
+  SiteGitConfig,
+  UpsertGitConfigRequest,
+  TriggerDeployRequest,
+  RollbackDeployRequest,
+  SiteDeployment,
+  GenerateDeployKeyResponse,
+  DatabaseServer,
+  DatabaseEngine,
+  DatabaseItem,
+  DatabaseListResponse,
+  CreateDatabaseRequest,
+  CreateDatabaseResponse,
+  RotatePasswordRequest,
+  RotatePasswordResponse,
+  UpdateRemoteAccessRequest,
+  DatabaseActionResponse,
+  ExportDatabaseRequest,
+  ImportDatabaseRequest,
+  BackupItem,
+  BackupListResponse,
+  BackupSchedule,
+  CreateBackupRequest,
+  RestoreBackupRequest,
+  UpdateScheduleRequest,
+  ListNotificationsResponse,
+  NotificationSettings,
+  UpdateNotificationSettingsRequest,
+  TestSmtpRequest,
+  TestSmtpResponse,
+  EvaluateAlertsResponse,
+  AnalyticsTimeRangeQuery,
+  AnalyticsBreakdownsQuery,
+  AnalyticsSlowlogQuery,
+  AnalyticsExportQuery,
+  SiteAnalyticsOverviewResponse,
+  SiteTimeseriesResponse,
+  SiteBreakdownsResponse,
+  SiteAppMetricsResponse,
+  SiteSlowlogResponse,
+  SystemTimeseriesResponse,
 } from '../types/api';
 import type { FsListResponse, TrashListResponse } from '../types/files';
 
@@ -407,6 +449,20 @@ export async function fetchSites(query?: { user_id?: number }): Promise<Site[]> 
 
 export async function fetchSite(id: number): Promise<Site> {
   return request<Site>(`/api/v1/sites/${id}`);
+}
+
+export async function fetchSiteOverview(siteId: number): Promise<SiteOverviewResponse> {
+  return request<SiteOverviewResponse>(`/api/v1/sites/${siteId}/overview`);
+}
+
+export async function executeSiteQuickAction(
+  siteId: number,
+  action: 'start' | 'stop' | 'restart' | 'reload' | 'clear_cache' | string
+): Promise<SiteQuickActionResponse> {
+  return request<SiteQuickActionResponse>(`/api/v1/sites/${siteId}/action`, {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
 }
 
 export async function createSite(data: CreateSiteRequest): Promise<Site> {
@@ -1406,4 +1462,417 @@ export async function validateNginxSnippet(
   );
 }
 
+// Git Deploy & Webhook API (Phase 8 - P8-T4)
 
+export async function fetchSiteGitConfig(
+  siteId: number
+): Promise<SiteGitConfig> {
+  return request<SiteGitConfig>(`/api/v1/sites/${siteId}/git`);
+}
+
+export async function updateSiteGitConfig(
+  siteId: number,
+  config: UpsertGitConfigRequest
+): Promise<SiteGitConfig> {
+  return request<SiteGitConfig>(`/api/v1/sites/${siteId}/git`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function generateSiteDeployKey(
+  siteId: number
+): Promise<GenerateDeployKeyResponse> {
+  return request<GenerateDeployKeyResponse>(
+    `/api/v1/sites/${siteId}/git/key/generate`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+export async function triggerSiteDeploy(
+  siteId: number,
+  payload?: TriggerDeployRequest
+): Promise<SiteDeployment> {
+  return request<SiteDeployment>(`/api/v1/sites/${siteId}/git/deploy`, {
+    method: 'POST',
+    body: payload ? JSON.stringify(payload) : JSON.stringify({}),
+  });
+}
+
+export async function rollbackSiteDeploy(
+  siteId: number,
+  targetReleaseId: string
+): Promise<SiteDeployment> {
+  const payload: RollbackDeployRequest = { target_release_id: targetReleaseId };
+  return request<SiteDeployment>(`/api/v1/sites/${siteId}/git/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchSiteDeployments(
+  siteId: number,
+  limit?: number
+): Promise<SiteDeployment[]> {
+  const query = limit ? `?limit=${limit}` : '';
+  return request<SiteDeployment[]>(
+    `/api/v1/sites/${siteId}/git/deployments${query}`
+  );
+}
+
+export async function fetchSiteDeploymentDetail(
+  siteId: number,
+  deployId: number
+): Promise<SiteDeployment> {
+  return request<SiteDeployment>(
+    `/api/v1/sites/${siteId}/git/deployments/${deployId}`
+  );
+}
+
+// ==========================================
+// Database Provisioner API (Phase 8 - P8-T5)
+// ==========================================
+
+export async function fetchDatabaseServers(): Promise<DatabaseServer[]> {
+  return request<DatabaseServer[]>('/api/v1/databases/servers');
+}
+
+export async function installDatabaseServer(
+  engine: DatabaseEngine
+): Promise<DatabaseActionResponse> {
+  return request<DatabaseActionResponse>('/api/v1/databases/servers/install', {
+    method: 'POST',
+    body: JSON.stringify({ engine }),
+  });
+}
+
+export async function actionDatabaseServer(
+  engine: DatabaseEngine,
+  action: 'start' | 'stop' | 'restart'
+): Promise<DatabaseActionResponse> {
+  return request<DatabaseActionResponse>('/api/v1/databases/servers/action', {
+    method: 'POST',
+    body: JSON.stringify({ engine, action }),
+  });
+}
+
+export async function fetchDatabases(params?: {
+  site_id?: number;
+  user_id?: number;
+}): Promise<DatabaseListResponse> {
+  const queryParts: string[] = [];
+  if (params?.site_id !== undefined) {
+    queryParts.push(`site_id=${params.site_id}`);
+  }
+  if (params?.user_id !== undefined) {
+    queryParts.push(`user_id=${params.user_id}`);
+  }
+  const query = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+  return request<DatabaseListResponse>(`/api/v1/databases${query}`);
+}
+
+export async function fetchDatabase(id: number): Promise<DatabaseItem> {
+  return request<DatabaseItem>(`/api/v1/databases/${id}`);
+}
+
+export async function createDatabase(
+  payload: CreateDatabaseRequest
+): Promise<CreateDatabaseResponse> {
+  return request<CreateDatabaseResponse>('/api/v1/databases', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteDatabase(id: number): Promise<DatabaseActionResponse> {
+  return request<DatabaseActionResponse>(`/api/v1/databases/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function rotateDatabasePassword(
+  id: number,
+  payload?: RotatePasswordRequest
+): Promise<RotatePasswordResponse> {
+  return request<RotatePasswordResponse>(`/api/v1/databases/${id}/rotate-password`, {
+    method: 'POST',
+    body: payload ? JSON.stringify(payload) : JSON.stringify({}),
+  });
+}
+
+export async function updateDatabaseRemoteAccess(
+  id: number,
+  payload: UpdateRemoteAccessRequest
+): Promise<DatabaseItem> {
+  return request<DatabaseItem>(`/api/v1/databases/${id}/remote-access`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function exportDatabase(
+  id: number,
+  payload?: ExportDatabaseRequest
+): Promise<DatabaseActionResponse> {
+  return request<DatabaseActionResponse>(`/api/v1/databases/${id}/export`, {
+    method: 'POST',
+    body: payload ? JSON.stringify(payload) : JSON.stringify({}),
+  });
+}
+
+export async function importDatabase(
+  id: number,
+  payload: ImportDatabaseRequest
+): Promise<DatabaseActionResponse> {
+  return request<DatabaseActionResponse>(`/api/v1/databases/${id}/import`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+// Site Backup & Snapshot Restore API (Phase 8 - P8-T6)
+
+export async function fetchSiteBackups(
+  siteId: number
+): Promise<BackupListResponse> {
+  return request<BackupListResponse>(`/api/v1/sites/${siteId}/backups`);
+}
+
+export async function createSiteBackup(
+  siteId: number,
+  payload: CreateBackupRequest
+): Promise<{ message: string; job_id: string; backup_id: number }> {
+  return request<{ message: string; job_id: string; backup_id: number }>(
+    `/api/v1/sites/${siteId}/backups`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getSiteBackup(
+  siteId: number,
+  backupId: number
+): Promise<BackupItem> {
+  return request<BackupItem>(`/api/v1/sites/${siteId}/backups/${backupId}`);
+}
+
+export async function deleteSiteBackup(
+  siteId: number,
+  backupId: number
+): Promise<{ message: string }> {
+  return request<{ message: string }>(
+    `/api/v1/sites/${siteId}/backups/${backupId}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function restoreSiteBackup(
+  siteId: number,
+  backupId: number,
+  payload: RestoreBackupRequest
+): Promise<{ message: string; job_id: string }> {
+  return request<{ message: string; job_id: string }>(
+    `/api/v1/sites/${siteId}/backups/${backupId}/restore`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function fetchBackupSchedule(
+  siteId: number
+): Promise<BackupSchedule | null> {
+  return request<BackupSchedule | null>(`/api/v1/sites/${siteId}/backups/schedule`);
+}
+
+export async function updateBackupSchedule(
+  siteId: number,
+  payload: UpdateScheduleRequest
+): Promise<BackupSchedule> {
+  return request<BackupSchedule>(`/api/v1/sites/${siteId}/backups/schedule`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getBackupDownloadUrl(siteId: number, backupId: number): string {
+  return `/api/v1/sites/${siteId}/backups/${backupId}/download`;
+}
+
+// ---------------------------------------------------------------------------
+// System Notifications API
+// ---------------------------------------------------------------------------
+
+export async function fetchNotifications(params?: {
+  page?: number;
+  per_page?: number;
+  unread_only?: boolean;
+  category?: string;
+  severity?: string;
+}): Promise<ListNotificationsResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set('page', params.page.toString());
+  if (params?.per_page) query.set('per_page', params.per_page.toString());
+  if (params?.unread_only !== undefined) query.set('unread_only', params.unread_only.toString());
+  if (params?.category) query.set('category', params.category);
+  if (params?.severity) query.set('severity', params.severity);
+
+  const qs = query.toString();
+  return request<ListNotificationsResponse>(`/api/v1/notifications${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchUnreadNotificationCount(): Promise<{ unread_count: number }> {
+  return request<{ unread_count: number }>('/api/v1/notifications/unread-count');
+}
+
+export async function markNotificationRead(id: string): Promise<{ success: boolean; id: string }> {
+  return request<{ success: boolean; id: string }>(`/api/v1/notifications/${id}/read`, {
+    method: 'PATCH',
+  });
+}
+
+export async function markAllNotificationsRead(): Promise<{ success: boolean; marked_count: number }> {
+  return request<{ success: boolean; marked_count: number }>('/api/v1/notifications/mark-all-read', {
+    method: 'POST',
+  });
+}
+
+export async function deleteNotification(id: string): Promise<{ success: boolean; id: string }> {
+  return request<{ success: boolean; id: string }>(`/api/v1/notifications/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function clearNotifications(readOnly = false): Promise<{ cleared_count: number }> {
+  const qs = readOnly ? '?read_only=true' : '';
+  return request<{ cleared_count: number }>(`/api/v1/notifications/clear${qs}`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchNotificationSettings(): Promise<NotificationSettings> {
+  return request<NotificationSettings>('/api/v1/notifications/settings');
+}
+
+export async function updateNotificationSettings(
+  payload: UpdateNotificationSettingsRequest
+): Promise<NotificationSettings> {
+  return request<NotificationSettings>('/api/v1/notifications/settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function testSmtpConnection(payload: TestSmtpRequest): Promise<TestSmtpResponse> {
+  return request<TestSmtpResponse>('/api/v1/notifications/test-smtp', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function evaluateNotificationAlerts(): Promise<EvaluateAlertsResponse> {
+  return request<EvaluateAlertsResponse>('/api/v1/notifications/evaluate-alerts', {
+    method: 'POST',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Analytics & Timeseries API (Phase 9 - P9-T5 & P9-T6)
+// ---------------------------------------------------------------------------
+
+export async function fetchSiteAnalyticsOverview(
+  siteId: number,
+  params?: AnalyticsTimeRangeQuery
+): Promise<SiteAnalyticsOverviewResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.interval) query.set('interval', params.interval);
+  if (params?.compare !== undefined) query.set('compare', params.compare.toString());
+  if (params?.prev_from !== undefined) query.set('prev_from', params.prev_from.toString());
+  if (params?.prev_to !== undefined) query.set('prev_to', params.prev_to.toString());
+
+  const qs = query.toString();
+  return request<SiteAnalyticsOverviewResponse>(`/api/v1/sites/${siteId}/analytics/overview${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchSiteAnalyticsTimeseries(
+  siteId: number,
+  params?: AnalyticsTimeRangeQuery
+): Promise<SiteTimeseriesResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.interval) query.set('interval', params.interval);
+
+  const qs = query.toString();
+  return request<SiteTimeseriesResponse>(`/api/v1/sites/${siteId}/analytics/timeseries${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchSiteAnalyticsBreakdowns(
+  siteId: number,
+  params?: AnalyticsBreakdownsQuery
+): Promise<SiteBreakdownsResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.dimension) query.set('dimension', params.dimension);
+  if (params?.limit !== undefined) query.set('limit', params.limit.toString());
+
+  const qs = query.toString();
+  return request<SiteBreakdownsResponse>(`/api/v1/sites/${siteId}/analytics/breakdowns${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchSiteAppMetrics(
+  siteId: number,
+  params?: AnalyticsTimeRangeQuery
+): Promise<SiteAppMetricsResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+
+  const qs = query.toString();
+  return request<SiteAppMetricsResponse>(`/api/v1/sites/${siteId}/analytics/app-metrics${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchSiteSlowlog(
+  siteId: number,
+  params?: AnalyticsSlowlogQuery
+): Promise<SiteSlowlogResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.limit !== undefined) query.set('limit', params.limit.toString());
+
+  const qs = query.toString();
+  return request<SiteSlowlogResponse>(`/api/v1/sites/${siteId}/analytics/slowlog${qs ? `?${qs}` : ''}`);
+}
+
+export function getSiteAnalyticsExportUrl(siteId: number, params?: AnalyticsExportQuery): string {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.interval) query.set('interval', params.interval);
+
+  const qs = query.toString();
+  return `/api/v1/sites/${siteId}/analytics/export${qs ? `?${qs}` : ''}`;
+}
+
+export async function fetchSystemAnalyticsTimeseries(
+  params?: AnalyticsTimeRangeQuery
+): Promise<SystemTimeseriesResponse> {
+  const query = new URLSearchParams();
+  if (params?.from !== undefined) query.set('from', params.from.toString());
+  if (params?.to !== undefined) query.set('to', params.to.toString());
+  if (params?.interval) query.set('interval', params.interval);
+
+  const qs = query.toString();
+  return request<SystemTimeseriesResponse>(`/api/v1/system/analytics/timeseries${qs ? `?${qs}` : ''}`);
+}

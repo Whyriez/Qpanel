@@ -297,10 +297,10 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
                       {/* Activity sparkline */}
                       <td className="py-3 px-4">
                         <PulseStrip
-                          data={isActive ? [15, 22, 30, 25, 40, 52, 45, 60, 55, 70] : [0, 0, 0, 0, 0]}
-                          width={90}
+                          siteId={site.id}
+                          width={95}
                           height={18}
-                          hasError={!isActive}
+                          showTooltip={true}
                         />
                       </td>
 
