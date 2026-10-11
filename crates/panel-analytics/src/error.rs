@@ -16,4 +16,7 @@ pub enum AnalyticsError {
 
     #[error("System error: {0}")]
     System(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }

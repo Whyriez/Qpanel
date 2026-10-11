@@ -1,8 +1,10 @@
 use crate::error::AnalyticsError;
 use crate::models::{
     LogCheckpoint, RetentionConfig, RollupResolution, ServerMetricsPoint, ServerMetricsRollup,
-    ServiceMetricsPoint, ServiceMetricsRollup, TenantMetricsPoint, TenantMetricsRollup,
+    ServiceMetricsPoint, ServiceMetricsRollup, SiteMetricsPoint, SiteMetricsRollup,
+    SiteRollupReport, TenantMetricsPoint, TenantMetricsRollup,
 };
+use crate::rollup::SiteMetricsRollupProcessor;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Row, Sqlite};
 use std::path::Path;
@@ -299,6 +301,134 @@ impl AnalyticsStorage {
             last_processed_ts INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
+
+        -- 13. Site traffic metrics: 1-minute rollup (P9-T3)
+        CREATE TABLE IF NOT EXISTS site_metrics_1m (
+            site_id INTEGER NOT NULL,
+            bucket_ts INTEGER NOT NULL,
+            total_requests INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            status_2xx INTEGER NOT NULL,
+            status_3xx INTEGER NOT NULL,
+            status_4xx INTEGER NOT NULL,
+            status_5xx INTEGER NOT NULL,
+            cache_hit INTEGER NOT NULL,
+            cache_miss INTEGER NOT NULL,
+            cache_bypass INTEGER NOT NULL,
+            cache_other INTEGER NOT NULL,
+            latency_p50_ms REAL NOT NULL,
+            latency_p95_ms REAL NOT NULL,
+            latency_p99_ms REAL NOT NULL,
+            latency_avg_ms REAL NOT NULL,
+            upstream_time_avg_ms REAL,
+            unique_visitors INTEGER NOT NULL,
+            human_requests INTEGER NOT NULL,
+            bot_requests INTEGER NOT NULL,
+            http_v1 INTEGER NOT NULL,
+            http_v2 INTEGER NOT NULL,
+            http_v3 INTEGER NOT NULL,
+            tls_v12 INTEGER NOT NULL,
+            tls_v13 INTEGER NOT NULL,
+            tls_other INTEGER NOT NULL,
+            top_paths_json TEXT NOT NULL,
+            top_referrers_json TEXT NOT NULL,
+            top_countries_json TEXT NOT NULL,
+            top_browsers_json TEXT NOT NULL,
+            top_os_json TEXT NOT NULL,
+            top_devices_json TEXT NOT NULL,
+            top_slow_urls_json TEXT NOT NULL,
+            top_error_urls_json TEXT NOT NULL,
+            latency_buckets_json TEXT NOT NULL,
+            PRIMARY KEY (site_id, bucket_ts)
+        );
+        CREATE INDEX IF NOT EXISTS idx_site_1m_site_ts ON site_metrics_1m (site_id, bucket_ts);
+        CREATE INDEX IF NOT EXISTS idx_site_1m_ts ON site_metrics_1m (bucket_ts);
+
+        -- 14. Site traffic metrics: 1-hour rollup (P9-T3)
+        CREATE TABLE IF NOT EXISTS site_metrics_1h (
+            site_id INTEGER NOT NULL,
+            bucket_ts INTEGER NOT NULL,
+            total_requests INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            status_2xx INTEGER NOT NULL,
+            status_3xx INTEGER NOT NULL,
+            status_4xx INTEGER NOT NULL,
+            status_5xx INTEGER NOT NULL,
+            cache_hit INTEGER NOT NULL,
+            cache_miss INTEGER NOT NULL,
+            cache_bypass INTEGER NOT NULL,
+            cache_other INTEGER NOT NULL,
+            latency_p50_ms REAL NOT NULL,
+            latency_p95_ms REAL NOT NULL,
+            latency_p99_ms REAL NOT NULL,
+            latency_avg_ms REAL NOT NULL,
+            upstream_time_avg_ms REAL,
+            unique_visitors INTEGER NOT NULL,
+            human_requests INTEGER NOT NULL,
+            bot_requests INTEGER NOT NULL,
+            http_v1 INTEGER NOT NULL,
+            http_v2 INTEGER NOT NULL,
+            http_v3 INTEGER NOT NULL,
+            tls_v12 INTEGER NOT NULL,
+            tls_v13 INTEGER NOT NULL,
+            tls_other INTEGER NOT NULL,
+            top_paths_json TEXT NOT NULL,
+            top_referrers_json TEXT NOT NULL,
+            top_countries_json TEXT NOT NULL,
+            top_browsers_json TEXT NOT NULL,
+            top_os_json TEXT NOT NULL,
+            top_devices_json TEXT NOT NULL,
+            top_slow_urls_json TEXT NOT NULL,
+            top_error_urls_json TEXT NOT NULL,
+            latency_buckets_json TEXT NOT NULL,
+            sample_count INTEGER NOT NULL,
+            PRIMARY KEY (site_id, bucket_ts)
+        );
+        CREATE INDEX IF NOT EXISTS idx_site_1h_site_ts ON site_metrics_1h (site_id, bucket_ts);
+        CREATE INDEX IF NOT EXISTS idx_site_1h_ts ON site_metrics_1h (bucket_ts);
+
+        -- 15. Site traffic metrics: 1-day rollup (P9-T3)
+        CREATE TABLE IF NOT EXISTS site_metrics_1d (
+            site_id INTEGER NOT NULL,
+            bucket_ts INTEGER NOT NULL,
+            total_requests INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            status_2xx INTEGER NOT NULL,
+            status_3xx INTEGER NOT NULL,
+            status_4xx INTEGER NOT NULL,
+            status_5xx INTEGER NOT NULL,
+            cache_hit INTEGER NOT NULL,
+            cache_miss INTEGER NOT NULL,
+            cache_bypass INTEGER NOT NULL,
+            cache_other INTEGER NOT NULL,
+            latency_p50_ms REAL NOT NULL,
+            latency_p95_ms REAL NOT NULL,
+            latency_p99_ms REAL NOT NULL,
+            latency_avg_ms REAL NOT NULL,
+            upstream_time_avg_ms REAL,
+            unique_visitors INTEGER NOT NULL,
+            human_requests INTEGER NOT NULL,
+            bot_requests INTEGER NOT NULL,
+            http_v1 INTEGER NOT NULL,
+            http_v2 INTEGER NOT NULL,
+            http_v3 INTEGER NOT NULL,
+            tls_v12 INTEGER NOT NULL,
+            tls_v13 INTEGER NOT NULL,
+            tls_other INTEGER NOT NULL,
+            top_paths_json TEXT NOT NULL,
+            top_referrers_json TEXT NOT NULL,
+            top_countries_json TEXT NOT NULL,
+            top_browsers_json TEXT NOT NULL,
+            top_os_json TEXT NOT NULL,
+            top_devices_json TEXT NOT NULL,
+            top_slow_urls_json TEXT NOT NULL,
+            top_error_urls_json TEXT NOT NULL,
+            latency_buckets_json TEXT NOT NULL,
+            sample_count INTEGER NOT NULL,
+            PRIMARY KEY (site_id, bucket_ts)
+        );
+        CREATE INDEX IF NOT EXISTS idx_site_1d_site_ts ON site_metrics_1d (site_id, bucket_ts);
+        CREATE INDEX IF NOT EXISTS idx_site_1d_ts ON site_metrics_1d (bucket_ts);
         "#;
 
         sqlx::query(schema)
@@ -1031,6 +1161,554 @@ impl AnalyticsStorage {
             .await
             .map_err(AnalyticsError::Database)?;
         Ok(())
+    }
+
+    /// Insert a batch of 1-minute site traffic metric points.
+    pub async fn insert_site_metrics_1m(
+        &self,
+        points: &[SiteMetricsPoint],
+    ) -> Result<(), AnalyticsError> {
+        for pt in points {
+            let top_paths_json =
+                serde_json::to_string(&pt.top_paths).unwrap_or_else(|_| "[]".to_string());
+            let top_referrers_json =
+                serde_json::to_string(&pt.top_referrers).unwrap_or_else(|_| "[]".to_string());
+            let top_countries_json =
+                serde_json::to_string(&pt.top_countries).unwrap_or_else(|_| "[]".to_string());
+            let top_browsers_json =
+                serde_json::to_string(&pt.top_browsers).unwrap_or_else(|_| "[]".to_string());
+            let top_os_json =
+                serde_json::to_string(&pt.top_os).unwrap_or_else(|_| "[]".to_string());
+            let top_devices_json =
+                serde_json::to_string(&pt.top_devices).unwrap_or_else(|_| "[]".to_string());
+            let top_slow_urls_json =
+                serde_json::to_string(&pt.top_slow_urls).unwrap_or_else(|_| "[]".to_string());
+            let top_error_urls_json =
+                serde_json::to_string(&pt.top_error_urls).unwrap_or_else(|_| "[]".to_string());
+            let latency_buckets_json =
+                serde_json::to_string(&pt.latency_buckets).unwrap_or_else(|_| "[]".to_string());
+
+            let query = r#"
+            INSERT OR REPLACE INTO site_metrics_1m (
+                site_id, bucket_ts, total_requests, total_bytes, status_2xx, status_3xx, status_4xx, status_5xx,
+                cache_hit, cache_miss, cache_bypass, cache_other, latency_p50_ms, latency_p95_ms, latency_p99_ms,
+                latency_avg_ms, upstream_time_avg_ms, unique_visitors, human_requests, bot_requests,
+                http_v1, http_v2, http_v3, tls_v12, tls_v13, tls_other,
+                top_paths_json, top_referrers_json, top_countries_json, top_browsers_json, top_os_json,
+                top_devices_json, top_slow_urls_json, top_error_urls_json, latency_buckets_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#;
+
+            sqlx::query(query)
+                .bind(pt.site_id)
+                .bind(pt.bucket_ts)
+                .bind(pt.total_requests as i64)
+                .bind(pt.total_bytes as i64)
+                .bind(pt.status_2xx as i64)
+                .bind(pt.status_3xx as i64)
+                .bind(pt.status_4xx as i64)
+                .bind(pt.status_5xx as i64)
+                .bind(pt.cache_hit as i64)
+                .bind(pt.cache_miss as i64)
+                .bind(pt.cache_bypass as i64)
+                .bind(pt.cache_other as i64)
+                .bind(pt.latency_p50_ms)
+                .bind(pt.latency_p95_ms)
+                .bind(pt.latency_p99_ms)
+                .bind(pt.latency_avg_ms)
+                .bind(pt.upstream_time_avg_ms)
+                .bind(pt.unique_visitors as i64)
+                .bind(pt.human_requests as i64)
+                .bind(pt.bot_requests as i64)
+                .bind(pt.http_v1 as i64)
+                .bind(pt.http_v2 as i64)
+                .bind(pt.http_v3 as i64)
+                .bind(pt.tls_v12 as i64)
+                .bind(pt.tls_v13 as i64)
+                .bind(pt.tls_other as i64)
+                .bind(&top_paths_json)
+                .bind(&top_referrers_json)
+                .bind(&top_countries_json)
+                .bind(&top_browsers_json)
+                .bind(&top_os_json)
+                .bind(&top_devices_json)
+                .bind(&top_slow_urls_json)
+                .bind(&top_error_urls_json)
+                .bind(&latency_buckets_json)
+                .execute(&self.pool)
+                .await
+                .map_err(AnalyticsError::Database)?;
+        }
+        Ok(())
+    }
+
+    /// Insert a batch of 1-hour site traffic rollup records.
+    pub async fn insert_site_metrics_1h(
+        &self,
+        rollups: &[SiteMetricsRollup],
+    ) -> Result<(), AnalyticsError> {
+        self.insert_site_rollups_to_table("site_metrics_1h", rollups)
+            .await
+    }
+
+    /// Insert a batch of 1-day site traffic rollup records.
+    pub async fn insert_site_metrics_1d(
+        &self,
+        rollups: &[SiteMetricsRollup],
+    ) -> Result<(), AnalyticsError> {
+        self.insert_site_rollups_to_table("site_metrics_1d", rollups)
+            .await
+    }
+
+    async fn insert_site_rollups_to_table(
+        &self,
+        table_name: &str,
+        rollups: &[SiteMetricsRollup],
+    ) -> Result<(), AnalyticsError> {
+        for r in rollups {
+            let top_paths_json =
+                serde_json::to_string(&r.top_paths).unwrap_or_else(|_| "[]".to_string());
+            let top_referrers_json =
+                serde_json::to_string(&r.top_referrers).unwrap_or_else(|_| "[]".to_string());
+            let top_countries_json =
+                serde_json::to_string(&r.top_countries).unwrap_or_else(|_| "[]".to_string());
+            let top_browsers_json =
+                serde_json::to_string(&r.top_browsers).unwrap_or_else(|_| "[]".to_string());
+            let top_os_json = serde_json::to_string(&r.top_os).unwrap_or_else(|_| "[]".to_string());
+            let top_devices_json =
+                serde_json::to_string(&r.top_devices).unwrap_or_else(|_| "[]".to_string());
+            let top_slow_urls_json =
+                serde_json::to_string(&r.top_slow_urls).unwrap_or_else(|_| "[]".to_string());
+            let top_error_urls_json =
+                serde_json::to_string(&r.top_error_urls).unwrap_or_else(|_| "[]".to_string());
+            let latency_buckets_json =
+                serde_json::to_string(&r.latency_buckets).unwrap_or_else(|_| "[]".to_string());
+
+            let query = format!(
+                r#"
+                INSERT OR REPLACE INTO {} (
+                    site_id, bucket_ts, total_requests, total_bytes, status_2xx, status_3xx, status_4xx, status_5xx,
+                    cache_hit, cache_miss, cache_bypass, cache_other, latency_p50_ms, latency_p95_ms, latency_p99_ms,
+                    latency_avg_ms, upstream_time_avg_ms, unique_visitors, human_requests, bot_requests,
+                    http_v1, http_v2, http_v3, tls_v12, tls_v13, tls_other,
+                    top_paths_json, top_referrers_json, top_countries_json, top_browsers_json, top_os_json,
+                    top_devices_json, top_slow_urls_json, top_error_urls_json, latency_buckets_json, sample_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                "#,
+                table_name
+            );
+
+            sqlx::query(&query)
+                .bind(r.site_id)
+                .bind(r.bucket_ts)
+                .bind(r.total_requests as i64)
+                .bind(r.total_bytes as i64)
+                .bind(r.status_2xx as i64)
+                .bind(r.status_3xx as i64)
+                .bind(r.status_4xx as i64)
+                .bind(r.status_5xx as i64)
+                .bind(r.cache_hit as i64)
+                .bind(r.cache_miss as i64)
+                .bind(r.cache_bypass as i64)
+                .bind(r.cache_other as i64)
+                .bind(r.latency_p50_ms)
+                .bind(r.latency_p95_ms)
+                .bind(r.latency_p99_ms)
+                .bind(r.latency_avg_ms)
+                .bind(r.upstream_time_avg_ms)
+                .bind(r.unique_visitors as i64)
+                .bind(r.human_requests as i64)
+                .bind(r.bot_requests as i64)
+                .bind(r.http_v1 as i64)
+                .bind(r.http_v2 as i64)
+                .bind(r.http_v3 as i64)
+                .bind(r.tls_v12 as i64)
+                .bind(r.tls_v13 as i64)
+                .bind(r.tls_other as i64)
+                .bind(&top_paths_json)
+                .bind(&top_referrers_json)
+                .bind(&top_countries_json)
+                .bind(&top_browsers_json)
+                .bind(&top_os_json)
+                .bind(&top_devices_json)
+                .bind(&top_slow_urls_json)
+                .bind(&top_error_urls_json)
+                .bind(&latency_buckets_json)
+                .bind(r.sample_count as i64)
+                .execute(&self.pool)
+                .await
+                .map_err(AnalyticsError::Database)?;
+        }
+        Ok(())
+    }
+
+    /// Query 1-minute site traffic metric points for a site within `[start_ts, end_ts]`.
+    pub async fn query_site_metrics_1m(
+        &self,
+        site_id: i64,
+        start_ts: i64,
+        end_ts: i64,
+    ) -> Result<Vec<SiteMetricsPoint>, AnalyticsError> {
+        let query = r#"
+        SELECT * FROM site_metrics_1m
+        WHERE site_id = ? AND bucket_ts >= ? AND bucket_ts <= ?
+        ORDER BY bucket_ts ASC
+        "#;
+
+        let rows = sqlx::query(query)
+            .bind(site_id)
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut res = Vec::with_capacity(rows.len());
+        for r in rows {
+            let total_requests: i64 = r
+                .try_get("total_requests")
+                .map_err(AnalyticsError::Database)?;
+            let total_bytes: i64 = r.try_get("total_bytes").map_err(AnalyticsError::Database)?;
+            let status_2xx: i64 = r.try_get("status_2xx").map_err(AnalyticsError::Database)?;
+            let status_3xx: i64 = r.try_get("status_3xx").map_err(AnalyticsError::Database)?;
+            let status_4xx: i64 = r.try_get("status_4xx").map_err(AnalyticsError::Database)?;
+            let status_5xx: i64 = r.try_get("status_5xx").map_err(AnalyticsError::Database)?;
+            let cache_hit: i64 = r.try_get("cache_hit").map_err(AnalyticsError::Database)?;
+            let cache_miss: i64 = r.try_get("cache_miss").map_err(AnalyticsError::Database)?;
+            let cache_bypass: i64 = r
+                .try_get("cache_bypass")
+                .map_err(AnalyticsError::Database)?;
+            let cache_other: i64 = r.try_get("cache_other").map_err(AnalyticsError::Database)?;
+            let unique_visitors: i64 = r
+                .try_get("unique_visitors")
+                .map_err(AnalyticsError::Database)?;
+            let human_requests: i64 = r
+                .try_get("human_requests")
+                .map_err(AnalyticsError::Database)?;
+            let bot_requests: i64 = r
+                .try_get("bot_requests")
+                .map_err(AnalyticsError::Database)?;
+            let http_v1: i64 = r.try_get("http_v1").map_err(AnalyticsError::Database)?;
+            let http_v2: i64 = r.try_get("http_v2").map_err(AnalyticsError::Database)?;
+            let http_v3: i64 = r.try_get("http_v3").map_err(AnalyticsError::Database)?;
+            let tls_v12: i64 = r.try_get("tls_v12").map_err(AnalyticsError::Database)?;
+            let tls_v13: i64 = r.try_get("tls_v13").map_err(AnalyticsError::Database)?;
+            let tls_other: i64 = r.try_get("tls_other").map_err(AnalyticsError::Database)?;
+
+            let top_paths_str: String = r
+                .try_get("top_paths_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_referrers_str: String = r
+                .try_get("top_referrers_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_countries_str: String = r
+                .try_get("top_countries_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_browsers_str: String = r
+                .try_get("top_browsers_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_os_str: String = r.try_get("top_os_json").map_err(AnalyticsError::Database)?;
+            let top_devices_str: String = r
+                .try_get("top_devices_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_slow_urls_str: String = r
+                .try_get("top_slow_urls_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_error_urls_str: String = r
+                .try_get("top_error_urls_json")
+                .map_err(AnalyticsError::Database)?;
+            let latency_buckets_str: String = r
+                .try_get("latency_buckets_json")
+                .map_err(AnalyticsError::Database)?;
+
+            res.push(SiteMetricsPoint {
+                site_id: r.try_get("site_id").map_err(AnalyticsError::Database)?,
+                bucket_ts: r.try_get("bucket_ts").map_err(AnalyticsError::Database)?,
+                total_requests: total_requests.max(0) as u64,
+                total_bytes: total_bytes.max(0) as u64,
+                status_2xx: status_2xx.max(0) as u64,
+                status_3xx: status_3xx.max(0) as u64,
+                status_4xx: status_4xx.max(0) as u64,
+                status_5xx: status_5xx.max(0) as u64,
+                cache_hit: cache_hit.max(0) as u64,
+                cache_miss: cache_miss.max(0) as u64,
+                cache_bypass: cache_bypass.max(0) as u64,
+                cache_other: cache_other.max(0) as u64,
+                latency_p50_ms: r
+                    .try_get("latency_p50_ms")
+                    .map_err(AnalyticsError::Database)?,
+                latency_p95_ms: r
+                    .try_get("latency_p95_ms")
+                    .map_err(AnalyticsError::Database)?,
+                latency_p99_ms: r
+                    .try_get("latency_p99_ms")
+                    .map_err(AnalyticsError::Database)?,
+                latency_avg_ms: r
+                    .try_get("latency_avg_ms")
+                    .map_err(AnalyticsError::Database)?,
+                upstream_time_avg_ms: r
+                    .try_get("upstream_time_avg_ms")
+                    .map_err(AnalyticsError::Database)?,
+                unique_visitors: unique_visitors.max(0) as u64,
+                human_requests: human_requests.max(0) as u64,
+                bot_requests: bot_requests.max(0) as u64,
+                http_v1: http_v1.max(0) as u64,
+                http_v2: http_v2.max(0) as u64,
+                http_v3: http_v3.max(0) as u64,
+                tls_v12: tls_v12.max(0) as u64,
+                tls_v13: tls_v13.max(0) as u64,
+                tls_other: tls_other.max(0) as u64,
+                top_paths: serde_json::from_str(&top_paths_str).unwrap_or_default(),
+                top_referrers: serde_json::from_str(&top_referrers_str).unwrap_or_default(),
+                top_countries: serde_json::from_str(&top_countries_str).unwrap_or_default(),
+                top_browsers: serde_json::from_str(&top_browsers_str).unwrap_or_default(),
+                top_os: serde_json::from_str(&top_os_str).unwrap_or_default(),
+                top_devices: serde_json::from_str(&top_devices_str).unwrap_or_default(),
+                top_slow_urls: serde_json::from_str(&top_slow_urls_str).unwrap_or_default(),
+                top_error_urls: serde_json::from_str(&top_error_urls_str).unwrap_or_default(),
+                latency_buckets: serde_json::from_str(&latency_buckets_str).unwrap_or_default(),
+            });
+        }
+        Ok(res)
+    }
+
+    /// Query 1-hour or 1-day site traffic rollups for a site.
+    pub async fn query_site_rollups(
+        &self,
+        site_id: i64,
+        start_ts: i64,
+        end_ts: i64,
+        resolution: RollupResolution,
+    ) -> Result<Vec<SiteMetricsRollup>, AnalyticsError> {
+        let table = match resolution {
+            RollupResolution::OneHour => "site_metrics_1h",
+            RollupResolution::OneDay => "site_metrics_1d",
+            _ => "site_metrics_1h",
+        };
+
+        let query = format!(
+            r#"
+            SELECT * FROM {}
+            WHERE site_id = ? AND bucket_ts >= ? AND bucket_ts <= ?
+            ORDER BY bucket_ts ASC
+            "#,
+            table
+        );
+
+        let rows = sqlx::query(&query)
+            .bind(site_id)
+            .bind(start_ts)
+            .bind(end_ts)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let mut res = Vec::with_capacity(rows.len());
+        for r in rows {
+            let total_requests: i64 = r
+                .try_get("total_requests")
+                .map_err(AnalyticsError::Database)?;
+            let total_bytes: i64 = r.try_get("total_bytes").map_err(AnalyticsError::Database)?;
+            let status_2xx: i64 = r.try_get("status_2xx").map_err(AnalyticsError::Database)?;
+            let status_3xx: i64 = r.try_get("status_3xx").map_err(AnalyticsError::Database)?;
+            let status_4xx: i64 = r.try_get("status_4xx").map_err(AnalyticsError::Database)?;
+            let status_5xx: i64 = r.try_get("status_5xx").map_err(AnalyticsError::Database)?;
+            let cache_hit: i64 = r.try_get("cache_hit").map_err(AnalyticsError::Database)?;
+            let cache_miss: i64 = r.try_get("cache_miss").map_err(AnalyticsError::Database)?;
+            let cache_bypass: i64 = r
+                .try_get("cache_bypass")
+                .map_err(AnalyticsError::Database)?;
+            let cache_other: i64 = r.try_get("cache_other").map_err(AnalyticsError::Database)?;
+            let unique_visitors: i64 = r
+                .try_get("unique_visitors")
+                .map_err(AnalyticsError::Database)?;
+            let human_requests: i64 = r
+                .try_get("human_requests")
+                .map_err(AnalyticsError::Database)?;
+            let bot_requests: i64 = r
+                .try_get("bot_requests")
+                .map_err(AnalyticsError::Database)?;
+            let http_v1: i64 = r.try_get("http_v1").map_err(AnalyticsError::Database)?;
+            let http_v2: i64 = r.try_get("http_v2").map_err(AnalyticsError::Database)?;
+            let http_v3: i64 = r.try_get("http_v3").map_err(AnalyticsError::Database)?;
+            let tls_v12: i64 = r.try_get("tls_v12").map_err(AnalyticsError::Database)?;
+            let tls_v13: i64 = r.try_get("tls_v13").map_err(AnalyticsError::Database)?;
+            let tls_other: i64 = r.try_get("tls_other").map_err(AnalyticsError::Database)?;
+            let sample_count: i64 = r
+                .try_get("sample_count")
+                .map_err(AnalyticsError::Database)?;
+
+            let top_paths_str: String = r
+                .try_get("top_paths_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_referrers_str: String = r
+                .try_get("top_referrers_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_countries_str: String = r
+                .try_get("top_countries_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_browsers_str: String = r
+                .try_get("top_browsers_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_os_str: String = r.try_get("top_os_json").map_err(AnalyticsError::Database)?;
+            let top_devices_str: String = r
+                .try_get("top_devices_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_slow_urls_str: String = r
+                .try_get("top_slow_urls_json")
+                .map_err(AnalyticsError::Database)?;
+            let top_error_urls_str: String = r
+                .try_get("top_error_urls_json")
+                .map_err(AnalyticsError::Database)?;
+            let latency_buckets_str: String = r
+                .try_get("latency_buckets_json")
+                .map_err(AnalyticsError::Database)?;
+
+            res.push(SiteMetricsRollup {
+                site_id: r.try_get("site_id").map_err(AnalyticsError::Database)?,
+                bucket_ts: r.try_get("bucket_ts").map_err(AnalyticsError::Database)?,
+                total_requests: total_requests.max(0) as u64,
+                total_bytes: total_bytes.max(0) as u64,
+                status_2xx: status_2xx.max(0) as u64,
+                status_3xx: status_3xx.max(0) as u64,
+                status_4xx: status_4xx.max(0) as u64,
+                status_5xx: status_5xx.max(0) as u64,
+                cache_hit: cache_hit.max(0) as u64,
+                cache_miss: cache_miss.max(0) as u64,
+                cache_bypass: cache_bypass.max(0) as u64,
+                cache_other: cache_other.max(0) as u64,
+                latency_p50_ms: r
+                    .try_get("latency_p50_ms")
+                    .map_err(AnalyticsError::Database)?,
+                latency_p95_ms: r
+                    .try_get("latency_p95_ms")
+                    .map_err(AnalyticsError::Database)?,
+                latency_p99_ms: r
+                    .try_get("latency_p99_ms")
+                    .map_err(AnalyticsError::Database)?,
+                latency_avg_ms: r
+                    .try_get("latency_avg_ms")
+                    .map_err(AnalyticsError::Database)?,
+                upstream_time_avg_ms: r
+                    .try_get("upstream_time_avg_ms")
+                    .map_err(AnalyticsError::Database)?,
+                unique_visitors: unique_visitors.max(0) as u64,
+                human_requests: human_requests.max(0) as u64,
+                bot_requests: bot_requests.max(0) as u64,
+                http_v1: http_v1.max(0) as u64,
+                http_v2: http_v2.max(0) as u64,
+                http_v3: http_v3.max(0) as u64,
+                tls_v12: tls_v12.max(0) as u64,
+                tls_v13: tls_v13.max(0) as u64,
+                tls_other: tls_other.max(0) as u64,
+                top_paths: serde_json::from_str(&top_paths_str).unwrap_or_default(),
+                top_referrers: serde_json::from_str(&top_referrers_str).unwrap_or_default(),
+                top_countries: serde_json::from_str(&top_countries_str).unwrap_or_default(),
+                top_browsers: serde_json::from_str(&top_browsers_str).unwrap_or_default(),
+                top_os: serde_json::from_str(&top_os_str).unwrap_or_default(),
+                top_devices: serde_json::from_str(&top_devices_str).unwrap_or_default(),
+                top_slow_urls: serde_json::from_str(&top_slow_urls_str).unwrap_or_default(),
+                top_error_urls: serde_json::from_str(&top_error_urls_str).unwrap_or_default(),
+                latency_buckets: serde_json::from_str(&latency_buckets_str).unwrap_or_default(),
+                sample_count: sample_count.max(0) as u32,
+            });
+        }
+        Ok(res)
+    }
+
+    /// Execute site rollups (1m -> 1h, and 1h -> 1d) and retention pruning.
+    pub async fn execute_site_rollups(
+        &self,
+        current_ts: i64,
+    ) -> Result<SiteRollupReport, AnalyticsError> {
+        let hour_floor = (current_ts / 3600) * 3600;
+        let day_floor = (current_ts / 86400) * 86400;
+
+        // 1. Rollup 1m to 1h for completed hours
+        let h_rows = sqlx::query(
+            "SELECT DISTINCT site_id, (bucket_ts / 3600) * 3600 AS hour_ts FROM site_metrics_1m WHERE bucket_ts < ?"
+        )
+        .bind(hour_floor)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AnalyticsError::Database)?;
+
+        let mut site_1h_created = 0;
+        for r in h_rows {
+            let s_id: i64 = r.try_get("site_id").map_err(AnalyticsError::Database)?;
+            let h_ts: i64 = r.try_get("hour_ts").map_err(AnalyticsError::Database)?;
+
+            let points = self.query_site_metrics_1m(s_id, h_ts, h_ts + 3599).await?;
+            if let Some(rollup) = SiteMetricsRollupProcessor::rollup_1m_to_1h(s_id, h_ts, &points) {
+                self.insert_site_metrics_1h(&[rollup]).await?;
+                site_1h_created += 1;
+            }
+        }
+
+        // 2. Rollup 1h to 1d for completed days
+        let d_rows = sqlx::query(
+            "SELECT DISTINCT site_id, (bucket_ts / 86400) * 86400 AS day_ts FROM site_metrics_1h WHERE bucket_ts < ?"
+        )
+        .bind(day_floor)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AnalyticsError::Database)?;
+
+        let mut site_1d_created = 0;
+        for r in d_rows {
+            let s_id: i64 = r.try_get("site_id").map_err(AnalyticsError::Database)?;
+            let d_ts: i64 = r.try_get("day_ts").map_err(AnalyticsError::Database)?;
+
+            let rollups_1h = self
+                .query_site_rollups(s_id, d_ts, d_ts + 86399, RollupResolution::OneHour)
+                .await?;
+            if let Some(rollup_1d) =
+                SiteMetricsRollupProcessor::rollup_1h_to_1d(s_id, d_ts, &rollups_1h)
+            {
+                self.insert_site_metrics_1d(&[rollup_1d]).await?;
+                site_1d_created += 1;
+            }
+        }
+
+        // 3. Prune expired records adhering to retention config (default: 1m -> 14 days, 1h -> 400 days)
+        let retention = RetentionConfig::default();
+        let (pruned_1m, pruned_1h) = self
+            .prune_expired_site_metrics(current_ts, &retention)
+            .await?;
+
+        Ok(SiteRollupReport {
+            timestamp: current_ts,
+            site_1h_created,
+            site_1d_created,
+            pruned_1m_records: pruned_1m,
+            pruned_1h_records: pruned_1h,
+        })
+    }
+
+    /// Prune expired site metrics according to `RetentionConfig`.
+    pub async fn prune_expired_site_metrics(
+        &self,
+        current_ts: i64,
+        config: &RetentionConfig,
+    ) -> Result<(usize, usize), AnalyticsError> {
+        let cutoff_1m = current_ts - config.one_minute_retention_secs;
+        let res_1m = sqlx::query("DELETE FROM site_metrics_1m WHERE bucket_ts < ?")
+            .bind(cutoff_1m)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        let cutoff_1h = current_ts - config.one_hour_retention_secs;
+        let res_1h = sqlx::query("DELETE FROM site_metrics_1h WHERE bucket_ts < ?")
+            .bind(cutoff_1h)
+            .execute(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+
+        Ok((
+            res_1m.rows_affected() as usize,
+            res_1h.rows_affected() as usize,
+        ))
     }
 }
 

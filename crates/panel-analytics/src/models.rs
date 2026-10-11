@@ -270,3 +270,117 @@ pub struct TailerStats {
     pub total_bytes_processed: u64,
     pub total_batches_processed: u64,
 }
+
+/// Generic item count representation for top-K metrics (paths, referrers, countries, browsers, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TopItem {
+    pub name: String,
+    pub count: u64,
+}
+
+/// Slow URL entry with average request duration and invocation count.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SlowUrlItem {
+    pub uri: String,
+    pub avg_time_ms: f64,
+    pub count: u64,
+}
+
+/// Error URL entry with HTTP status code and occurrence count.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ErrorUrlItem {
+    pub uri: String,
+    pub status: u16,
+    pub count: u64,
+}
+
+/// 1-Minute aggregated web traffic metric point for an individual site.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SiteMetricsPoint {
+    pub site_id: i64,
+    pub bucket_ts: i64,
+    pub total_requests: u64,
+    pub total_bytes: u64,
+    pub status_2xx: u64,
+    pub status_3xx: u64,
+    pub status_4xx: u64,
+    pub status_5xx: u64,
+    pub cache_hit: u64,
+    pub cache_miss: u64,
+    pub cache_bypass: u64,
+    pub cache_other: u64,
+    pub latency_p50_ms: f64,
+    pub latency_p95_ms: f64,
+    pub latency_p99_ms: f64,
+    pub latency_avg_ms: f64,
+    pub upstream_time_avg_ms: Option<f64>,
+    pub unique_visitors: u64,
+    pub human_requests: u64,
+    pub bot_requests: u64,
+    pub http_v1: u64,
+    pub http_v2: u64,
+    pub http_v3: u64,
+    pub tls_v12: u64,
+    pub tls_v13: u64,
+    pub tls_other: u64,
+    pub top_paths: Vec<TopItem>,
+    pub top_referrers: Vec<TopItem>,
+    pub top_countries: Vec<TopItem>,
+    pub top_browsers: Vec<TopItem>,
+    pub top_os: Vec<TopItem>,
+    pub top_devices: Vec<TopItem>,
+    pub top_slow_urls: Vec<SlowUrlItem>,
+    pub top_error_urls: Vec<ErrorUrlItem>,
+    pub latency_buckets: Vec<u64>,
+}
+
+/// Aggregated 1-Hour or 1-Day rollup for an individual site.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SiteMetricsRollup {
+    pub site_id: i64,
+    pub bucket_ts: i64,
+    pub total_requests: u64,
+    pub total_bytes: u64,
+    pub status_2xx: u64,
+    pub status_3xx: u64,
+    pub status_4xx: u64,
+    pub status_5xx: u64,
+    pub cache_hit: u64,
+    pub cache_miss: u64,
+    pub cache_bypass: u64,
+    pub cache_other: u64,
+    pub latency_p50_ms: f64,
+    pub latency_p95_ms: f64,
+    pub latency_p99_ms: f64,
+    pub latency_avg_ms: f64,
+    pub upstream_time_avg_ms: Option<f64>,
+    pub unique_visitors: u64,
+    pub human_requests: u64,
+    pub bot_requests: u64,
+    pub http_v1: u64,
+    pub http_v2: u64,
+    pub http_v3: u64,
+    pub tls_v12: u64,
+    pub tls_v13: u64,
+    pub tls_other: u64,
+    pub top_paths: Vec<TopItem>,
+    pub top_referrers: Vec<TopItem>,
+    pub top_countries: Vec<TopItem>,
+    pub top_browsers: Vec<TopItem>,
+    pub top_os: Vec<TopItem>,
+    pub top_devices: Vec<TopItem>,
+    pub top_slow_urls: Vec<SlowUrlItem>,
+    pub top_error_urls: Vec<ErrorUrlItem>,
+    pub latency_buckets: Vec<u64>,
+    pub sample_count: u32,
+}
+
+/// Report after running site rollups and site retention pruning.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SiteRollupReport {
+    pub timestamp: i64,
+    pub site_1h_created: usize,
+    pub site_1d_created: usize,
+    pub pruned_1m_records: usize,
+    pub pruned_1h_records: usize,
+}
