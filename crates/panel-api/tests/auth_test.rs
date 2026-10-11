@@ -20,7 +20,7 @@ use tower::ServiceExt;
 async fn setup_test_app(
     max_failed_attempts: u32,
     lockout_secs: u64,
-) -> (axum::Router, panel_db::pool::DbPool) {
+) -> (axum::Router, panel_db::pool::DbPool, tempfile::TempDir) {
     let tmp = tempdir().expect("tempdir");
     let db_file = tmp.path().join("panel.db");
     let sock_path = tmp.path().join("agent.sock");
@@ -51,7 +51,7 @@ async fn setup_test_app(
         lockout_manager,
     );
 
-    (create_router(state), pool)
+    (create_router(state), pool, tmp)
 }
 
 fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
@@ -66,7 +66,7 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
 
 #[tokio::test]
 async fn test_auth_login_me_and_session_cookie() {
-    let (app, pool) = setup_test_app(5, 900).await;
+    let (app, pool, _tmp) = setup_test_app(5, 900).await;
 
     // Create user in DB
     let user_repo = SqliteUserRepository::new(pool.clone());
@@ -170,7 +170,7 @@ async fn test_auth_login_me_and_session_cookie() {
 
 #[tokio::test]
 async fn test_csrf_protection_and_logout() {
-    let (app, pool) = setup_test_app(5, 900).await;
+    let (app, pool, _tmp) = setup_test_app(5, 900).await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let password_hash = hash_password("AdminSecret123!").expect("hash");
@@ -285,7 +285,7 @@ async fn test_csrf_protection_and_logout() {
 
 #[tokio::test]
 async fn test_change_password_and_session_rotation() {
-    let (app, pool) = setup_test_app(5, 900).await;
+    let (app, pool, _tmp) = setup_test_app(5, 900).await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let password_hash = hash_password("OldPassword123!").expect("hash");
@@ -465,7 +465,7 @@ async fn test_change_password_and_session_rotation() {
 #[tokio::test]
 async fn test_rate_limit_and_lockout() {
     // Set max_failed_attempts = 3, lockout_duration = 300s
-    let (app, pool) = setup_test_app(3, 300).await;
+    let (app, pool, _tmp) = setup_test_app(3, 300).await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let password_hash = hash_password("ValidPassword123!").expect("hash");

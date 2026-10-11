@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> (axum::Router, panel_db::pool::DbPool) {
+async fn setup_test_app() -> (axum::Router, panel_db::pool::DbPool, tempfile::TempDir) {
     let tmp = tempdir().expect("tempdir");
     let db_file = tmp.path().join("panel.db");
     let sock_path = tmp.path().join("agent.sock");
@@ -48,7 +48,7 @@ async fn setup_test_app() -> (axum::Router, panel_db::pool::DbPool) {
         lockout_manager,
     );
 
-    (create_router(state), pool)
+    (create_router(state), pool, tmp)
 }
 
 fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
@@ -100,7 +100,7 @@ async fn login_user(
 
 #[tokio::test]
 async fn test_2fa_full_lifecycle() {
-    let (app, pool) = setup_test_app().await;
+    let (app, pool, _tmp) = setup_test_app().await;
 
     // 1. Create a user
     let user_repo = SqliteUserRepository::new(pool.clone());

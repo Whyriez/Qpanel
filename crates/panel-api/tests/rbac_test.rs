@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> (axum::Router, panel_db::pool::DbPool) {
+async fn setup_test_app() -> (axum::Router, panel_db::pool::DbPool, tempfile::TempDir) {
     let tmp = tempdir().expect("tempdir");
     let db_file = tmp.path().join("panel.db");
     let sock_path = tmp.path().join("agent.sock");
@@ -47,7 +47,7 @@ async fn setup_test_app() -> (axum::Router, panel_db::pool::DbPool) {
         lockout_manager,
     );
 
-    (create_router(state), pool)
+    (create_router(state), pool, tmp)
 }
 
 fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
@@ -93,7 +93,7 @@ async fn login(app: &axum::Router, username: &str, password: &str) -> (String, S
 
 #[tokio::test]
 async fn test_unauthenticated_requests_denied() {
-    let (app, _pool) = setup_test_app().await;
+    let (app, _pool, _tmp) = setup_test_app().await;
 
     // Public routes accessible without credentials
     let res = app
@@ -150,7 +150,7 @@ async fn test_unauthenticated_requests_denied() {
 
 #[tokio::test]
 async fn test_user_forbidden_on_admin_routes() {
-    let (app, pool) = setup_test_app().await;
+    let (app, pool, _tmp) = setup_test_app().await;
 
     // Create regular tenant user
     let user_repo = SqliteUserRepository::new(pool.clone());
@@ -250,7 +250,7 @@ async fn test_user_forbidden_on_admin_routes() {
 
 #[tokio::test]
 async fn test_admin_allowed_on_admin_routes_with_csrf() {
-    let (app, pool) = setup_test_app().await;
+    let (app, pool, _tmp) = setup_test_app().await;
 
     // Create admin user and a target tenant user
     let user_repo = SqliteUserRepository::new(pool.clone());
@@ -392,7 +392,7 @@ async fn test_admin_allowed_on_admin_routes_with_csrf() {
 
 #[tokio::test]
 async fn test_tenant_resource_isolation_and_cross_user_denial() {
-    let (app, pool) = setup_test_app().await;
+    let (app, pool, _tmp) = setup_test_app().await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let pass_a = hash_password("PasswordA123!").expect("hash");
@@ -463,7 +463,7 @@ async fn test_tenant_resource_isolation_and_cross_user_denial() {
 
 #[tokio::test]
 async fn test_suspended_user_immediately_rejected_by_middleware() {
-    let (app, pool) = setup_test_app().await;
+    let (app, pool, _tmp) = setup_test_app().await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let pass = hash_password("PasswordActive123!").expect("hash");

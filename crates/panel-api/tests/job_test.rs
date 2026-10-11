@@ -17,10 +17,13 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> (axum::Router, DbPool, Arc<JobRunner>) {
+async fn setup_test_app() -> (axum::Router, DbPool, Arc<JobRunner>, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let db_path = tmp.path().join("job_test.db");
-    let db_url = format!("sqlite://{}", db_path.to_str().expect("to_str"));
+    let db_url = format!(
+        "sqlite://{}",
+        db_path.to_str().expect("to_str").replace('\\', "/")
+    );
 
     let pool = init_pool(&db_url).await.expect("init pool");
     run_migrations(&pool).await.expect("run migrations");
@@ -91,7 +94,7 @@ async fn setup_test_app() -> (axum::Router, DbPool, Arc<JobRunner>) {
     );
 
     let runner = Arc::clone(&state.job_runner);
-    (create_router(state), pool, runner)
+    (create_router(state), pool, runner, tmp)
 }
 
 fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
@@ -137,7 +140,7 @@ async fn login(app: &axum::Router, username: &str, password: &str) -> (String, S
 
 #[tokio::test]
 async fn test_job_enqueue_and_idempotency() {
-    let (app, _pool, _runner) = setup_test_app().await;
+    let (app, _pool, _runner, _tmp) = setup_test_app().await;
     let (alice_cookie, alice_csrf) = login(&app, "alice", "AlicePass123!").await;
 
     // 1. Enqueue job without explicit ID
@@ -226,7 +229,7 @@ async fn test_job_enqueue_and_idempotency() {
 
 #[tokio::test]
 async fn test_job_worker_execution_success() {
-    let (_app, _pool, runner) = setup_test_app().await;
+    let (_app, _pool, runner, _tmp) = setup_test_app().await;
 
     // Enqueue an echo job
     let (job, _) = runner
@@ -265,7 +268,7 @@ async fn test_job_worker_execution_success() {
 
 #[tokio::test]
 async fn test_job_retry_backoff_and_eventual_failure() {
-    let (_app, _pool, runner) = setup_test_app().await;
+    let (_app, _pool, runner, _tmp) = setup_test_app().await;
 
     // Enqueue a job with test.fail and max_retries = 2
     let (job, _) = runner
@@ -316,7 +319,7 @@ async fn test_job_retry_backoff_and_eventual_failure() {
 
 #[tokio::test]
 async fn test_job_cancellation_queued_and_running() {
-    let (app, _pool, runner) = setup_test_app().await;
+    let (app, _pool, runner, _tmp) = setup_test_app().await;
     let (alice_cookie, alice_csrf) = login(&app, "alice", "AlicePass123!").await;
 
     // 1. Cancel while in queued state
@@ -410,7 +413,7 @@ async fn test_job_cancellation_queued_and_running() {
 
 #[tokio::test]
 async fn test_startup_recovery_interrupted_jobs() {
-    let (_app, pool, runner) = setup_test_app().await;
+    let (_app, pool, runner, _tmp) = setup_test_app().await;
     let job_repo = SqliteJobRepository::new(pool);
 
     // Manually insert an interrupted running job
@@ -462,7 +465,7 @@ async fn test_startup_recovery_interrupted_jobs() {
 
 #[tokio::test]
 async fn test_job_rbac_isolation() {
-    let (app, _pool, runner) = setup_test_app().await;
+    let (app, _pool, runner, _tmp) = setup_test_app().await;
     let (alice_cookie, alice_csrf) = login(&app, "alice", "AlicePass123!").await;
     let (bob_cookie, bob_csrf) = login(&app, "bob", "BobPass123!").await;
     let (admin_cookie, admin_csrf) = login(&app, "admin", "AdminPass123!").await;
@@ -624,7 +627,7 @@ async fn test_job_rbac_isolation() {
 
 #[tokio::test]
 async fn test_job_sse_events_stream() {
-    let (app, _pool, runner) = setup_test_app().await;
+    let (app, _pool, runner, _tmp) = setup_test_app().await;
     let (alice_cookie, _alice_csrf) = login(&app, "alice", "AlicePass123!").await;
 
     // Enqueue and complete a job
@@ -669,7 +672,7 @@ async fn test_job_sse_events_stream() {
 
 #[tokio::test]
 async fn test_job_csrf_enforcement() {
-    let (app, _pool, _runner) = setup_test_app().await;
+    let (app, _pool, _runner, _tmp) = setup_test_app().await;
     let (alice_cookie, _alice_csrf) = login(&app, "alice", "AlicePass123!").await;
 
     // POST /api/v1/jobs without X-CSRF-Token header -> 403 Forbidden
