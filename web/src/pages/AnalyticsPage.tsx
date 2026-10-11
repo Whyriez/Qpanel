@@ -4,10 +4,14 @@ import {
   Server,
   Globe,
   RefreshCw,
+  Sparkles,
+  AlertOctagon,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { fetchSites, fetchSystemAnalyticsTimeseries } from '../api/client';
-import { Site, SystemTimeseriesResponse } from '../types/api';
+import { fetchSites, fetchSystemAnalyticsTimeseries, fetchSystemInsights } from '../api/client';
+import { Site, SystemTimeseriesResponse, SystemInsightsResponse } from '../types/api';
 import { SiteAnalyticsTab } from '../components/sites/SiteAnalyticsTab';
 import { ServerSystemMetrics } from '../components/analytics/ServerSystemMetrics';
 
@@ -24,6 +28,7 @@ export const AnalyticsPage: React.FC = () => {
 
   // Server timeseries state
   const [serverMetrics, setServerMetrics] = useState<SystemTimeseriesResponse | null>(null);
+  const [systemInsights, setSystemInsights] = useState<SystemInsightsResponse | null>(null);
   const [isLoadingServer, setIsLoadingServer] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverRange, setServerRange] = useState<'1h' | '6h' | '24h' | '7d'>('24h');
@@ -66,8 +71,14 @@ export const AnalyticsPage: React.FC = () => {
     else if (serverRange === '7d') from = now - 7 * 24 * 3600;
 
     try {
-      const res = await fetchSystemAnalyticsTimeseries({ from, to: now });
+      const [res, insightsRes] = await Promise.all([
+        fetchSystemAnalyticsTimeseries({ from, to: now }),
+        fetchSystemInsights().catch(() => null),
+      ]);
       setServerMetrics(res);
+      if (insightsRes) {
+        setSystemInsights(insightsRes);
+      }
     } catch (err: unknown) {
       const e = err as Error;
       setServerError(e.message || 'Gagal memuat metrik sistem server');
@@ -222,6 +233,89 @@ export const AnalyticsPage: React.FC = () => {
           {serverError && (
             <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500">
               {serverError}
+            </div>
+          )}
+
+          {/* System Insights Health Overview (Phase 9 - P9-T7) */}
+          {systemInsights && (
+            <div className="p-4 bg-[var(--surface)] border border-[var(--line)] rounded-xl space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[var(--primary)]" />
+                  <h3 className="text-sm font-semibold text-[var(--ink)]">
+                    Kondisi Kinerja & Anomali Sistem Seluruh Situs
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  {systemInsights.total_critical > 0 && (
+                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1">
+                      <AlertOctagon className="w-3 h-3" />
+                      {systemInsights.total_critical} Kritis
+                    </span>
+                  )}
+                  {systemInsights.total_warning > 0 && (
+                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      {systemInsights.total_warning} Peringatan
+                    </span>
+                  )}
+                  {systemInsights.total_critical === 0 && systemInsights.total_warning === 0 && (
+                    <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Semua Situs Normal
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Show affected sites if any */}
+              {systemInsights.site_insights.length > 0 ? (
+                <div className="space-y-2 pt-1">
+                  {systemInsights.site_insights.map((si) => (
+                    <div
+                      key={si.site_id}
+                      className="p-3 bg-[var(--bg)] border border-[var(--line)] rounded-lg flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-[var(--ink)] font-mono">{si.site_name}</span>
+                        <span className="text-[var(--ink-muted)]">
+                          ({si.insights.length} isu terdeteksi)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {si.insights.slice(0, 2).map((ins) => (
+                          <span
+                            key={ins.id}
+                            className={`px-2 py-0.5 text-[10px] rounded font-medium ${
+                              ins.severity === 'critical'
+                                ? 'bg-rose-500/10 text-rose-500'
+                                : ins.severity === 'warning'
+                                ? 'bg-amber-500/10 text-amber-500'
+                                : 'bg-blue-500/10 text-blue-500'
+                            }`}
+                          >
+                            {ins.title}
+                          </span>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSiteId(si.site_id);
+                            setScope('site');
+                          }}
+                          className="text-[var(--primary)] font-medium hover:underline ml-2"
+                        >
+                          Tinjau Situs &rarr;
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--ink-muted)]">
+                  Tidak ada situs dengan anomali 5xx, lonjakan bot, atau keterbatasan worker PHP saat ini.
+                </p>
+              )}
             </div>
           )}
 

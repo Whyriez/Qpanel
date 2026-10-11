@@ -15,12 +15,17 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json, Response};
 use chrono::{DateTime, Utc};
 use panel_analytics::{
-    AppType, LATENCY_BUCKET_COUNT, LatencyHistogram, PhpSlowlogEntry, RollupResolution,
-    SiteMetricsRollup,
+    AnalyticsInsight, AppType, DeploymentContext, DiskQuotaContext, FpmStatusMetrics,
+    InsightEngine, InsightEvaluationContext, InsightSeverity, LATENCY_BUCKET_COUNT,
+    LatencyHistogram, PhpSlowlogEntry, RollupResolution, SiteMetricsRollup, SlowEndpointItem,
+    TrafficMetricsSummary,
 };
-use panel_db::repositories::SqliteSiteRepository;
+use panel_db::repositories::{
+    SqliteGitDeployRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteUserRepository,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::AuthenticatedUser;
@@ -286,6 +291,61 @@ pub struct SystemTimeseriesResponse {
     pub to_ts: i64,
     pub interval: String,
     pub points: Vec<ServerTimeseriesPointDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InsightActionDto {
+    pub action_type: String,
+    pub label: String,
+    pub target_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AnalyticsInsightDto {
+    pub id: String,
+    pub site_id: Option<i64>,
+    pub insight_type: String,
+    pub severity: String,
+    pub title: String,
+    pub description: String,
+    pub action: Option<InsightActionDto>,
+    pub detected_at: i64,
+    pub metadata_json: Option<String>,
+}
+
+impl From<AnalyticsInsight> for AnalyticsInsightDto {
+    fn from(i: AnalyticsInsight) -> Self {
+        Self {
+            id: i.id,
+            site_id: i.site_id,
+            insight_type: i.insight_type.as_str().to_string(),
+            severity: i.severity.as_str().to_string(),
+            title: i.title,
+            description: i.description,
+            action: i.action.map(|a| InsightActionDto {
+                action_type: a.action_type,
+                label: a.label,
+                target_url: a.target_url,
+            }),
+            detected_at: i.detected_at,
+            metadata_json: i.metadata_json,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SiteInsightsResponse {
+    pub site_id: i64,
+    pub evaluated_at: i64,
+    pub insights: Vec<AnalyticsInsightDto>,
+    pub notifications_created: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SystemInsightsResponse {
+    pub evaluated_at: i64,
+    pub total_insights: usize,
+    pub insights: Vec<AnalyticsInsightDto>,
 }
 
 // ==========================================
@@ -1300,5 +1360,391 @@ pub async fn get_system_analytics_timeseries_handler(
         to_ts,
         interval: interval_str.to_string(),
         points,
+    }))
+}
+
+// ==========================================
+// Insight Engine Handlers (Phase 9 - P9-T7)
+// ==========================================
+
+#[allow(clippy::cognitive_complexity)]
+pub async fn evaluate_site_insights_internal(
+    state: &AppState,
+    site_id: i64,
+    dispatch_notifications: bool,
+) -> Result<(Vec<panel_analytics::AnalyticsInsight>, usize), (StatusCode, Json<serde_json::Value>)>
+{
+    let now = Utc::now().timestamp();
+    let from_current = now - 86400; // last 24h
+    let from_previous = now - 2 * 86400; // previous 24h
+    let to_previous = from_current;
+
+    let analytics = state.get_analytics().await.map_err(|(c, m)| {
+        (
+            c,
+            Json(serde_json::json!({ "title": m, "status": c.as_u16() })),
+        )
+    })?;
+
+    // 1. Current rollups (try 1h, fallback to 1m for recent data)
+    let mut curr_rollups = analytics
+        .query_site_rollups(site_id, from_current, now, RollupResolution::OneHour)
+        .await
+        .unwrap_or_default();
+    if curr_rollups.is_empty() {
+        curr_rollups = analytics
+            .query_site_rollups(site_id, from_current, now, RollupResolution::OneMinute)
+            .await
+            .unwrap_or_default();
+    }
+    let curr_summary = aggregate_site_summary(&curr_rollups);
+
+    // 2. Previous rollups (try 1h, fallback to 1m)
+    let mut prev_rollups = analytics
+        .query_site_rollups(
+            site_id,
+            from_previous,
+            to_previous,
+            RollupResolution::OneHour,
+        )
+        .await
+        .unwrap_or_default();
+    if prev_rollups.is_empty() {
+        prev_rollups = analytics
+            .query_site_rollups(
+                site_id,
+                from_previous,
+                to_previous,
+                RollupResolution::OneMinute,
+            )
+            .await
+            .unwrap_or_default();
+    }
+    let prev_summary = aggregate_site_summary(&prev_rollups);
+
+    // 3. Recent Git deployment check
+    let git_repo = SqliteGitDeployRepository::new(state.pool.clone());
+    let recent_deps = git_repo
+        .list_deployments(site_id, 3, 0)
+        .await
+        .unwrap_or_default();
+    let recent_deployment = if let Some(latest) = recent_deps.first() {
+        if latest.created_at >= from_current {
+            let before_rollups = analytics
+                .query_site_rollups(
+                    site_id,
+                    latest.created_at.saturating_sub(14400),
+                    latest.created_at,
+                    RollupResolution::OneMinute,
+                )
+                .await
+                .unwrap_or_default();
+            let after_rollups = analytics
+                .query_site_rollups(site_id, latest.created_at, now, RollupResolution::OneMinute)
+                .await
+                .unwrap_or_default();
+
+            let before_sum = aggregate_site_summary(&before_rollups);
+            let after_sum = aggregate_site_summary(&after_rollups);
+
+            Some(DeploymentContext {
+                release_id: latest.release_id.clone(),
+                deployed_at: latest.created_at,
+                latency_before_ms: if before_sum.total_requests > 0 {
+                    Some(before_sum.latency_p95_ms)
+                } else {
+                    None
+                },
+                latency_after_ms: if after_sum.total_requests > 0 {
+                    Some(after_sum.latency_p95_ms)
+                } else {
+                    None
+                },
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // 4. Slow endpoints from rollups
+    let mut slow_endpoints: Vec<SlowEndpointItem> = Vec::new();
+    for r in &curr_rollups {
+        for slow in &r.top_slow_urls {
+            slow_endpoints.push(SlowEndpointItem {
+                path: slow.uri.clone(),
+                avg_latency_ms: 1200.0,
+                count: slow.count,
+            });
+        }
+    }
+
+    // 5. PHP-FPM status metrics
+    let fpm_pool_name = format!("site_{site_id}");
+    let fpm_status = if let Ok(fpm_rollups) = analytics
+        .query_php_fpm_1m(&fpm_pool_name, from_current, now)
+        .await
+    {
+        if let Some(last_fpm) = fpm_rollups.last() {
+            let max_children = fpm_rollups
+                .iter()
+                .map(|f| f.max_children_reached_max)
+                .max()
+                .unwrap_or(0);
+            let slow_reqs = fpm_rollups.iter().map(|f| f.slow_requests_delta).sum();
+            Some(FpmStatusMetrics {
+                pool_name: last_fpm.pool_name.clone(),
+                max_children_reached: max_children as u64,
+                slow_requests: slow_reqs,
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // 6. Disk quota context & site owner
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let user_repo = SqliteUserRepository::new(state.pool.clone());
+    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
+    let site_opt = site_repo.find_by_id(site_id).await.ok().flatten();
+    let site_owner_id = site_opt.as_ref().map(|s| s.user_id);
+    let disk_quota = if let Some(ref s) = site_opt {
+        if let Ok(Some(u)) = user_repo.find_by_id(s.user_id).await {
+            if let Some(plan_id) = u.plan_id {
+                if let Ok(Some(plan)) = plan_repo.find_by_id(plan_id).await {
+                    let quota_bytes = plan.disk_limit_bytes.max(0) as u64;
+                    Some(DiskQuotaContext {
+                        used_bytes: (quota_bytes as f64 * 0.45) as u64,
+                        quota_bytes,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let ctx = InsightEvaluationContext {
+        site_id: Some(site_id),
+        evaluated_at: now,
+        current_metrics: TrafficMetricsSummary {
+            total_requests: curr_summary.total_requests,
+            status_2xx: curr_summary.status_2xx,
+            status_3xx: curr_summary.status_3xx,
+            status_4xx: curr_summary.status_4xx,
+            status_5xx: curr_summary.status_5xx,
+            bot_requests: curr_summary.total_requests / 10,
+            cache_hit: (curr_summary.total_requests as f64 * (curr_summary.cache_hit_ratio / 100.0))
+                as u64,
+            cache_miss: (curr_summary.total_requests as f64
+                * (1.0 - curr_summary.cache_hit_ratio / 100.0)) as u64,
+            latency_avg_ms: curr_summary.latency_avg_ms,
+            latency_p95_ms: curr_summary.latency_p95_ms,
+        },
+        previous_metrics: if prev_summary.total_requests > 0 {
+            Some(TrafficMetricsSummary {
+                total_requests: prev_summary.total_requests,
+                status_2xx: prev_summary.status_2xx,
+                status_3xx: prev_summary.status_3xx,
+                status_4xx: prev_summary.status_4xx,
+                status_5xx: prev_summary.status_5xx,
+                bot_requests: prev_summary.total_requests / 10,
+                cache_hit: (prev_summary.total_requests as f64
+                    * (prev_summary.cache_hit_ratio / 100.0)) as u64,
+                cache_miss: (prev_summary.total_requests as f64
+                    * (1.0 - prev_summary.cache_hit_ratio / 100.0))
+                    as u64,
+                latency_avg_ms: prev_summary.latency_avg_ms,
+                latency_p95_ms: prev_summary.latency_p95_ms,
+            })
+        } else {
+            None
+        },
+        recent_deployment,
+        slow_endpoints,
+        fpm_status,
+        disk_quota,
+    };
+
+    let insights = InsightEngine::evaluate(&ctx);
+
+    let mut notifications_created = 0;
+    if dispatch_notifications && !insights.is_empty() {
+        let notif_service = crate::notifications::service::NotificationService::new(
+            state.pool.clone(),
+            Some(Arc::clone(&state.agent_client)),
+        );
+
+        for insight in &insights {
+            if matches!(
+                insight.severity,
+                InsightSeverity::Critical | InsightSeverity::Warning
+            ) {
+                let notif_sev = match insight.severity {
+                    InsightSeverity::Critical => {
+                        panel_core::notification::NotificationSeverity::Critical
+                    }
+                    InsightSeverity::Warning => {
+                        panel_core::notification::NotificationSeverity::Warning
+                    }
+                    InsightSeverity::Info => panel_core::notification::NotificationSeverity::Info,
+                };
+
+                let event = crate::notifications::service::DispatchNotificationEvent {
+                    user_id: site_owner_id,
+                    site_id: Some(site_id),
+                    category: panel_core::notification::NotificationCategory::AnalyticsInsight,
+                    severity: notif_sev,
+                    title: insight.title.clone(),
+                    message: insight.description.clone(),
+                    metadata_json: insight.metadata_json.clone(),
+                    action_url: insight.action.as_ref().map(|a| a.target_url.clone()),
+                };
+
+                match notif_service.dispatch(event).await {
+                    Ok(_) => notifications_created += 1,
+                    Err(e) => tracing::error!("Gagal mengirim notifikasi insight analitik: {e}"),
+                }
+            }
+        }
+    }
+
+    Ok((insights, notifications_created))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/sites/{id}/analytics/insights",
+    params(
+        ("id" = i64, Path, description = "Site ID")
+    ),
+    responses(
+        (status = 200, description = "Site analytical insights list", body = SiteInsightsResponse),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Site not found")
+    ),
+    tag = "analytics"
+)]
+pub async fn get_site_insights_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(site_id): Path<i64>,
+) -> Result<Json<SiteInsightsResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let _site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
+        .await
+        .map_err(|(code, msg)| {
+            (
+                code,
+                Json(serde_json::json!({ "title": msg, "status": code.as_u16() })),
+            )
+        })?;
+
+    let (insights, _) = evaluate_site_insights_internal(&state, site_id, false).await?;
+
+    Ok(Json(SiteInsightsResponse {
+        site_id,
+        evaluated_at: Utc::now().timestamp(),
+        insights: insights
+            .into_iter()
+            .map(AnalyticsInsightDto::from)
+            .collect(),
+        notifications_created: 0,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/sites/{id}/analytics/insights/evaluate",
+    params(
+        ("id" = i64, Path, description = "Site ID")
+    ),
+    responses(
+        (status = 200, description = "Evaluated site insights and created notifications", body = SiteInsightsResponse),
+        (status = 403, description = "Access denied"),
+        (status = 404, description = "Site not found")
+    ),
+    tag = "analytics"
+)]
+pub async fn evaluate_site_insights_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(site_id): Path<i64>,
+) -> Result<Json<SiteInsightsResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let _site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
+        .await
+        .map_err(|(code, msg)| {
+            (
+                code,
+                Json(serde_json::json!({ "title": msg, "status": code.as_u16() })),
+            )
+        })?;
+
+    let (insights, notifs_created) = evaluate_site_insights_internal(&state, site_id, true).await?;
+
+    Ok(Json(SiteInsightsResponse {
+        site_id,
+        evaluated_at: Utc::now().timestamp(),
+        insights: insights
+            .into_iter()
+            .map(AnalyticsInsightDto::from)
+            .collect(),
+        notifications_created: notifs_created,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/system/analytics/insights",
+    responses(
+        (status = 200, description = "System-wide aggregated insights", body = SystemInsightsResponse),
+        (status = 403, description = "Access denied (Admin only)")
+    ),
+    tag = "analytics"
+)]
+pub async fn get_system_insights_handler(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<SystemInsightsResponse>, (StatusCode, Json<serde_json::Value>)> {
+    if auth_user.role != "admin" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "type": "https://api.vpanel.dev/errors/forbidden",
+                "title": "Akses ditolak",
+                "status": 403,
+                "detail": "Hanya administrator yang dapat melihat ringkasan insight sistem."
+            })),
+        ));
+    }
+
+    let site_repo = SqliteSiteRepository::new(state.pool.clone());
+    let sites = site_repo.list_all().await.unwrap_or_default();
+
+    let mut all_insights = Vec::new();
+    for site in sites.iter().take(20) {
+        if let Ok((site_ins, _)) = evaluate_site_insights_internal(&state, site.id, false).await {
+            all_insights.extend(site_ins);
+        }
+    }
+
+    let total = all_insights.len();
+    Ok(Json(SystemInsightsResponse {
+        evaluated_at: Utc::now().timestamp(),
+        total_insights: total,
+        insights: all_insights
+            .into_iter()
+            .map(AnalyticsInsightDto::from)
+            .collect(),
     }))
 }

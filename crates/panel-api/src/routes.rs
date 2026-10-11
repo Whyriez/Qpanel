@@ -113,7 +113,10 @@ use panel_db::pool::DbPool;
         crate::analytics::get_site_app_metrics_handler,
         crate::analytics::get_site_slowlog_handler,
         crate::analytics::export_site_analytics_csv_handler,
+        crate::analytics::get_site_insights_handler,
+        crate::analytics::evaluate_site_insights_handler,
         crate::analytics::get_system_analytics_timeseries_handler,
+        crate::analytics::get_system_insights_handler,
     ),
     components(
         schemas(
@@ -239,6 +242,10 @@ use panel_db::pool::DbPool;
             crate::analytics::SiteSlowlogResponse,
             crate::analytics::ServerTimeseriesPointDto,
             crate::analytics::SystemTimeseriesResponse,
+            crate::analytics::InsightActionDto,
+            crate::analytics::AnalyticsInsightDto,
+            crate::analytics::SiteInsightsResponse,
+            crate::analytics::SystemInsightsResponse,
         )
     ),
     tags(

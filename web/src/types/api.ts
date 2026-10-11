@@ -1720,3 +1720,36 @@ export interface SystemTimeseriesResponse {
   points: ServerTimeseriesPointDto[];
 }
 
+export interface InsightActionDto {
+  label: string;
+  action_type: string;
+  target_url?: string | null;
+}
+
+export interface AnalyticsInsightDto {
+  id: string;
+  insight_type: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  description: string;
+  detected_at: number;
+  action?: InsightActionDto | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface SiteInsightsResponse {
+  site_id: number;
+  site_name: string;
+  insights: AnalyticsInsightDto[];
+  evaluated_at: number;
+}
+
+export interface SystemInsightsResponse {
+  total_critical: number;
+  total_warning: number;
+  total_info: number;
+  site_insights: SiteInsightsResponse[];
+  evaluated_at: number;
+}
+
+

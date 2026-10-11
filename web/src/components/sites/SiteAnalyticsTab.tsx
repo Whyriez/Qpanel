@@ -32,6 +32,7 @@ import { AnalyticsBarChart } from '../analytics/AnalyticsBarChart';
 import { BreakdownTable } from '../analytics/BreakdownTable';
 import { SlowlogExplorer } from '../analytics/SlowlogExplorer';
 import { AppMetricsCard } from '../analytics/AppMetricsCard';
+import { SiteInsightsCard } from '../analytics/SiteInsightsCard';
 
 export interface SiteAnalyticsTabProps {
   siteId: number;
@@ -289,6 +290,9 @@ export const SiteAnalyticsTab: React.FC<SiteAnalyticsTabProps> = ({
         </div>
       ) : (
         <>
+          {/* Anomaly & Insight Engine (Phase 9 - P9-T7) */}
+          <SiteInsightsCard siteId={siteId} siteDomain={siteDomain} />
+
           {/* KPI Summary Cards */}
           {cur && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

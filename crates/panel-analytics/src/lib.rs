@@ -11,6 +11,7 @@ pub mod error;
 pub mod fpm_status;
 pub mod geoip;
 pub mod histogram;
+pub mod insights;
 pub mod log_entry;
 pub mod models;
 pub mod normalizer;
@@ -36,6 +37,11 @@ pub use fpm_status::{
 };
 pub use geoip::GeoIpResolver;
 pub use histogram::{LATENCY_BUCKET_COUNT, LatencyHistogram};
+pub use insights::{
+    AnalyticsInsight, DeploymentContext, DiskQuotaContext, FpmStatusMetrics, InsightAction,
+    InsightEngine, InsightEvaluationContext, InsightSeverity, InsightType, SlowEndpointItem,
+    TrafficMetricsSummary,
+};
 pub use log_entry::NginxJsonLog;
 pub use models::*;
 pub use normalizer::PathNormalizer;

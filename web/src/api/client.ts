@@ -91,6 +91,8 @@ import {
   SiteAppMetricsResponse,
   SiteSlowlogResponse,
   SystemTimeseriesResponse,
+  SiteInsightsResponse,
+  SystemInsightsResponse,
 } from '../types/api';
 import type { FsListResponse, TrashListResponse } from '../types/files';
 
@@ -1876,3 +1878,23 @@ export async function fetchSystemAnalyticsTimeseries(
   const qs = query.toString();
   return request<SystemTimeseriesResponse>(`/api/v1/system/analytics/timeseries${qs ? `?${qs}` : ''}`);
 }
+
+// Analytics Insights Engine (Phase 9 - P9-T7)
+export async function fetchSiteInsights(
+  siteId: number
+): Promise<SiteInsightsResponse> {
+  return request<SiteInsightsResponse>(`/api/v1/sites/${siteId}/analytics/insights`);
+}
+
+export async function evaluateSiteInsights(
+  siteId: number
+): Promise<SiteInsightsResponse> {
+  return request<SiteInsightsResponse>(`/api/v1/sites/${siteId}/analytics/insights/evaluate`, {
+    method: 'POST',
+  });
+}
+
+export async function fetchSystemInsights(): Promise<SystemInsightsResponse> {
+  return request<SystemInsightsResponse>('/api/v1/system/analytics/insights');
+}
+

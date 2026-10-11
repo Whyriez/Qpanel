@@ -576,8 +576,20 @@ pub fn create_router(state: AppState) -> Router {
             get(analytics::get_site_slowlog_handler),
         )
         .route(
+            "/api/v1/sites/{id}/analytics/insights",
+            get(analytics::get_site_insights_handler),
+        )
+        .route(
+            "/api/v1/sites/{id}/analytics/insights/evaluate",
+            post(analytics::evaluate_site_insights_handler),
+        )
+        .route(
             "/api/v1/system/analytics/timeseries",
             get(analytics::get_system_analytics_timeseries_handler),
+        )
+        .route(
+            "/api/v1/system/analytics/insights",
+            get(analytics::get_system_insights_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
         .layer(CorsLayer::permissive())
