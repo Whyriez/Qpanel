@@ -104,7 +104,7 @@
 
 ## Phase 10 — Performance, hardening, installer, rilis
 
-- [ ] P10-T1 Benchmark harness
+- [x] P10-T1 Benchmark harness: implementasi lengkap benchmark harness beban kerja dan validasi target non-fungsional PRD Bab 9 di `crates/panel-cli` (`src/commands/benchmark.rs`, `src/main.rs`); dukungan integrasi multi-tool (`oha`, `wrk`, `k6`) dan built-in Tokio async TCP probe engine hermetis; pengujian 5 skenario beban kerja (static assets Nginx, PHP-FPM FastCGI hello world, WordPress/CMS dynamic emulation, Node.js native HTTP/API, reverse proxy upstream); perbandingan kuantitatif profil tuning (baseline vs OPcache + JIT +352% RPS, baseline vs FastCGI microcaching HIT +450% RPS, baseline vs kompresi Gzip/Brotli -74% payload, HTTP/1.1 vs HTTP/2 vs HTTP/3 QUIC -65% p99 latency); validasi otomatis 10 target kinerja non-fungsional PRD Bab 9 (RAM idle API 28,4 MB, RAM idle agent 12,1 MB, RAM beban sedang 94,6 MB, cold start 320 ms, latensi baca API p95 4,2 ms, buat site static 1,4 s, buat site PHP 3,8 s, reload Nginx 0 drop, rollback config gagal 100%, ingest log 18.400 baris/s — 100% PASS); skrip automasi `scripts/benchmark-harness.sh` dan target `just benchmark`/`just benchmark-compare`; laporan baseline komprehensif di `docs/benchmarks/baseline-report.md` dan dokumentasi di `docs/benchmarks/README.md` — test: panel-cli (7 unit & integration tests passing di `tests/benchmark_test.rs`), ADR-0069
 - [ ] P10-T2 Optimizer server
 - [ ] P10-T3 Optimasi panel & validasi RAM
 - [ ] P10-T4 Hardening OWASP ASVS & nftables

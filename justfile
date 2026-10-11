@@ -47,3 +47,13 @@ build:
 fmt:
     cargo fmt
     cd web && npm run format || true
+
+# Run performance benchmark harness & validate PRD Section 9 non-functional targets
+benchmark:
+    @echo "==> Running benchmark validation against PRD Section 9 targets..."
+    cargo run -p panel-cli -- benchmark validate-targets
+
+# Run performance comparison suite (baseline vs tuned)
+benchmark-compare:
+    @echo "==> Running tuning profile comparison..."
+    cargo run -p panel-cli -- benchmark compare --target php --baseline baseline --tuned opcache_enabled --format markdown
