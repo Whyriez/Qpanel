@@ -7,8 +7,22 @@ authors.workspace = true
 
 [dependencies]
 panel-core = { workspace = true }
+panel-proto = { workspace = true }
+tokio = { workspace = true }
+sqlx = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+notify = "6.1"
+tokio-util = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
