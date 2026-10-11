@@ -17,10 +17,13 @@ use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-async fn setup_test_app() -> (axum::Router, DbPool, Arc<AuditWriter>) {
+async fn setup_test_app() -> (axum::Router, DbPool, Arc<AuditWriter>, tempfile::TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let db_path = tmp.path().join("audit_test.db");
-    let db_url = format!("sqlite://{}", db_path.to_str().expect("to_str"));
+    let db_url = format!(
+        "sqlite://{}",
+        db_path.to_str().expect("to_str").replace('\\', "/")
+    );
 
     let pool = init_pool(&db_url).await.expect("init pool");
     run_migrations(&pool).await.expect("run migrations");
@@ -91,7 +94,7 @@ async fn setup_test_app() -> (axum::Router, DbPool, Arc<AuditWriter>) {
     );
 
     let audit_writer = Arc::clone(&state.audit_writer);
-    (create_router(state), pool, audit_writer)
+    (create_router(state), pool, audit_writer, tmp)
 }
 
 fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
@@ -137,7 +140,7 @@ async fn login(app: &axum::Router, username: &str, password: &str) -> (String, S
 
 #[tokio::test]
 async fn test_audit_writer_direct_sync_and_async() {
-    let (_app, pool, audit_writer) = setup_test_app().await;
+    let (_app, pool, audit_writer, _tmp) = setup_test_app().await;
 
     // 1. Synchronous record
     let entry1 = CreateAuditLog {
@@ -164,17 +167,22 @@ async fn test_audit_writer_direct_sync_and_async() {
         None,
     );
 
-    // Give background task a moment to write
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
+    // Wait for background task to write
     let repo = SqliteAuditLogRepository::new(pool);
-    let list = repo.list(10, 0).await.expect("list");
+    let mut list = Vec::new();
+    for _ in 0..40 {
+        list = repo.list(10, 0).await.expect("list");
+        if list.iter().any(|l| l.action == "backup.create") {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
     assert!(list.iter().any(|l| l.action == "backup.create"));
 }
 
 #[tokio::test]
 async fn test_auth_actions_recorded_in_audit_log() {
-    let (app, pool, _) = setup_test_app().await;
+    let (app, pool, _, _tmp) = setup_test_app().await;
 
     // 1. Failed login: non-existent user
     let req = Request::builder()
@@ -226,12 +234,19 @@ async fn test_auth_actions_recorded_in_audit_log() {
     let res = app.clone().oneshot(req).await.expect("res");
     assert_eq!(res.status(), StatusCode::OK);
 
-    // Give background tasks a moment to settle
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-
-    // Verify audit logs in database
+    // Wait for background tasks to settle
     let repo = SqliteAuditLogRepository::new(pool);
-    let all_logs = repo.list(50, 0).await.expect("list");
+    let mut all_logs = Vec::new();
+    for _ in 0..40 {
+        all_logs = repo.list(50, 0).await.expect("list");
+        if all_logs
+            .iter()
+            .any(|l| l.actor_username == "alice" && l.action == "auth.logout")
+        {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
 
     // Check unknown user failed attempt
     let unknown_log = all_logs
@@ -265,7 +280,7 @@ async fn test_auth_actions_recorded_in_audit_log() {
 
 #[tokio::test]
 async fn test_audit_api_list_and_filters() {
-    let (app, pool, audit_writer) = setup_test_app().await;
+    let (app, pool, audit_writer, _tmp) = setup_test_app().await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let alice = user_repo
@@ -412,7 +427,7 @@ async fn test_audit_api_list_and_filters() {
 
 #[tokio::test]
 async fn test_audit_api_get_by_id() {
-    let (app, _pool, audit_writer) = setup_test_app().await;
+    let (app, _pool, audit_writer, _tmp) = setup_test_app().await;
 
     let created = audit_writer
         .record(CreateAuditLog {
@@ -462,7 +477,7 @@ async fn test_audit_api_get_by_id() {
 
 #[tokio::test]
 async fn test_audit_api_rbac_tenant_isolation() {
-    let (app, pool, audit_writer) = setup_test_app().await;
+    let (app, pool, audit_writer, _tmp) = setup_test_app().await;
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let alice = user_repo
