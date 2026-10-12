@@ -137,7 +137,18 @@ impl SystemRunner for RealSystemRunner {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+            if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)) {
+                if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(1) {
+                    warn!(
+                        "set_permissions on {} to {:o} failed ({}: Operation not permitted). Continuing without chmod.",
+                        path.display(),
+                        mode,
+                        e
+                    );
+                } else {
+                    return Err(AgentError::Io(e));
+                }
+            }
         }
         #[cfg(not(unix))]
         {
@@ -150,7 +161,19 @@ impl SystemRunner for RealSystemRunner {
         #[cfg(unix)]
         {
             use std::os::unix::fs::chown;
-            chown(path, Some(uid), Some(gid))?;
+            if let Err(e) = chown(path, Some(uid), Some(gid)) {
+                if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(1) {
+                    warn!(
+                        "set_ownership on {} to {}:{} failed ({}: Operation not permitted). Continuing without chown.",
+                        path.display(),
+                        uid,
+                        gid,
+                        e
+                    );
+                } else {
+                    return Err(AgentError::Io(e));
+                }
+            }
         }
         #[cfg(not(unix))]
         {
