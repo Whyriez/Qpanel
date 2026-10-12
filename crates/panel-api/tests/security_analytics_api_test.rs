@@ -104,8 +104,12 @@ async fn setup_test_context() -> TestContext {
         &mounts_path,
         &group_path,
     ));
-    let webserver_manager = Arc::new(NginxManager::new(
-        Arc::clone(&runner) as Arc<dyn SystemRunner>
+    let nginx_dir = tmp.path().join("nginx");
+    fs::create_dir_all(&nginx_dir).expect("create nginx dir");
+
+    let webserver_manager = Arc::new(NginxManager::with_base_dir(
+        Arc::clone(&runner) as Arc<dyn SystemRunner>,
+        &nginx_dir,
     ));
 
     let agent_cfg = AgentConfig {
@@ -402,6 +406,10 @@ async fn test_security_analytics_full_lifecycle_and_ip_banning() {
         .expect("req");
 
     let resp = ctx.app.clone().oneshot(ban_req).await.expect("resp");
+    if resp.status() != StatusCode::OK {
+        let bytes = resp.into_body().collect().await.expect("bytes").to_bytes();
+        panic!("Ban IP failed: {}", String::from_utf8_lossy(&bytes));
+    }
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = resp.into_body().collect().await.expect("bytes").to_bytes();
     let banned_res: BannedIpDto = serde_json::from_slice(&bytes).expect("banned");
@@ -498,6 +506,10 @@ async fn test_security_analytics_full_lifecycle_and_ip_banning() {
         .expect("req");
 
     let resp = ctx.app.clone().oneshot(unban_req).await.expect("resp");
+    if resp.status() != StatusCode::OK {
+        let bytes = resp.into_body().collect().await.expect("bytes").to_bytes();
+        panic!("Unban IP failed: {}", String::from_utf8_lossy(&bytes));
+    }
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = resp.into_body().collect().await.expect("bytes").to_bytes();
     let unban_res: UnbanIpResponse = serde_json::from_slice(&bytes).expect("unban");

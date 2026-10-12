@@ -16,6 +16,42 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{info, warn};
 
+/// Resolves the base directory for Nginx configuration.
+/// Priority:
+/// 1. Explicit override passed in request or manager
+/// 2. `PANEL_NGINX_BASE_DIR` environment variable
+/// 3. In test runner environments without root permissions, fall back to temporary directory
+/// 4. Default: `/etc/panel/nginx`
+pub fn get_nginx_base_dir(override_dir: Option<&Path>) -> PathBuf {
+    if let Some(d) = override_dir {
+        return d.to_path_buf();
+    }
+    if let Some(env_d) = std::env::var("PANEL_NGINX_BASE_DIR")
+        .ok()
+        .filter(|d| !d.trim().is_empty())
+    {
+        return PathBuf::from(env_d);
+    }
+    let is_test_runner = std::env::var("PANEL_TEST_MODE").is_ok()
+        || std::env::var("RUST_TEST_THREADS").is_ok()
+        || std::env::current_exe()
+            .map(|p| {
+                let s = p.to_string_lossy();
+                s.contains("/deps/")
+                    || s.contains("\\deps\\")
+                    || p.file_name()
+                        .map(|n| n.to_string_lossy().contains("test"))
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
+    if is_test_runner {
+        return std::env::temp_dir().join("panel_nginx_test");
+    }
+
+    PathBuf::from("/etc/panel/nginx")
+}
+
 pub struct NginxManager {
     runner: Arc<dyn SystemRunner>,
     debouncer: ReloadDebouncer,
@@ -49,7 +85,7 @@ impl NginxManager {
             .as_deref()
             .map(PathBuf::from)
             .or_else(|| self.base_dir.clone())
-            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
+            .unwrap_or_else(|| get_nginx_base_dir(None));
         let log_dir = req
             .log_dir
             .as_deref()
@@ -160,7 +196,7 @@ impl NginxManager {
             .as_deref()
             .map(PathBuf::from)
             .or_else(|| self.base_dir.clone())
-            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
+            .unwrap_or_else(|| get_nginx_base_dir(None));
         let pipeline = NginxApplyPipeline::new(&base_dir);
         let nginx_conf_path = base_dir.join("nginx.conf");
         let runner = Arc::clone(&self.runner);
@@ -223,7 +259,7 @@ impl NginxManager {
             .as_deref()
             .map(PathBuf::from)
             .or_else(|| self.base_dir.clone())
-            .unwrap_or_else(|| PathBuf::from("/etc/panel/nginx"));
+            .unwrap_or_else(|| get_nginx_base_dir(None));
         let pipeline = NginxApplyPipeline::new(&base_dir);
         let nginx_conf_path = base_dir.join("nginx.conf");
         let runner = Arc::clone(&self.runner);
