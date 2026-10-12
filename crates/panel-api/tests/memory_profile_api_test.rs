@@ -212,7 +212,15 @@ async fn test_get_memory_profile_admin_success() {
     assert_eq!(report.release_profile.codegen_units, 1);
     assert_eq!(report.release_profile.panic_strategy, "abort");
     assert!(report.release_profile.strip);
-    assert!(report.all_passed);
+    assert!(
+        report.all_passed,
+        "Semua target memory profile seharusnya lolos, target yang gagal: {:#?}",
+        report
+            .targets
+            .iter()
+            .filter(|t| !t.passed)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(report.targets.len(), 6);
 
     // Verify all targets match PRD Section 9
