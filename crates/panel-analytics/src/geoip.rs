@@ -122,10 +122,10 @@ impl GeoIpResolver {
         // 4. MaxMind MMDB lookup
         if let Some(reader) = &self.reader {
             let maybe_iso = reader
-                .lookup::<maxminddb::geoip2::Country>(ip)
+                .lookup(ip)
                 .ok()
-                .and_then(|country| country.country)
-                .and_then(|c| c.iso_code)
+                .and_then(|res| res.decode::<maxminddb::geoip2::Country>().ok().flatten())
+                .and_then(|data| data.country.iso_code)
                 .map(|code| code.to_string());
             if let Some(iso) = maybe_iso {
                 return iso;

@@ -23,15 +23,15 @@ repository = "https://github.com/nusa-panel/panel"
 
 [workspace.dependencies]
 # Internal workspace crates
-panel-core = { path = "crates/panel-core" }
-panel-proto = { path = "crates/panel-proto" }
-panel-api = { path = "crates/panel-api" }
-panel-agent = { path = "crates/panel-agent" }
-panel-db = { path = "crates/panel-db" }
-panel-webserver = { path = "crates/panel-webserver" }
-panel-runtime = { path = "crates/panel-runtime" }
-panel-fs = { path = "crates/panel-fs" }
-panel-analytics = { path = "crates/panel-analytics" }
+panel-core = { path = "crates/panel-core", version = "0.1.0" }
+panel-proto = { path = "crates/panel-proto", version = "0.1.0" }
+panel-api = { path = "crates/panel-api", version = "0.1.0" }
+panel-agent = { path = "crates/panel-agent", version = "0.1.0" }
+panel-db = { path = "crates/panel-db", version = "0.1.0" }
+panel-webserver = { path = "crates/panel-webserver", version = "0.1.0" }
+panel-runtime = { path = "crates/panel-runtime", version = "0.1.0" }
+panel-fs = { path = "crates/panel-fs", version = "0.1.0" }
+panel-analytics = { path = "crates/panel-analytics", version = "0.1.0" }
 
 # Async & Networking
 tokio = { version = "1.43", features = ["full"] }

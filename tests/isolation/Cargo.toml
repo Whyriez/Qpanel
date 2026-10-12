@@ -11,11 +11,11 @@ name = "isolation_tests"
 path = "src/lib.rs"
 
 [dependencies]
-panel-core = { workspace = true }
-panel-proto = { workspace = true }
-panel-agent = { workspace = true }
-panel-runtime = { workspace = true }
-panel-webserver = { workspace = true }
+panel-core = { path = "../../crates/panel-core", version = "0.1.0" }
+panel-proto = { path = "../../crates/panel-proto", version = "0.1.0" }
+panel-agent = { path = "../../crates/panel-agent", version = "0.1.0" }
+panel-runtime = { path = "../../crates/panel-runtime", version = "0.1.0" }
+panel-webserver = { path = "../../crates/panel-webserver", version = "0.1.0" }
 tokio = { workspace = true }
 tempfile = { workspace = true }
 tracing = { workspace = true }
