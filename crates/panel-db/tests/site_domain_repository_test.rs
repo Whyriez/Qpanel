@@ -9,7 +9,7 @@ use panel_db::{
 
 async fn setup_test_db() -> panel_db::DbPool {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let db_path = tmp.path().join("test_panel_site_domain.db");
+    let db_path = tmp.keep().join("test_panel_site_domain.db");
     let db_url = format!("sqlite://{}", db_path.to_str().expect("path to str"));
 
     let pool = init_pool(&db_url).await.expect("init pool");
