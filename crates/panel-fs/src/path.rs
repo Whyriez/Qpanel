@@ -169,6 +169,12 @@ pub fn normalize_virtual_components(raw_path: &Path) -> Result<PathBuf, FsError>
 /// 3. Step-by-step traversal enforces symlink policies (`DenyAll` or `ResolveBeneath`).
 /// 4. Symlinks pointing outside root are rejected immediately.
 /// 5. Post-resolution canonicalization verifies containment within `root`.
+fn is_symlink_loop_io_error(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(40 | 62 | 1460 | 1921))
+        || e.to_string().to_lowercase().contains("too many")
+        || e.to_string().to_lowercase().contains("symbolic link")
+}
+
 pub fn resolve_confined_path(
     root: &Path,
     user_path: &Path,
@@ -220,68 +226,111 @@ pub fn resolve_confined_path(
                             });
                         }
                         SymlinkPolicy::ResolveBeneath => {
-                            if visited_symlinks.contains(&next_candidate) {
-                                return Err(FsError::SymlinkLoop {
-                                    path: next_candidate.to_string_lossy().to_string(),
-                                });
-                            }
-                            if visited_symlinks.len() >= MAX_SYMLINK_HOPS {
-                                return Err(FsError::SymlinkLoop {
-                                    path: format!(
-                                        "Too many symlink hops (exceeded {MAX_SYMLINK_HOPS}) resolving {}",
-                                        next_candidate.display()
-                                    ),
-                                });
-                            }
-                            visited_symlinks.insert(next_candidate.clone());
-
-                            let link_target = std::fs::read_link(&next_candidate).map_err(|e| {
-                                FsError::io(next_candidate.to_string_lossy().to_string(), e)
-                            })?;
-
-                            // Resolve link target
-                            let resolved_target = if link_target.is_absolute() {
-                                // Absolute link target on host
-                                if let Ok(canon) = link_target.canonicalize() {
-                                    if !canon.starts_with(&root_canonical) {
-                                        return Err(FsError::SymlinkEscape {
-                                            path: next_candidate.to_string_lossy().to_string(),
-                                            target: canon.to_string_lossy().to_string(),
-                                        });
-                                    }
-                                    canon
-                                } else {
-                                    return Err(FsError::SymlinkEscape {
-                                        path: next_candidate.to_string_lossy().to_string(),
-                                        target: link_target.to_string_lossy().to_string(),
+                            let mut current_symlink = next_candidate;
+                            loop {
+                                if visited_symlinks.contains(&current_symlink) {
+                                    return Err(FsError::SymlinkLoop {
+                                        path: current_symlink.to_string_lossy().to_string(),
                                     });
                                 }
-                            } else {
-                                // Relative link target: resolve relative to parent dir
-                                let candidate_target = current_physical.join(&link_target);
-                                if let Ok(canon) = candidate_target.canonicalize() {
-                                    if !canon.starts_with(&root_canonical) {
-                                        return Err(FsError::SymlinkEscape {
-                                            path: next_candidate.to_string_lossy().to_string(),
-                                            target: canon.to_string_lossy().to_string(),
-                                        });
-                                    }
-                                    canon
-                                } else {
-                                    // Target doesn't exist yet or broken link
-                                    let normalized = normalize_virtual_components(&link_target)?;
-                                    let joined = current_physical.join(normalized);
-                                    if !joined.starts_with(&root_canonical) {
-                                        return Err(FsError::SymlinkEscape {
-                                            path: next_candidate.to_string_lossy().to_string(),
-                                            target: link_target.to_string_lossy().to_string(),
-                                        });
-                                    }
-                                    joined
+                                if visited_symlinks.len() >= MAX_SYMLINK_HOPS {
+                                    return Err(FsError::SymlinkLoop {
+                                        path: format!(
+                                            "Too many symlink hops (exceeded {MAX_SYMLINK_HOPS}) resolving {}",
+                                            current_symlink.display()
+                                        ),
+                                    });
                                 }
-                            };
+                                visited_symlinks.insert(current_symlink.clone());
 
-                            current_physical = resolved_target;
+                                let link_target =
+                                    std::fs::read_link(&current_symlink).map_err(|e| {
+                                        FsError::io(
+                                            current_symlink.to_string_lossy().to_string(),
+                                            e,
+                                        )
+                                    })?;
+
+                                // Resolve link target
+                                let resolved_target = if link_target.is_absolute() {
+                                    // Absolute link target on host
+                                    match link_target.canonicalize() {
+                                        Ok(canon) => {
+                                            if !canon.starts_with(&root_canonical) {
+                                                return Err(FsError::SymlinkEscape {
+                                                    path: current_symlink
+                                                        .to_string_lossy()
+                                                        .to_string(),
+                                                    target: canon.to_string_lossy().to_string(),
+                                                });
+                                            }
+                                            canon
+                                        }
+                                        Err(e) if is_symlink_loop_io_error(&e) => {
+                                            return Err(FsError::SymlinkLoop {
+                                                path: current_symlink.to_string_lossy().to_string(),
+                                            });
+                                        }
+                                        Err(_) => {
+                                            return Err(FsError::SymlinkEscape {
+                                                path: current_symlink.to_string_lossy().to_string(),
+                                                target: link_target.to_string_lossy().to_string(),
+                                            });
+                                        }
+                                    }
+                                } else {
+                                    // Relative link target: resolve relative to parent dir of current symlink
+                                    let parent =
+                                        current_symlink.parent().unwrap_or(&root_canonical);
+                                    let candidate_target = parent.join(&link_target);
+                                    match candidate_target.canonicalize() {
+                                        Ok(canon) => {
+                                            if !canon.starts_with(&root_canonical) {
+                                                return Err(FsError::SymlinkEscape {
+                                                    path: current_symlink
+                                                        .to_string_lossy()
+                                                        .to_string(),
+                                                    target: canon.to_string_lossy().to_string(),
+                                                });
+                                            }
+                                            canon
+                                        }
+                                        Err(e) if is_symlink_loop_io_error(&e) => {
+                                            return Err(FsError::SymlinkLoop {
+                                                path: current_symlink.to_string_lossy().to_string(),
+                                            });
+                                        }
+                                        Err(_) => {
+                                            // Target doesn't exist yet or broken link
+                                            let normalized =
+                                                normalize_virtual_components(&link_target)?;
+                                            let joined = parent.join(normalized);
+                                            if !joined.starts_with(&root_canonical) {
+                                                return Err(FsError::SymlinkEscape {
+                                                    path: current_symlink
+                                                        .to_string_lossy()
+                                                        .to_string(),
+                                                    target: link_target
+                                                        .to_string_lossy()
+                                                        .to_string(),
+                                                });
+                                            }
+                                            joined
+                                        }
+                                    }
+                                };
+
+                                match std::fs::symlink_metadata(&resolved_target) {
+                                    Ok(m) if m.file_type().is_symlink() => {
+                                        current_symlink = resolved_target;
+                                        continue;
+                                    }
+                                    _ => {
+                                        current_physical = resolved_target;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 } else {
@@ -308,9 +357,20 @@ pub fn resolve_confined_path(
 
     // Defense-in-depth: If the resolved path exists on disk, canonicalize and verify boundary
     if current_physical.exists() {
-        let canonical_check = current_physical
-            .canonicalize()
-            .map_err(|e| FsError::io(current_physical.to_string_lossy().to_string(), e))?;
+        let canonical_check = match current_physical.canonicalize() {
+            Ok(c) => c,
+            Err(e) if is_symlink_loop_io_error(&e) => {
+                return Err(FsError::SymlinkLoop {
+                    path: current_physical.to_string_lossy().to_string(),
+                });
+            }
+            Err(e) => {
+                return Err(FsError::io(
+                    current_physical.to_string_lossy().to_string(),
+                    e,
+                ));
+            }
+        };
         if !canonical_check.starts_with(&root_canonical) {
             return Err(FsError::PathTraversalAttempt {
                 path: user_path.to_string_lossy().to_string(),
@@ -327,9 +387,17 @@ pub fn resolve_confined_path(
         if let Some(parent) = current_physical.parent()
             && parent.exists()
         {
-            let parent_canon = parent
-                .canonicalize()
-                .map_err(|e| FsError::io(parent.to_string_lossy().to_string(), e))?;
+            let parent_canon = match parent.canonicalize() {
+                Ok(c) => c,
+                Err(e) if is_symlink_loop_io_error(&e) => {
+                    return Err(FsError::SymlinkLoop {
+                        path: parent.to_string_lossy().to_string(),
+                    });
+                }
+                Err(e) => {
+                    return Err(FsError::io(parent.to_string_lossy().to_string(), e));
+                }
+            };
             if !parent_canon.starts_with(&root_canonical) {
                 return Err(FsError::PathTraversalAttempt {
                     path: user_path.to_string_lossy().to_string(),
