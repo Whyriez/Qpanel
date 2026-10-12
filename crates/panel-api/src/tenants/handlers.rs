@@ -876,15 +876,18 @@ pub async fn impersonate_tenant_handler(
     }
 
     // 2. Audit log impersonation
-    state.audit_writer.log_async(
-        Some(admin.0.id),
-        &admin.0.username,
-        "tenant.impersonate",
-        &tenant.username,
-        "success",
-        None,
-        Some(serde_json::json!({ "tenant_id": tenant.id }).to_string()),
-    );
+    let _ = state
+        .audit_writer
+        .log(
+            Some(admin.0.id),
+            &admin.0.username,
+            "tenant.impersonate",
+            &tenant.username,
+            "success",
+            None,
+            Some(serde_json::json!({ "tenant_id": tenant.id }).to_string()),
+        )
+        .await;
 
     // 3. Set tenant session cookie and preserve backup cookie
     let is_secure = state
@@ -938,15 +941,18 @@ pub async fn stop_impersonating_handler(
     let session_repo = SqliteSessionRepository::new(state.pool.clone());
     let _ = session_repo.delete(&auth.0.session_id).await;
 
-    state.audit_writer.log_async(
-        Some(auth.0.id),
-        &auth.0.username,
-        "tenant.impersonate.stop",
-        &auth.0.username,
-        "success",
-        None,
-        None,
-    );
+    let _ = state
+        .audit_writer
+        .log(
+            Some(auth.0.id),
+            &auth.0.username,
+            "tenant.impersonate.stop",
+            &auth.0.username,
+            "success",
+            None,
+            None,
+        )
+        .await;
 
     (
         StatusCode::OK,

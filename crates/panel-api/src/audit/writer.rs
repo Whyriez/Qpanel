@@ -23,6 +23,30 @@ impl AuditWriter {
         self.repo.create(&entry).await
     }
 
+    /// Helper to record an audit log with standard fields synchronously.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn log(
+        &self,
+        user_id: Option<i64>,
+        actor_username: impl Into<String>,
+        action: impl Into<String>,
+        target_resource: impl Into<String>,
+        status: impl Into<String>,
+        ip_address: Option<String>,
+        details_json: Option<String>,
+    ) -> Result<AuditLog, DbError> {
+        let entry = CreateAuditLog {
+            user_id,
+            actor_username: actor_username.into(),
+            action: action.into(),
+            target_resource: target_resource.into(),
+            details_json,
+            ip_address,
+            status: status.into(),
+        };
+        self.record(entry).await
+    }
+
     /// Records an audit log entry asynchronously in the background.
     /// Failures to record are logged with a warning rather than bubbling up to the caller.
     pub fn record_async(&self, entry: CreateAuditLog) {

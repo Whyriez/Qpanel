@@ -698,26 +698,38 @@ async fn test_tenant_impersonation_flow_and_audit() {
     assert_eq!(stop_res.status(), StatusCode::OK);
 
     // 5. Verify audit logs record impersonate and stop
-    let audit_req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/audit/logs")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.admin_session),
-        )
-        .body(Body::empty())
-        .expect("build");
+    let mut logs = Vec::new();
+    for _ in 0..20 {
+        let audit_req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/audit/logs")
+            .header(
+                header::COOKIE,
+                format!("{}={}", SESSION_COOKIE_NAME, ctx.admin_session),
+            )
+            .body(Body::empty())
+            .expect("build");
 
-    let audit_res = ctx.app.clone().oneshot(audit_req).await.expect("res");
-    assert_eq!(audit_res.status(), StatusCode::OK);
-    let audit_body = audit_res
-        .into_body()
-        .collect()
-        .await
-        .expect("read")
-        .to_bytes();
-    let audit_json: Value = serde_json::from_slice(&audit_body).expect("parse json");
-    let logs = audit_json["items"].as_array().expect("logs array");
+        let audit_res = ctx.app.clone().oneshot(audit_req).await.expect("res");
+        assert_eq!(audit_res.status(), StatusCode::OK);
+        let audit_body = audit_res
+            .into_body()
+            .collect()
+            .await
+            .expect("read")
+            .to_bytes();
+        let audit_json: Value = serde_json::from_slice(&audit_body).expect("parse json");
+        logs = audit_json["items"].as_array().cloned().unwrap_or_default();
+
+        if logs.iter().any(|l| l["action"] == "tenant.impersonate")
+            && logs
+                .iter()
+                .any(|l| l["action"] == "tenant.impersonate.stop")
+        {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
 
     assert!(logs.iter().any(|l| l["action"] == "tenant.impersonate"));
     assert!(
