@@ -120,15 +120,18 @@ pub async fn login_handler(
 
     // 1. Check account lockout status
     if let Err(remaining_secs) = state.lockout_manager.check_lockout(&payload.username) {
-        state.audit_writer.log_async(
-            None,
-            &payload.username,
-            "auth.login",
-            "auth",
-            "failure",
-            client_ip.clone(),
-            Some(r#"{"reason":"account_locked"}"#.to_string()),
-        );
+        let _ = state
+            .audit_writer
+            .log(
+                None,
+                &payload.username,
+                "auth.login",
+                "auth",
+                "failure",
+                client_ip.clone(),
+                Some(r#"{"reason":"account_locked"}"#.to_string()),
+            )
+            .await;
         return (
             StatusCode::LOCKED,
             Json(serde_json::json!({
@@ -145,15 +148,18 @@ pub async fn login_handler(
         Ok(Some(u)) => u,
         _ => {
             let lockout = state.lockout_manager.record_failure(&payload.username);
-            state.audit_writer.log_async(
-                None,
-                &payload.username,
-                "auth.login",
-                "auth",
-                "failure",
-                client_ip.clone(),
-                Some(r#"{"reason":"user_not_found"}"#.to_string()),
-            );
+            let _ = state
+                .audit_writer
+                .log(
+                    None,
+                    &payload.username,
+                    "auth.login",
+                    "auth",
+                    "failure",
+                    client_ip.clone(),
+                    Some(r#"{"reason":"user_not_found"}"#.to_string()),
+                )
+                .await;
             let status = if lockout.is_some() {
                 StatusCode::LOCKED
             } else {
@@ -173,15 +179,18 @@ pub async fn login_handler(
     let is_valid = verify_password(&payload.password, &user.password_hash).unwrap_or(false);
     if !is_valid {
         let lockout = state.lockout_manager.record_failure(&payload.username);
-        state.audit_writer.log_async(
-            Some(user.id),
-            &user.username,
-            "auth.login",
-            "auth",
-            "failure",
-            client_ip.clone(),
-            Some(r#"{"reason":"invalid_password"}"#.to_string()),
-        );
+        let _ = state
+            .audit_writer
+            .log(
+                Some(user.id),
+                &user.username,
+                "auth.login",
+                "auth",
+                "failure",
+                client_ip.clone(),
+                Some(r#"{"reason":"invalid_password"}"#.to_string()),
+            )
+            .await;
         let status = if lockout.is_some() {
             StatusCode::LOCKED
         } else {
@@ -198,15 +207,18 @@ pub async fn login_handler(
 
     // 4. Check account status
     if user.status != "active" {
-        state.audit_writer.log_async(
-            Some(user.id),
-            &user.username,
-            "auth.login",
-            "auth",
-            "failure",
-            client_ip.clone(),
-            Some(r#"{"reason":"inactive_account"}"#.to_string()),
-        );
+        let _ = state
+            .audit_writer
+            .log(
+                Some(user.id),
+                &user.username,
+                "auth.login",
+                "auth",
+                "failure",
+                client_ip.clone(),
+                Some(r#"{"reason":"inactive_account"}"#.to_string()),
+            )
+            .await;
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
@@ -248,15 +260,18 @@ pub async fn login_handler(
 
                 if !is_valid_2fa {
                     let lockout = state.lockout_manager.record_failure(&payload.username);
-                    state.audit_writer.log_async(
-                        Some(user.id),
-                        &user.username,
-                        "auth.login",
-                        "auth",
-                        "failure",
-                        client_ip.clone(),
-                        Some(r#"{"reason":"invalid_2fa"}"#.to_string()),
-                    );
+                    let _ = state
+                        .audit_writer
+                        .log(
+                            Some(user.id),
+                            &user.username,
+                            "auth.login",
+                            "auth",
+                            "failure",
+                            client_ip.clone(),
+                            Some(r#"{"reason":"invalid_2fa"}"#.to_string()),
+                        )
+                        .await;
                     let status = if lockout.is_some() {
                         StatusCode::LOCKED
                     } else {
@@ -312,15 +327,18 @@ pub async fn login_handler(
     }
 
     // Record successful login audit log
-    state.audit_writer.log_async(
-        Some(user.id),
-        &user.username,
-        "auth.login",
-        "auth",
-        "success",
-        client_ip,
-        None,
-    );
+    let _ = state
+        .audit_writer
+        .log(
+            Some(user.id),
+            &user.username,
+            "auth.login",
+            "auth",
+            "success",
+            client_ip,
+            None,
+        )
+        .await;
 
     // 8. Generate CSRF token and Set-Cookie header
     let csrf_token = generate_csrf_token(&session_id);
@@ -369,15 +387,18 @@ pub async fn logout_handler(
     let session_repo = SqliteSessionRepository::new(state.pool.clone());
     let _ = session_repo.delete(&user.session_id).await;
 
-    state.audit_writer.log_async(
-        Some(user.id),
-        &user.username,
-        "auth.logout",
-        "auth",
-        "success",
-        None,
-        None,
-    );
+    let _ = state
+        .audit_writer
+        .log(
+            Some(user.id),
+            &user.username,
+            "auth.logout",
+            "auth",
+            "success",
+            None,
+            None,
+        )
+        .await;
 
     let is_secure = state
         .auth_config

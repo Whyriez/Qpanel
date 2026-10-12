@@ -237,12 +237,20 @@ async fn test_auth_actions_recorded_in_audit_log() {
     // Wait for background tasks to settle
     let repo = SqliteAuditLogRepository::new(pool);
     let mut all_logs = Vec::new();
-    for _ in 0..40 {
+    for _ in 0..60 {
         all_logs = repo.list(50, 0).await.expect("list");
-        if all_logs
+        let has_unknown = all_logs.iter().any(|l| l.actor_username == "unknown_user");
+        let has_alice_fail = all_logs
             .iter()
-            .any(|l| l.actor_username == "alice" && l.action == "auth.logout")
-        {
+            .any(|l| l.actor_username == "alice" && l.status == "failure");
+        let has_alice_success = all_logs.iter().any(|l| {
+            l.actor_username == "alice" && l.status == "success" && l.action == "auth.login"
+        });
+        let has_alice_logout = all_logs
+            .iter()
+            .any(|l| l.actor_username == "alice" && l.action == "auth.logout");
+
+        if has_unknown && has_alice_fail && has_alice_success && has_alice_logout {
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
