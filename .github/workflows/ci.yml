@@ -36,7 +36,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Ensure web dist directory exists
-        run: mkdir -p web/dist && touch web/dist/index.html
+        run: |
+          mkdir -p web/dist
+          cp web/index.html web/dist/index.html
 
       - name: Check formatting (rustfmt)
         run: cargo fmt --check
