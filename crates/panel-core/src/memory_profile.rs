@@ -123,20 +123,24 @@ pub fn read_current_process_memory() -> ProcessMemorySnapshot {
                 })
                 .unwrap_or(false);
 
-        if !is_test_runner {
-            if let Ok(statm) = std::fs::read_to_string("/proc/self/statm") {
-                let page_size = 4096u64;
-                if let Ok((rss_bytes, vsize_bytes)) = parse_proc_statm(&statm, page_size) {
-                    return ProcessMemorySnapshot {
-                        pid,
-                        rss_bytes,
-                        rss_mb: (rss_bytes as f64) / (1024.0 * 1024.0),
-                        vsize_bytes,
-                        vsize_mb: (vsize_bytes as f64) / (1024.0 * 1024.0),
-                        allocator: "mimalloc".to_string(),
-                        timestamp_epoch_secs: epoch,
-                    };
-                }
+        let statm_data = if is_test_runner {
+            None
+        } else {
+            std::fs::read_to_string("/proc/self/statm").ok()
+        };
+
+        if let Some(statm) = statm_data {
+            let page_size = 4096u64;
+            if let Ok((rss_bytes, vsize_bytes)) = parse_proc_statm(&statm, page_size) {
+                return ProcessMemorySnapshot {
+                    pid,
+                    rss_bytes,
+                    rss_mb: (rss_bytes as f64) / (1024.0 * 1024.0),
+                    vsize_bytes,
+                    vsize_mb: (vsize_bytes as f64) / (1024.0 * 1024.0),
+                    allocator: "mimalloc".to_string(),
+                    timestamp_epoch_secs: epoch,
+                };
             }
         }
     }
