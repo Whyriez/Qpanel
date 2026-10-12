@@ -664,7 +664,19 @@ impl ConfinedFs {
         #[cfg(unix)]
         {
             use std::os::unix::fs::chown;
-            chown(abs, uid, gid).map_err(|e| FsError::io(confined.relative_posix(), e))?;
+            if let Err(e) = chown(abs, uid, gid) {
+                if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(1) {
+                    warn!(
+                        "chown on {} to {:?}:{:?} failed ({}: Operation not permitted). Continuing in unprivileged environment.",
+                        abs.display(),
+                        uid,
+                        gid,
+                        e
+                    );
+                } else {
+                    return Err(FsError::io(confined.relative_posix(), e));
+                }
+            }
         }
 
         #[cfg(not(unix))]
