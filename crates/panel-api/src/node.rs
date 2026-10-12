@@ -63,6 +63,7 @@ pub struct NodeRuntimeInstallApiRequest {
     pub offline_tarball_path: Option<String>,
     pub offline_checksum: Option<String>,
     pub enable_corepack: Option<bool>,
+    pub base_dir: Option<String>,
 }
 
 /// Response returned after a Node.js runtime action.
@@ -305,7 +306,7 @@ pub async fn install_node_version_handler(
         offline_tarball_path: payload.offline_tarball_path,
         offline_checksum: payload.offline_checksum,
         enable_corepack: payload.enable_corepack.unwrap_or(true),
-        base_dir: None,
+        base_dir: payload.base_dir,
     };
 
     match state.agent_client.install_node_runtime(req).await {

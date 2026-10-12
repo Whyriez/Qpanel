@@ -331,12 +331,17 @@ async fn test_install_node_version_rbac_and_flow() {
                 "version": "22.14.0",
                 "offline_tarball_path": offline_tar_file.to_string_lossy(),
                 "offline_checksum": checksum,
-                "enable_corepack": true
+                "enable_corepack": true,
+                "base_dir": ctx._runtimes_base_dir.to_string_lossy()
             }))
             .unwrap(),
         ))
         .unwrap();
     let install_res = ctx.app.clone().oneshot(install_req).await.unwrap();
+    if install_res.status() != StatusCode::OK {
+        let err_body = install_res.into_body().collect().await.unwrap().to_bytes();
+        panic!("Install failed: {}", String::from_utf8_lossy(&err_body));
+    }
     assert_eq!(install_res.status(), StatusCode::OK);
 
     let body = install_res.into_body().collect().await.unwrap().to_bytes();
