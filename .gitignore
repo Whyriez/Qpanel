@@ -36,12 +36,7 @@ secret.key
 # Local development / agent docs
 # =========================
 docs/
-!docs/
-docs/*
-!docs/adr/
-docs/adr/*
-!docs/adr/0078-production-install-runtime-repair.md
-!docs/release-v0.1.1.md
+/docs/
 
 AGENTS.md
 PUSH_GITHUB.md
