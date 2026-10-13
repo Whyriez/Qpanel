@@ -6,7 +6,7 @@ use http_body_util::BodyExt;
 use panel_agent::{AgentConfig, AgentServer};
 use panel_api::agent_client::AgentClient;
 use panel_api::create_router;
-use panel_api::routes::AppState;
+use panel_api::routes::{AppState, SystemInfoResponse};
 use std::sync::Arc;
 use std::time::Duration;
 use tower::ServiceExt;
@@ -38,7 +38,7 @@ async fn test_ipc_ping_and_version() {
 
     // Test Version
     let ver_info = client.version().await.expect("version agent");
-    assert_eq!(ver_info.version, "0.1.0");
+    assert_eq!(ver_info.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(ver_info.proto_version, panel_proto::PROTOCOL_VERSION);
 
     // Shutdown agent
@@ -120,10 +120,15 @@ async fn test_api_healthz_and_system_info_endpoints() {
         .await
         .expect("read body")
         .to_bytes();
-    let body_str = String::from_utf8_lossy(&body_bytes);
-    assert!(body_str.contains("\"agent_connected\":true"));
-    assert!(body_str.contains("\"agent_version\":\"0.1.0\""));
-    assert!(body_str.contains("\"proto_version\":1"));
+    let info: SystemInfoResponse =
+        serde_json::from_slice(&body_bytes).expect("decode system info response");
+    assert!(info.agent_connected);
+    assert_eq!(info.api_version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        info.agent_version.as_deref(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    assert_eq!(info.proto_version, panel_proto::PROTOCOL_VERSION);
 
     // 3. Test embedded web assets and SPA fallback
     let req = Request::builder()
