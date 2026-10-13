@@ -75,8 +75,8 @@ async fn test_nginx_baseline_install_and_apply_over_ipc() {
         base_dir: Some(nginx_dir.to_string_lossy().to_string()),
         log_dir: Some(log_dir.to_string_lossy().to_string()),
         acme_dir: Some(acme_dir.to_string_lossy().to_string()),
-        panel_api_port: Some(3000),
-        panel_listen_port: Some(8443),
+        panel_api_port: Some(7700),
+        panel_listen_port: Some(17890),
         test_config: true,
         reload: true,
     };
@@ -109,8 +109,8 @@ async fn test_nginx_baseline_install_and_apply_over_ipc() {
     // Verify 10-panel proxy vhost
     let panel_conf =
         fs::read_to_string(nginx_dir.join("conf.d/10-panel.conf")).expect("read 10-panel.conf");
-    assert!(panel_conf.contains("listen 8443;"));
-    assert!(panel_conf.contains("proxy_pass http://127.0.0.1:3000;"));
+    assert!(panel_conf.contains("listen 17890;"));
+    assert!(panel_conf.contains("proxy_pass http://127.0.0.1:7700;"));
 
     // Verify security snippets
     assert!(nginx_dir.join("snippets/acme.conf").exists());

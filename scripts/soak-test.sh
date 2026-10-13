@@ -7,7 +7,7 @@ set -euo pipefail
 
 ITERATIONS=10
 INTERVAL_SEC=1
-API_URL="http://127.0.0.1:3000"
+API_URL="http://127.0.0.1:17890"
 OUTPUT_DIR="docs/benchmarks/results"
 DRY_RUN=false
 
@@ -19,7 +19,7 @@ print_help() {
     echo "Options:"
     echo "  --iterations <N>    Number of monitoring cycles (default: 10)"
     echo "  --interval <SEC>    Seconds between sampling cycles (default: 1)"
-    echo "  --api-url <URL>     Base URL of running panel-api (default: http://127.0.0.1:3000)"
+    echo "  --api-url <URL>     Base URL of running panel-api (default: http://127.0.0.1:17890)"
     echo "  --output-dir <DIR>  Output directory for soak test results (default: docs/benchmarks/results)"
     echo "  --dry-run           Simulate soak run without invoking live system endpoints"
     echo "  --help              Display this help message"

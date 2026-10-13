@@ -1,0 +1,3 @@
+# P10-T6 / v0.1.1: pin the ARM sysroot; CI rejects symbols newer than GLIBC 2.35.
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"

@@ -5,6 +5,64 @@ use std::error::Error;
 use std::path::Path;
 use tracing::info;
 
+fn remove_panel_proxy() -> Result<(), Box<dyn Error>> {
+    #[cfg(unix)]
+    if cfg!(target_os = "linux") {
+        let available = Path::new("/etc/nginx/sites-available/nusa-panel.conf");
+        let enabled = Path::new("/etc/nginx/sites-enabled/nusa-panel.conf");
+        let contents = if available.exists() {
+            Some(std::fs::read(available)?)
+        } else {
+            None
+        };
+        let link = std::fs::read_link(enabled).ok();
+        let enabled_contents = if link.is_none() && enabled.is_file() {
+            Some(std::fs::read(enabled)?)
+        } else {
+            None
+        };
+        if contents.is_none() && link.is_none() && enabled_contents.is_none() {
+            return Ok(());
+        }
+        if enabled.symlink_metadata().is_ok() {
+            std::fs::remove_file(enabled)?;
+        }
+        if available.exists() {
+            std::fs::remove_file(available)?;
+        }
+        let syntax = panel_core::production::system_command("nginx")
+            .arg("-t")
+            .status();
+        let active = panel_core::production::system_command("systemctl")
+            .args(["is-active", "--quiet", "nginx"])
+            .status();
+        let valid = matches!(syntax, Ok(status) if status.success());
+        let reloaded = if valid && matches!(active, Ok(status) if status.success()) {
+            panel_core::production::system_command("systemctl")
+                .args(["reload", "nginx"])
+                .status()
+                .is_ok_and(|status| status.success())
+        } else {
+            valid
+        };
+        if !reloaded {
+            if let Some(bytes) = contents {
+                std::fs::write(available, bytes)?;
+            }
+            if let Some(target) = link {
+                std::os::unix::fs::symlink(target, enabled)?;
+            }
+            if let Some(bytes) = enabled_contents {
+                std::fs::write(enabled, bytes)?;
+            }
+            return Err(
+                "Nginx validation/reload failed; panel proxy restored and uninstall aborted".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Options for `panelctl uninstall`.
 #[derive(Debug, Clone, Default)]
 pub struct UninstallCliOptions {
@@ -109,6 +167,7 @@ pub async fn run_uninstall(
 ) -> Result<UninstallResult, Box<dyn Error>> {
     info!("Memulai proses pencopotan pemasangan (uninstall) Nusa Panel...");
 
+    remove_panel_proxy()?;
     let (services_stopped, unit_files_removed) = stop_and_remove_systemd_services();
     let binaries_removed = remove_installed_binaries();
     let data_purged = purge_data_and_users(options.purge);

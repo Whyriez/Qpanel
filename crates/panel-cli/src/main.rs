@@ -28,7 +28,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 )]
 struct Cli {
     /// SQLite database URL or file path (e.g. "panel.db" or "sqlite://panel.db")
-    #[arg(long, env = "PANEL_DB_PATH", default_value = "panel.db")]
+    #[arg(long, env = "PANEL_DB_PATH", default_value = panel_core::production::DEFAULT_DATABASE_PATH)]
     db_path: String,
 
     #[command(subcommand)]
@@ -37,6 +37,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Internal bounded IPC probe; does not open or migrate the database.
+    #[command(hide = true)]
+    IpcCheck,
     /// Administrator account management
     Admin {
         #[command(subcommand)]
@@ -273,7 +276,38 @@ fn normalize_db_url(path_or_url: &str) -> String {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
+    // Administrative CLI calls must not create root-owned production WAL/SHM.
+    #[cfg(unix)]
+    if normalize_db_url(&cli.db_path)
+        == format!("sqlite://{}", panel_core::production::DEFAULT_DATABASE_PATH)
+        && matches!(
+            cli.command,
+            Commands::Admin { .. }
+                | Commands::SetupToken { .. }
+                | Commands::Doctor { .. }
+                | Commands::Reconcile { .. }
+                | Commands::Backup { .. }
+                | Commands::Upgrade { dry_run: true, .. }
+        )
+    {
+        let uid = panel_core::production::system_command("id")
+            .arg("-u")
+            .output()?;
+        if !uid.status.success() {
+            return Err("Cannot determine CLI identity".into());
+        }
+        if String::from_utf8_lossy(&uid.stdout).trim() == "0" {
+            let status = panel_core::production::system_command("runuser")
+                .args(["-u", "panel-api", "--"])
+                .arg(std::env::current_exe()?)
+                .args(std::env::args_os().skip(1))
+                .status()?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
+    }
+
     match cli.command {
+        Commands::IpcCheck => panel_cli::commands::doctor::probe_agent_ipc().await,
         Commands::Benchmark { command } => handle_benchmark_command(command).await,
         Commands::MemoryProfile {
             json,
@@ -334,6 +368,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
             dry_run,
             json,
         } => {
+            if !dry_run {
+                let bin_dir = binary_dir
+                    .as_ref()
+                    .ok_or("Use --binary-dir <extracted-release>/bin for a production upgrade")?;
+                return panel_cli::commands::upgrade::run_packaged_upgrade(
+                    Path::new(bin_dir),
+                    skip_backup,
+                    restart_services,
+                    json,
+                );
+            }
             let db_url = normalize_db_url(&cli.db_path);
             let pool = init_pool(&db_url).await?;
             let opts = UpgradeCliOptions {

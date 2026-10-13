@@ -77,8 +77,8 @@ async fn test_site_atomic_apply_and_rollback_over_ipc() {
         base_dir: Some(nginx_dir.to_string_lossy().to_string()),
         log_dir: Some(log_dir.to_string_lossy().to_string()),
         acme_dir: Some(acme_dir.to_string_lossy().to_string()),
-        panel_api_port: Some(3000),
-        panel_listen_port: Some(8443),
+        panel_api_port: Some(7700),
+        panel_listen_port: Some(17890),
         test_config: true,
         reload: true,
     };

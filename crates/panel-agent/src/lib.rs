@@ -413,24 +413,73 @@ impl AgentServer {
     fn bind_unix_listener(
         socket_path: &std::path::Path,
     ) -> Result<tokio::net::UnixListener, AgentError> {
-        if socket_path.exists() {
-            let _ = std::fs::remove_file(socket_path);
+        use std::os::unix::fs::{FileTypeExt, PermissionsExt, chown};
+        let production = socket_path == Path::new("/run/panel/agent.sock");
+        let gid = if production {
+            let output = panel_core::production::system_command("getent")
+                .args(["group", "panel"])
+                .output()?;
+            let group = String::from_utf8_lossy(&output.stdout);
+            Some(
+                group
+                    .split(':')
+                    .nth(2)
+                    .and_then(|id| id.parse::<u32>().ok())
+                    .filter(|_| output.status.success())
+                    .ok_or_else(|| {
+                        AgentError::SecurityViolation("Missing system group panel".to_string())
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+            if production {
+                if std::fs::symlink_metadata(parent)?.file_type().is_symlink() {
+                    return Err(AgentError::SecurityViolation(
+                        "Runtime directory is a symlink".to_string(),
+                    ));
+                }
+                chown(parent, Some(0), gid)?;
+                std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o750))?;
+            }
         }
 
-        if let Some(parent) = socket_path.parent().filter(|p| !p.exists()) {
-            std::fs::create_dir_all(parent)?;
+        match std::fs::symlink_metadata(socket_path) {
+            Ok(metadata) => {
+                if !metadata.file_type().is_socket() {
+                    return Err(AgentError::SecurityViolation(
+                        "Refusing to remove a non-socket IPC path".to_string(),
+                    ));
+                }
+                if std::os::unix::net::UnixStream::connect(socket_path).is_ok() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        "Agent socket is already listening",
+                    )
+                    .into());
+                }
+                std::fs::remove_file(socket_path)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
 
         let listener = tokio::net::UnixListener::bind(socket_path)?;
-        info!("Agent listening on Unix socket: {}", socket_path.display());
-
-        // Ensure socket permissions are restricted (0660 root:panel)
-        use std::os::unix::fs::PermissionsExt;
-        let permissions = std::fs::Permissions::from_mode(0o660);
-        if let Err(e) = std::fs::set_permissions(socket_path, permissions) {
-            warn!("Failed to set permissions on agent socket: {}", e);
+        let secured = (|| -> std::io::Result<()> {
+            if production {
+                chown(socket_path, Some(0), gid)?;
+            }
+            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o660))
+        })();
+        if let Err(error) = secured {
+            drop(listener);
+            let _ = std::fs::remove_file(socket_path);
+            return Err(error.into());
         }
-
+        info!("Agent listening on Unix socket: {}", socket_path.display());
         Ok(listener)
     }
 
@@ -1949,5 +1998,45 @@ pub async fn run_agent_socket(path: impl AsRef<Path>) -> Result<(), AgentError> 
             let _ = tx.send(());
             Ok(())
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod ipc_security_tests {
+    use super::*;
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    #[tokio::test]
+    async fn socket_mode_is_explicit_and_live_socket_is_preserved() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("agent.sock");
+        let listener = AgentServer::bind_unix_listener(&path).expect("bind");
+        let metadata = std::fs::symlink_metadata(&path).expect("metadata");
+        assert!(metadata.file_type().is_socket());
+        assert_eq!(metadata.mode() & 0o7777, 0o660);
+        assert!(AgentServer::bind_unix_listener(&path).is_err());
+        assert_eq!(
+            std::fs::metadata(&path).expect("metadata").ino(),
+            metadata.ino()
+        );
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn refuses_to_unlink_regular_file_or_symlink() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("agent.sock");
+        std::fs::write(&path, "preserve").expect("write");
+        assert!(AgentServer::bind_unix_listener(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "preserve");
+        let link = dir.path().join("link.sock");
+        std::os::unix::fs::symlink(&path, &link).expect("symlink");
+        assert!(AgentServer::bind_unix_listener(&link).is_err());
+        assert!(
+            link.symlink_metadata()
+                .expect("metadata")
+                .file_type()
+                .is_symlink()
+        );
     }
 }

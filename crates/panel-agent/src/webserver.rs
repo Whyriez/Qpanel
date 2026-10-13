@@ -108,8 +108,12 @@ impl NginxManager {
             log_dir,
             acme_dir,
             cache_dir,
-            panel_api_port: req.panel_api_port.unwrap_or(3000),
-            panel_listen_port: req.panel_listen_port.unwrap_or(8443),
+            panel_api_port: req
+                .panel_api_port
+                .unwrap_or(panel_core::production::INTERNAL_API_PORT),
+            panel_listen_port: req
+                .panel_listen_port
+                .unwrap_or(panel_core::production::PUBLIC_PANEL_PORT),
             worker_processes: "auto".to_string(),
             worker_connections: 4096,
         }
@@ -743,8 +747,8 @@ mod tests {
             base_dir: Some(nginx_dir.to_string_lossy().to_string()),
             log_dir: Some(log_dir.to_string_lossy().to_string()),
             acme_dir: Some(acme_dir.to_string_lossy().to_string()),
-            panel_api_port: Some(3000),
-            panel_listen_port: Some(8443),
+            panel_api_port: Some(7700),
+            panel_listen_port: Some(17890),
             test_config: true,
             reload: true,
         };

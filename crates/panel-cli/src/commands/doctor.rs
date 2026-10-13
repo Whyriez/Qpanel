@@ -6,14 +6,66 @@ use panel_core::doctor::{
 use panel_db::pool::DbPool;
 use panel_db::repositories::SqliteJobRepository;
 #[cfg(unix)]
-use panel_proto::{
-    RequestPayload, RpcRequest, RpcStream, SystemDoctorCheckRequest, SystemDoctorFixRequest,
-};
+use panel_proto::{RequestPayload, RpcRequest, RpcStream, SystemDoctorFixRequest};
 use std::error::Error;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing::info;
+
+/// Version RPC with a deadline. No host mutations and no database initialization.
+pub async fn probe_agent_ipc() -> Result<(), Box<dyn Error>> {
+    #[cfg(unix)]
+    {
+        let probe = async {
+            let stream = tokio::net::UnixStream::connect("/run/panel/agent.sock").await?;
+            let mut rpc = RpcStream::new(stream);
+            let request = RpcRequest::new("cli-ipc-probe", RequestPayload::Version);
+            rpc.send_request(&request).await?;
+            let response = rpc.recv_response().await?;
+            if !response.success
+                || response.request_id != request.request_id
+                || response.proto_version != panel_proto::PROTOCOL_VERSION
+                || !matches!(response.payload, panel_proto::ResponsePayload::Version(_))
+            {
+                return Err("Agent rejected IPC probe or returned an invalid response".into());
+            }
+            Ok::<(), Box<dyn Error>>(())
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(3), probe).await??;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    Err("Production IPC probe requires Linux".into())
+}
+
+#[cfg(unix)]
+fn check_service_socket_permissions() -> Result<(), Box<dyn Error>> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let group = panel_core::production::system_command("getent")
+        .args(["group", "panel"])
+        .output()?;
+    let gid = String::from_utf8_lossy(&group.stdout)
+        .split(':')
+        .nth(2)
+        .and_then(|id| id.parse::<u32>().ok())
+        .filter(|_| group.status.success())
+        .ok_or("System group panel is missing")?;
+    let directory = std::fs::symlink_metadata("/run/panel")?;
+    let socket = std::fs::symlink_metadata("/run/panel/agent.sock")?;
+    if !directory.is_dir()
+        || directory.uid() != 0
+        || directory.gid() != gid
+        || directory.mode() & 0o7777 != 0o750
+        || !socket.file_type().is_socket()
+        || socket.uid() != 0
+        || socket.gid() != gid
+        || socket.mode() & 0o7777 != 0o660
+    {
+        return Err("Expected /run/panel root:panel 0750 and agent.sock root:panel 0660".into());
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct DoctorCliOptions {
@@ -108,21 +160,25 @@ async fn check_agent_socket_cli() -> DoctorCheckItem {
     #[allow(unused_mut)]
     let mut agent_connected = false;
     #[cfg(unix)]
-    let socket_path = Path::new("/run/panel/agent.sock");
-
-    #[cfg(unix)]
-    if socket_path.exists()
-        && let Ok(stream) = tokio::net::UnixStream::connect(socket_path).await
-    {
-        let mut rpc = RpcStream::new(stream);
-        let req = RpcRequest::new(
-            "cli-doc-1",
-            RequestPayload::SystemDoctorCheck(SystemDoctorCheckRequest {}),
-        );
-        if rpc.send_request(&req).await.is_ok() {
-            let _ = rpc.recv_request().await;
-        }
-        agent_connected = true;
+    if check_service_socket_permissions().is_ok() {
+        let uid = panel_core::production::system_command("id")
+            .arg("-u")
+            .output();
+        let root = matches!(uid, Ok(out) if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "0");
+        agent_connected = if root {
+            panel_core::production::system_command("runuser")
+                .args([
+                    "-u",
+                    "panel-api",
+                    "--",
+                    "/usr/local/bin/panelctl",
+                    "ipc-check",
+                ])
+                .output()
+                .is_ok_and(|out| out.status.success())
+        } else {
+            probe_agent_ipc().await.is_ok()
+        };
     }
 
     let is_linux = cfg!(target_os = "linux");
@@ -136,11 +192,11 @@ async fn check_agent_socket_cli() -> DoctorCheckItem {
             DoctorCheckStatus::Warn
         },
         message: if agent_connected {
-            "Soket /run/panel/agent.sock aktif dan merespons IPC".to_string()
+            "Permission root:panel valid; identitas panel-api dapat melakukan RPC agent".to_string()
         } else if !is_linux {
             "Soket IPC dilewati pada lingkungan pengujian host".to_string()
         } else {
-            "Soket /run/panel/agent.sock tidak merespons (agent mungkin belum berjalan)".to_string()
+            "Permission runtime/socket tidak valid atau identitas panel-api tidak dapat melakukan RPC".to_string()
         },
         remediation_hint: if !agent_connected && is_linux {
             Some("Mulai daemon agent dengan 'systemctl start panel-agent'".to_string())
@@ -174,13 +230,20 @@ fn check_system_binaries_cli() -> Vec<DoctorCheckItem> {
     });
 
     for bin in &["nginx", "tar", "systemctl", "curl"] {
-        let (status, msg) = match std::process::Command::new(bin).arg("--version").output() {
+        let flag = if *bin == "nginx" { "-v" } else { "--version" };
+        let (status, msg) = match panel_core::production::system_command(bin)
+            .arg(flag)
+            .output()
+        {
             Ok(out) if out.status.success() => {
                 (DoctorCheckStatus::Pass, format!("Biner {} terpasang", bin))
             }
             _ => (
                 DoctorCheckStatus::Warn,
-                format!("Biner {} tidak ditemukan dalam PATH", bin),
+                format!(
+                    "Biner {} tidak ditemukan pada direktori sistem atau gagal dijalankan",
+                    bin
+                ),
             ),
         };
         items.push(DoctorCheckItem {

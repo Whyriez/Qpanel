@@ -11,9 +11,9 @@ pub struct NginxBaselineConfig {
     pub log_dir: PathBuf,
     /// ACME challenge root directory (e.g. `/var/lib/panel/acme`).
     pub acme_dir: PathBuf,
-    /// Port of the internal panel-api daemon (default 3000).
+    /// Port of the internal panel-api daemon (default 7700).
     pub panel_api_port: u16,
-    /// Public port for Nusa Panel web interface (default 8443).
+    /// Public port for Nusa Panel web interface (default 17890).
     pub panel_listen_port: u16,
     /// Number of worker processes (default "auto").
     pub worker_processes: String,
@@ -30,8 +30,8 @@ impl Default for NginxBaselineConfig {
             log_dir: PathBuf::from("/var/log/panel"),
             acme_dir: PathBuf::from("/var/lib/panel/acme"),
             cache_dir: PathBuf::from("/var/cache/nginx/panel"),
-            panel_api_port: 3000,
-            panel_listen_port: 8443,
+            panel_api_port: panel_core::production::INTERNAL_API_PORT,
+            panel_listen_port: panel_core::production::PUBLIC_PANEL_PORT,
             worker_processes: "auto".to_string(),
             worker_connections: 4096,
         }
@@ -207,7 +207,7 @@ server {
         .to_string()
     }
 
-    /// Generates `conf.d/10-panel.conf`: vhost for Nusa Panel web interface (:8443).
+    /// Generates `conf.d/10-panel.conf`: vhost for the Nusa Panel web interface.
     pub fn render_panel_vhost(&self) -> String {
         let security_headers = self
             .snippets_dir()
@@ -216,7 +216,7 @@ server {
             .replace('\\', "/");
 
         format!(
-            r#"# Nusa Panel Management Interface (:8443)
+            r#"# Nusa Panel Management Interface
 # Proxies requests to internal unprivileged panel-api daemon.
 
 server {{
@@ -507,8 +507,8 @@ mod tests {
         let config = NginxBaselineConfig::default();
         let vhost = config.render_panel_vhost();
 
-        assert!(vhost.contains("listen 8443;"));
-        assert!(vhost.contains("proxy_pass http://127.0.0.1:3000;"));
+        assert!(vhost.contains("listen 17890;"));
+        assert!(vhost.contains("proxy_pass http://127.0.0.1:7700;"));
         assert!(vhost.contains("proxy_set_header Upgrade $http_upgrade;"));
         assert!(vhost.contains("proxy_set_header Connection \"upgrade\";"));
         assert!(vhost.contains("include /etc/panel/nginx/snippets/security-headers.conf;"));

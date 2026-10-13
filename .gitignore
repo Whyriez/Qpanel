@@ -1,34 +1,71 @@
+# =========================
 # Rust
+# =========================
 target/
 **/*.rs.bk
 
+
+# =========================
 # Node & Frontend
+# =========================
 node_modules/
 web/dist/
 web/.vite/
 web/coverage/
 
+
+# =========================
 # Panel runtime & data files
+# =========================
 *.db
 *.db-wal
 *.db-shm
 *.sock
+
 /run/
+/var/
 /etc/panel/
+
 secret.key
 *.env
 !.env.example
 *.log
-/var/
 
+
+# =========================
+# Local development / agent docs
+# =========================
+docs/
+!docs/
+docs/*
+!docs/adr/
+docs/adr/*
+!docs/adr/0078-production-install-runtime-repair.md
+!docs/release-v0.1.1.md
+
+AGENTS.md
+BOOTSTRAP_INSTALLER.md
+PRD*.md
+
+FIX_V0.1.1.md
+GITHUB_AUTOMATED_RELEASE.md
+
+
+# =========================
 # OS & Editors
+# =========================
 .DS_Store
 Thumbs.db
+
 .idea/
 .vscode/
+
 *.swp
 *.swo
 
+
+# =========================
 # Tests & Coverage
+# =========================
 coverage/
 lcov.info

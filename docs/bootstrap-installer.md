@@ -94,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/Whyriez/Vpanel/main/scripts/bootstr
 Jika repositori sudah di-clone secara lokal:
 
 ```bash
-sudo bash scripts/bootstrap-install.sh --unattended --port 3000
+sudo bash scripts/bootstrap-install.sh --unattended --port 17890
 ```
 
 ---

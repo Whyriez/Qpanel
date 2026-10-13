@@ -14,6 +14,7 @@ pub mod hardening;
 pub mod memory_profile;
 pub mod notification;
 pub mod php;
+pub mod production;
 pub mod rbac;
 pub mod reconcile;
 pub mod secret_rotation;

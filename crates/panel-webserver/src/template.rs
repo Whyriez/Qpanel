@@ -1240,7 +1240,10 @@ fn validate_upstream_port(port_opt: Option<u16>) -> Result<(), WebserverError> {
                 "Port 0 is forbidden in upstream URL".to_string(),
             ));
         }
-        if port == 7700 || port == 8443 {
+        if port == panel_core::production::INTERNAL_API_PORT
+            || port == panel_core::production::PUBLIC_PANEL_PORT
+            || port == 8443
+        {
             return Err(WebserverError::SecurityViolation(format!(
                 "Upstream port {port} is reserved for internal Nusa Panel services and cannot be proxied"
             )));
@@ -2929,6 +2932,7 @@ mod tests {
         // 3. Reserved panel internal ports: ALWAYS forbidden
         assert!(validate_reverse_proxy_upstream_url("http://127.0.0.1:7700", false).is_err());
         assert!(validate_reverse_proxy_upstream_url("http://127.0.0.1:8443", false).is_err());
+        assert!(validate_reverse_proxy_upstream_url("http://127.0.0.1:17890", false).is_err());
         assert!(validate_reverse_proxy_upstream_url("http://127.0.0.1:0", false).is_err());
 
         // 4. External domains / IPs when allow_external is false: forbidden

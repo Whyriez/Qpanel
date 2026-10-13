@@ -7,6 +7,53 @@ use std::error::Error;
 use std::path::Path;
 use tracing::{error, info, warn};
 
+/// Production upgrades use the release's installer so units, proxy, permissions,
+/// binaries and database roll back together. Called before opening any SQLite pool.
+pub fn run_packaged_upgrade(
+    binary_dir: &Path,
+    skip_backup: bool,
+    restart_services: bool,
+    json: bool,
+) -> Result<(), Box<dyn Error>> {
+    if !cfg!(target_os = "linux") {
+        return Err("Production upgrades require Linux".into());
+    }
+    if skip_backup || !restart_services {
+        return Err("Production upgrades require a backup and service restart".into());
+    }
+    let binaries = binary_dir.canonicalize()?;
+    let installer = binaries
+        .parent()
+        .ok_or("Release directory is missing")?
+        .join("install.sh");
+    if !installer.is_file() || binaries.file_name().is_none_or(|name| name != "bin") {
+        return Err(
+            "Use --binary-dir <extracted-release>/bin; the complete release package is required"
+                .into(),
+        );
+    }
+    let mut command = panel_core::production::system_command("bash");
+    command.arg(&installer).args(["--upgrade", "--unattended"]);
+    if json {
+        let output = command.output()?;
+        let success = output.status.success();
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": success,
+                "output": String::from_utf8_lossy(&output.stdout),
+                "error": String::from_utf8_lossy(&output.stderr),
+            })
+        );
+        if !success {
+            return Err("Packaged upgrade failed; see installer rollback output".into());
+        }
+    } else if !command.status()?.success() {
+        return Err("Packaged upgrade failed; see installer rollback output".into());
+    }
+    Ok(())
+}
+
 /// Command line options for `panelctl upgrade`.
 #[derive(Debug, Clone, Default)]
 pub struct UpgradeCliOptions {
@@ -47,63 +94,6 @@ async fn verify_db_integrity(pool: &DbPool) -> bool {
         .await;
 
     matches!(check_res, Ok(v) if v.to_lowercase() == "ok")
-}
-
-/// Helper to safely replace binaries atomically with fallback.
-fn replace_binary_atomically(src: &Path, dest: &Path) -> Result<(), Box<dyn Error>> {
-    let tmp_dest = dest.with_extension("tmp_upg");
-    std::fs::copy(src, &tmp_dest)?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp_dest, std::fs::Permissions::from_mode(0o755));
-    }
-
-    std::fs::rename(&tmp_dest, dest)?;
-    Ok(())
-}
-
-/// Updates panel binaries from a source directory to target destination.
-fn update_binaries(binary_dir: &str, target_dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
-    let bin_path = Path::new(binary_dir);
-    if !bin_path.exists() {
-        return Err(format!("Direktori biner baru tidak ditemukan: {}", binary_dir).into());
-    }
-
-    let mut updated = Vec::new();
-    for binary_name in &["panel-api", "panel-agent", "panelctl"] {
-        let src_binary = bin_path.join(binary_name);
-        if src_binary.exists() {
-            let dest_binary = target_dir.join(binary_name);
-            replace_binary_atomically(&src_binary, &dest_binary)?;
-            info!(
-                "Biner {} berhasil diperbarui di {}",
-                binary_name,
-                dest_binary.display()
-            );
-            updated.push(binary_name.to_string());
-        }
-    }
-
-    Ok(updated)
-}
-
-/// Restarts systemd daemon and panel services if running on Linux.
-fn restart_panel_systemd_services() -> bool {
-    if !cfg!(target_os = "linux") {
-        return false;
-    }
-
-    let _ = std::process::Command::new("systemctl")
-        .arg("daemon-reload")
-        .status();
-
-    let restart_res = std::process::Command::new("systemctl")
-        .args(["restart", "panel-agent.service", "panel-api.service"])
-        .status();
-
-    matches!(restart_res, Ok(st) if st.success())
 }
 
 async fn execute_dry_run(
@@ -207,39 +197,18 @@ async fn run_migrations_with_rollback(
     Ok(())
 }
 
-fn apply_binaries_and_services(
-    binary_dir: Option<&str>,
-    restart_services: bool,
-) -> (Vec<String>, bool) {
-    let mut binaries_updated = Vec::new();
-    if let Some(bin_dir) = binary_dir {
-        let target_dir = Path::new("/usr/local/bin");
-        let active_target = if target_dir.exists() {
-            target_dir
-        } else {
-            Path::new(".")
-        };
-
-        if let Ok(updated) = update_binaries(bin_dir, active_target) {
-            binaries_updated = updated;
-        }
-    }
-
-    let services_restarted = if restart_services {
-        restart_panel_systemd_services()
-    } else {
-        false
-    };
-
-    (binaries_updated, services_restarted)
-}
-
-/// Runs automated panel upgrade process with safety snapshot backup and automatic rollback.
+/// Database-only migration helper. Production deployment uses run_packaged_upgrade.
 pub async fn run_upgrade(
     options: &UpgradeCliOptions,
     pool: &DbPool,
     db_path: &str,
 ) -> Result<UpgradeResult, Box<dyn Error>> {
+    if !options.dry_run && (options.binary_dir.is_some() || options.restart_services) {
+        return Err(
+            "Use run_packaged_upgrade before opening the database for production deployments"
+                .into(),
+        );
+    }
     let from_version = env!("CARGO_PKG_VERSION").to_string();
     let to_version = options
         .target_version
@@ -293,9 +262,6 @@ pub async fn run_upgrade(
         return Ok(res);
     }
 
-    let (binaries_updated, services_restarted) =
-        apply_binaries_and_services(options.binary_dir.as_deref(), options.restart_services);
-
     let res = UpgradeResult {
         success: true,
         from_version: from_version.clone(),
@@ -304,8 +270,8 @@ pub async fn run_upgrade(
         migrations_applied: true,
         database_healthy: true,
         rollback_performed: false,
-        binaries_updated,
-        services_restarted,
+        binaries_updated: Vec::new(),
+        services_restarted: false,
         message: format!(
             "Peningkatan Nusa Panel ke versi {} berhasil diselesaikan.",
             to_version

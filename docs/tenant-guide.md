@@ -7,7 +7,7 @@ Selamat datang di Panduan Pengguna (Tenant) Nusa Panel. Dokumen ini dirancang un
 ## 1. Memulai & Masuk ke Nusa Panel
 
 ### 1.1 Masuk Pertama Kali & Keamanan Akun
-1. Buka peramban dan akses alamat server Nusa Panel Anda (misalnya `https://panel.domainanda.com:3000`).
+1. Buka peramban dan akses alamat server Nusa Panel Anda (misalnya `http://panel.domainanda.com:17890`).
 2. Masukkan **Username** dan **Password** yang diberikan oleh Administrator sistem.
 3. **Autentikasi Dua Faktor (TOTP 2FA)**:
    - Sangat disarankan untuk langsung mengaktifkan 2FA di menu **Profil Pengguna** > **Keamanan**.

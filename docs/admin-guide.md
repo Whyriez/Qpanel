@@ -10,9 +10,9 @@ Nusa Panel dirancang dengan prinsip **keamanan tingkat tinggi**, **kinerja maksi
 
 ```
 [ Klien Web / Peramban ]
-        │  HTTPS (Port 443 / 3000)
+        │  HTTP panel (Port 17890)
         ▼
-[ Nginx Reverse Proxy ] ───► [ panel-api (Non-Root, Port 3000) ]
+[ Nginx Reverse Proxy ] ───► [ panel-api (Non-root, 127.0.0.1:7700) ]
                                     │
                                     │  UNIX Domain Socket (/run/panel/agent.sock)
                                     ▼
@@ -42,23 +42,21 @@ Nusa Panel dirancang dengan prinsip **keamanan tingkat tinggi**, **kinerja maksi
 ### 2.2 Instalasi Otomatis via `install.sh`
 Jalankan penginstal idempoten sebagai root:
 ```bash
-# 1. Unduh atau clone repositori
-git clone https://github.com/nusa-panel/panel.git /opt/panel
-cd /opt/panel
-
-# 2. Jalankan skrip instalasi
-sudo ./install.sh
+# Di direktori paket release lengkap yang sudah diekstrak:
+sudo bash install.sh --unattended
+# Bootstrap GitHub (mengambil release terbaru yang sudah diterbitkan):
+curl -fsSL https://raw.githubusercontent.com/Whyriez/Vpanel/main/scripts/bootstrap-install.sh | sudo bash
 ```
 
 Opsi instalasi tambahan:
-- `--port <PORT>`: Mengubah port web Nusa Panel (default: 3000).
+- `--port <PORT>`: Mengubah port web Nusa Panel (default: 17890).
 - `--unattended`: Menjalankan instalasi tanpa konfirmasi interaktif.
 - `--force-os`: Mengabaikan verifikasi ketat distro jika menguji OS non-standar.
 
 ### 2.3 Bootstrap Akun Administrator Pertama
 Setelah instalasi selesai, skrip mencetak **First-Run Setup Token**:
 ```
-Alamat Web Panel : http://<SERVER_IP>:3000
+Alamat Web Panel : http://<SERVER_IP>:17890
 Token Pengaturan : abcdef0123456789...
 ```
 1. Buka URL tersebut di peramban web Anda.
@@ -171,7 +169,7 @@ panelctl upgrade --dry-run
 # Jalankan pembaruan nyata dari bundel rilis baru:
 panelctl upgrade --binary-dir /tmp/nusa-release/bin
 ```
-Bila migrasi database gagal atau integritas file korup, sistem secara otomatis melakukan rollback ke kondisi sebelum pembaruan.
+Gunakan paket lengkap yang berisi bin/, templates/ dan install.sh. Untuk upgrade dari v0.1.0, jalankan install.sh dari paket BARU dengan --upgrade --unattended; CLI lama belum memuat perbaikan ini. Snapshot di /var/backups/panel/install-* mencakup database dan artefak panel. Kegagalan deployment memicu rollback otomatis. Lihat docs/release-v0.1.1.md untuk batas validasi dan acceptance yang belum dijalankan.
 
 ### 6.5 Validasi Profil RAM: `panelctl memory-profile`
 Memvalidasi 6 target penggunaan memori RAM sesuai Bagian 9 PRD:

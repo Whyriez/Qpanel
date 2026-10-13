@@ -10,7 +10,7 @@ OUTPUT_DIR="${REPO_DIR}/docs/benchmarks"
 REPORT_FILE="${OUTPUT_DIR}/dogfood-soak-report.md"
 DRY_RUN=false
 SKIP_INSTALL=false
-PORT=3000
+PORT=17890
 
 print_help() {
     echo "Nusa Panel VPS Dogfooding Harness (P10-T8)"
@@ -20,7 +20,7 @@ print_help() {
     echo "Options:"
     echo "  --dry-run             Simulate dogfooding sequence without executing root commands"
     echo "  --skip-install        Skip running install.sh if Nusa Panel is already running"
-    echo "  --port <PORT>         Panel API port to test against (default: 3000)"
+    echo "  --port <PORT>         Panel API port to test against (default: 17890)"
     echo "  --output-file <FILE>  Destination path for markdown report (default: docs/benchmarks/dogfood-soak-report.md)"
     echo "  --help                Display this help message"
     echo ""
@@ -188,7 +188,7 @@ Dokumen ini mencatat hasil evaluasi pengujian nyata (*dogfooding*) dan simulasi 
 
 ## 2. Hasil Uji Instalasi Bersih (*Clean Installation Benchmark*)
 
-- **Perintah**: \`./install.sh --unattended --port 3000\`
+- **Perintah**: \`./install.sh --unattended --port 17890\`
 - **Waktu Eksekusi**: **${INSTALL_DURATION} detik** (1 menit ${INSTALL_DURATION} detik)
 - **Target Maksimal PRD**: < 600 detik (10 menit)
 - **Hasil**: **LULUS** (Jauh melampaui target; selesai dalam waktu kurang dari seperenam batas maksimal).

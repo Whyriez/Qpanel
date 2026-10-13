@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 authors = ["Nusa Panel Contributors"]
@@ -23,15 +23,15 @@ repository = "https://github.com/nusa-panel/panel"
 
 [workspace.dependencies]
 # Internal workspace crates
-panel-core = { path = "crates/panel-core", version = "0.1.0" }
-panel-proto = { path = "crates/panel-proto", version = "0.1.0" }
-panel-api = { path = "crates/panel-api", version = "0.1.0" }
-panel-agent = { path = "crates/panel-agent", version = "0.1.0" }
-panel-db = { path = "crates/panel-db", version = "0.1.0" }
-panel-webserver = { path = "crates/panel-webserver", version = "0.1.0" }
-panel-runtime = { path = "crates/panel-runtime", version = "0.1.0" }
-panel-fs = { path = "crates/panel-fs", version = "0.1.0" }
-panel-analytics = { path = "crates/panel-analytics", version = "0.1.0" }
+panel-core = { path = "crates/panel-core", version = "0.1.1" }
+panel-proto = { path = "crates/panel-proto", version = "0.1.1" }
+panel-api = { path = "crates/panel-api", version = "0.1.1" }
+panel-agent = { path = "crates/panel-agent", version = "0.1.1" }
+panel-db = { path = "crates/panel-db", version = "0.1.1" }
+panel-webserver = { path = "crates/panel-webserver", version = "0.1.1" }
+panel-runtime = { path = "crates/panel-runtime", version = "0.1.1" }
+panel-fs = { path = "crates/panel-fs", version = "0.1.1" }
+panel-analytics = { path = "crates/panel-analytics", version = "0.1.1" }
 
 # Async & Networking
 tokio = { version = "1.43", features = ["full"] }

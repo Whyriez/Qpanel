@@ -4,6 +4,7 @@
 # https://github.com/nusa-panel/panel
 # ==============================================================================
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -euo pipefail
 
 PURGE=false
@@ -72,6 +73,20 @@ if [[ "$ASSUME_YES" == "false" ]]; then
 fi
 
 echo -e "${BLUE}[1/4] Menghentikan dan menonaktifkan layanan systemd...${NC}"
+# Remove only the Nusa Panel proxy. Preserve tenant sites and the Debian default.
+proxy_backup="$(mktemp -d)"
+trap 'rm -rf "$proxy_backup"' EXIT
+for proxy_file in /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf; do
+    if [[ -e "$proxy_file" || -L "$proxy_file" ]]; then cp -a --parents "$proxy_file" "$proxy_backup"; fi
+done
+rm -f /etc/nginx/sites-enabled/nusa-panel.conf /etc/nginx/sites-available/nusa-panel.conf
+if ! nginx -t || { systemctl is-active --quiet nginx && ! systemctl reload nginx; }; then
+    for proxy_file in /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf; do
+        if [[ -e "$proxy_backup$proxy_file" || -L "$proxy_backup$proxy_file" ]]; then cp -a "$proxy_backup$proxy_file" "$proxy_file"; fi
+    done
+    echo '[ERROR] Konfigurasi Nginx tidak valid; pencopotan dibatalkan dan proxy dipulihkan.' >&2
+    exit 1
+fi
 systemctl stop panel-api.service panel-agent.service >/dev/null 2>&1 || true
 systemctl disable panel-api.service panel-agent.service >/dev/null 2>&1 || true
 

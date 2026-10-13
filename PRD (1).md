@@ -136,10 +136,10 @@ Semua baris di bawah adalah **default yang direkomendasikan**. Yang ditandai ⚠
 ### 4.1 Gambaran umum
 
 ```
- Browser ──HTTPS──► Nginx  (:80/:443 situs tenant, :8443 panel)
+ Browser ──HTTPS──► Nginx  (:80/:443 situs tenant, :17890 panel)
                       │ proxy_pass 127.0.0.1:7700
                       ▼
-                 panel-api   (user `panel`, NON-root) ──► SQLite (panel.db)
+                 panel-api   (user `panel-api`, NON-root) ──► SQLite (panel.db)
                       │ Unix socket /run/panel/agent.sock
                       │ (SO_PEERCRED, RPC bertipe, tanpa command mentah)
                       ▼
@@ -177,7 +177,7 @@ panel/
 
 | Komponen | Hak akses | Tanggung jawab |
 |----------|-----------|----------------|
-| `panel-api` | user `panel` | REST/WS, auth, RBAC, validasi input, simpan state, kirim command ke agent |
+| `panel-api` | user `panel-api` | REST/WS, auth, RBAC, validasi input, simpan state, kirim command ke agent |
 | `panel-agent` | root | Satu-satunya yang menyentuh sistem. Validasi ulang semua input |
 | fs-worker | UID tenant (drop privilege) | Semua operasi file tenant dan PTY, tidak pernah sebagai root |
 | log-tailer | root (baca log) → tulis agregat | Mem-parse log nginx per site, kirim agregat ke `analytics.db` |
@@ -188,7 +188,7 @@ panel/
 2. Agent **hanya** menerima enum command bertipe (`Request::UserCreate{..}`, `Request::SiteApply{..}`). Tidak ada `Exec(String)`, tidak ada path bebas.
 3. Setiap field divalidasi dengan **newtype** (`Username`, `Domain`, `SiteId`, `SafeRelPath`, `Port`, `PhpVersion`) di `panel-core`, dipakai oleh API **dan** agent (agent tetap memvalidasi ulang).
 4. Menjalankan proses eksternal: selalu `Command::new(..).arg(..)`, tidak pernah lewat shell. Daftar binary yang boleh dipanggil di-allowlist.
-5. Peer socket diverifikasi lewat `SO_PEERCRED` (hanya UID `panel`). Socket `0660 root:panel`.
+5. Peer socket diverifikasi lewat `SO_PEERCRED` (hanya UID `panel-api`). Socket `0660 root:panel`.
 6. Operasi pada data tenant (file, shell, build) berjalan sebagai **UID tenant** dengan `no_new_privs`, bukan root.
 7. Unit systemd agent di-harden semaksimal mungkin tanpa mematahkan fungsi (target `systemd-analyze security` ≤ 5.0, lihat Phase 10).
 8. Setiap command agent menulis **audit record** (siapa, apa, hasil).
@@ -865,6 +865,7 @@ Format tiap fase: **Tujuan → Prasyarat → Task → Acceptance criteria → Ja
 - [x] **P10-T4 Hardening**: audit ke OWASP ASVS L2 (subset relevan), fuzz target lengkap, `cargo audit`/`deny`, skor `systemd-analyze security` unit panel, filter nftables per-UID untuk loopback (tenant A tidak bisa konek ke port app tenant B), CSP ketat, rotasi secret.
 - [x] **P10-T5 Keandalan**: uji chaos (kill agent saat apply, kill nginx, disk penuh, config rusak, reboot paksa), `panelctl doctor`, `panelctl reconcile`, `panelctl backup` untuk DB + config panel, pemulihan job.
 - [x] **P10-T6 Installer dan upgrader**: `install.sh` idempoten (cek OS/kernel/cgroup, paket, user, unit, baseline nginx, petunjuk firewall, token first-run), `panelctl upgrade` (migrasi DB + rollback), uninstall, pipeline rilis (x86_64 + aarch64, target `gnu`).
+- Revisi **P10-T6 v0.1.1**: implementasi lokal dan regression test; acceptance VM belum dijalankan sesuai instruksi pengguna. Lihat `docs/PROGRESS.md` dan `docs/release-v0.1.1.md`.
 - [x] **P10-T7 Dokumentasi**: panduan admin, panduan tenant, referensi API (OpenAPI), dokumen arsitektur, `docs/security-model.md`, panduan kontribusi.
 - [x] **P10-T8 Beta**: dogfood di VPS nyata, soak test 7 hari, bug bash, checklist rilis v1.0.
 

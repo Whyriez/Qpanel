@@ -17,7 +17,7 @@ permissions:
 jobs:
   build-release:
     name: Build Release (${{ matrix.target }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -69,12 +69,18 @@ jobs:
             cargo build --release --target ${{ matrix.target }} -p panel-agent -p panel-api -p panel-cli
           fi
 
+      - name: Verify supported GLIBC baseline
+        run: |
+          bash scripts/check-glibc.sh target/${{ matrix.target }}/release/panel-api target/${{ matrix.target }}/release/panel-agent target/${{ matrix.target }}/release/panelctl
+
       - name: Package tarball and checksum
         run: |
-          VERSION="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION:-$GITHUB_REF_NAME}"
           STAGE_NAME="nusa-panel-${VERSION}-${{ matrix.target }}"
           mkdir -p release/${STAGE_NAME}/bin
           mkdir -p release/${STAGE_NAME}/templates/systemd
+          mkdir -p release/${STAGE_NAME}/templates/nginx
 
           cp target/${{ matrix.target }}/release/panel-agent release/${STAGE_NAME}/bin/
           cp target/${{ matrix.target }}/release/panel-api release/${STAGE_NAME}/bin/
@@ -82,6 +88,7 @@ jobs:
           chmod 0755 release/${STAGE_NAME}/bin/*
 
           cp templates/systemd/*.service release/${STAGE_NAME}/templates/systemd/
+          cp templates/nginx/nusa-panel.conf release/${STAGE_NAME}/templates/nginx/
           cp install.sh uninstall.sh release/${STAGE_NAME}/
           chmod 0755 release/${STAGE_NAME}/install.sh release/${STAGE_NAME}/uninstall.sh
 

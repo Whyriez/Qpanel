@@ -29,13 +29,13 @@ graph TB
     end
 
     subgraph NonRootLayer["Lapisan Non-Root (User: panel-api)"]
-        PanelAPI["panel-api (Axum Web Framework)<br/>Port: 3000 | Non-Root"]
+        PanelAPI["panel-api (Axum Web Framework)<br/>127.0.0.1:7700 | Non-root"]
         SQLiteDB[("SQLite WAL Engine<br/>/var/lib/panel/panel.db")]
         SecretVault["Vault Rahasia<br/>ChaCha20-Poly1305"]
     end
 
     subgraph IPCLayer["Lapisan Komunikasi Terisolasi"]
-        UnixSocket(("/run/panel/agent.sock<br/>Mode: 0660 | panel-api:panel"))
+        UnixSocket(("/run/panel/agent.sock<br/>Mode: 0660 | root:panel"))
     end
 
     subgraph RootLayer["Lapisan Privileged Daemon (User: root)"]
@@ -52,8 +52,8 @@ graph TB
         Tenant2["Tenant 2: cgroup slice /home/p_tenant2"]
     end
 
-    WebUI -->|HTTPS:443| Nginx
-    Nginx -->|HTTP:3000| PanelAPI
+    WebUI -->|HTTP:17890| Nginx
+    Nginx -->|HTTP:7700 loopback| PanelAPI
     CLIClient -.->|Direct CLI Call| PanelAPI
     CLIClient -.->|Direct Root Maintenance| PanelAgent
 

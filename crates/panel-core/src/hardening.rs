@@ -128,6 +128,18 @@ pub fn evaluate_systemd_service_security(
                 Some(v) => {
                     v.eq_ignore_ascii_case(expected)
                         || (expected == "strict" && v.eq_ignore_ascii_case("strict"))
+                        || (name == "CapabilityBoundingSet" && {
+                            let dangerous = ["CAP_SYS_ADMIN", "CAP_SYS_PTRACE"];
+                            if let Some(denied) = v.strip_prefix('~') {
+                                dangerous
+                                    .iter()
+                                    .all(|cap| denied.split_whitespace().any(|item| item == *cap))
+                            } else {
+                                dangerous
+                                    .iter()
+                                    .all(|cap| !v.split_whitespace().any(|item| item == *cap))
+                            }
+                        })
                 }
                 None => false,
             };
@@ -233,61 +245,8 @@ pub fn evaluate_systemd_service_security(
 
 /// Generates standard baseline systemd security evaluations for Vpanel services.
 pub fn get_default_service_security_evaluations() -> Vec<SystemdServiceSecurityScore> {
-    let api_unit = r#"
-[Unit]
-Description=Vpanel Management API Daemon
-After=network.target
-
-[Service]
-Type=simple
-User=panel-api
-Group=panel-api
-ExecStart=/usr/local/bin/panel-api
-Restart=always
-RestartSec=5s
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-MemoryDenyWriteExecute=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-CapabilityBoundingSet=~CAP_SYS_ADMIN CAP_SYS_PTRACE
-PrivateDevices=true
-ProtectKernelModules=true
-
-[Install]
-WantedBy=multi-user.target
-"#;
-
-    let agent_unit = r#"
-[Unit]
-Description=Vpanel Privileged System Agent
-After=network.target
-
-[Service]
-Type=simple
-User=root
-Group=root
-ExecStart=/usr/local/bin/panel-agent
-Restart=always
-RestartSec=5s
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-MemoryDenyWriteExecute=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-CapabilityBoundingSet=~CAP_SYS_ADMIN CAP_SYS_PTRACE
-PrivateDevices=true
-ProtectKernelModules=true
-
-[Install]
-WantedBy=multi-user.target
-"#;
+    let api_unit = include_str!("../../../templates/systemd/panel-api.service");
+    let agent_unit = include_str!("../../../templates/systemd/panel-agent.service");
 
     vec![
         evaluate_systemd_service_security("panel-api.service", api_unit),

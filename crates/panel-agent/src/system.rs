@@ -102,7 +102,7 @@ impl SystemRunner for RealSystemRunner {
             )));
         }
 
-        let output = std::process::Command::new(binary)
+        let output = panel_core::production::system_command(binary)
             .args(args)
             .output()
             .map_err(AgentError::Io)?;

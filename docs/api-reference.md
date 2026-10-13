@@ -7,7 +7,7 @@ Nusa Panel menyediakan antarmuka REST API modern yang sepenuhnya terstruktur, be
 ## 1. Konvensi Umum API
 
 ### 1.1 Base URL & Format Data
-- **Base URL**: `https://<ip-atau-domain-panel>:3000`
+- **Base URL**: `http://<ip-atau-domain-panel>:17890`
 - **Prefix Versi API**: `/api/v1`
 - **Format Pertukaran Data**: JSON (`Content-Type: application/json; charset=utf-8`)
 - **Penanganan Waktu**: Seluruh nilai timestamp menggunakan format detik UNIX epoch (`u64`) atau ISO-8601 UTC string.
@@ -52,7 +52,7 @@ X-CSRF-Token: <CSRF_TOKEN_FROM_AUTH_ENDPOINT>
 - **Spesifikasi Lengkap**: Tersedia di berkas [docs/openapi.json](file:///e:/Latihan/Panel%20Hosting/Vpanel/docs/openapi.json).
 - **Swagger UI Interaktif**: Saat server `panel-api` berjalan, dokumentasi interaktif dapat diakses langsung pada peramban di URL:
   ```
-  http://<server-ip>:3000/api/docs/
+  http://<server-ip>:17890/api/docs/
   ```
 
 ---

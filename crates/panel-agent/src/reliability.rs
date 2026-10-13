@@ -109,7 +109,8 @@ impl ReliabilityManager {
     fn check_binaries(&self) -> Vec<DoctorCheckItem> {
         let mut checks = Vec::new();
         for bin in &["nginx", "nft", "systemctl", "tar", "curl", "getent"] {
-            let run_res = self.runner.run_command(bin, &["--version"]);
+            let flag = if *bin == "nginx" { "-v" } else { "--version" };
+            let run_res = self.runner.run_command(bin, &[flag]);
             let (status, msg) = match run_res {
                 Ok(out) if out.status.success() => (
                     DoctorCheckStatus::Pass,
@@ -167,10 +168,8 @@ impl ReliabilityManager {
             fixable: true,
         });
 
-        let nginx_conf_path = self.base_dir.join("nginx").join("nginx.conf");
-        let conf_str = nginx_conf_path.to_string_lossy().to_string();
         let syntax_ok = matches!(
-            self.runner.run_command("nginx", &["-t", "-c", &conf_str]),
+            self.runner.run_command("nginx", &["-t"]),
             Ok(out) if out.status.success()
         );
         checks.push(DoctorCheckItem {

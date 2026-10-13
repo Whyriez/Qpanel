@@ -10,6 +10,8 @@ pub enum ConfigError {
     Io(#[from] std::io::Error),
     #[error("Failed to parse TOML config: {0}")]
     Toml(#[from] toml::de::Error),
+    #[error("Invalid production configuration: {0}")]
+    Invalid(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,8 +42,8 @@ pub struct DatabaseConfig {
 
 impl Default for DatabaseConfig {
     fn default() -> Self {
-        let url =
-            std::env::var("PANEL_DB_PATH").unwrap_or_else(|_| "sqlite://panel.db".to_string());
+        let url = std::env::var("PANEL_DB_PATH")
+            .unwrap_or_else(|_| panel_core::production::DEFAULT_DATABASE_PATH.to_string());
         Self { url }
     }
 }
@@ -99,11 +101,97 @@ impl PanelConfig {
             if candidate.exists() {
                 let content = std::fs::read_to_string(&candidate)?;
                 let config: PanelConfig = toml::from_str(&content)?;
-                return Ok(config);
+                return config.with_environment();
             }
         }
 
         // Return default configuration if no file exists
-        Ok(Self::default())
+        Self::default().with_environment()
+    }
+
+    fn with_environment(mut self) -> Result<Self, ConfigError> {
+        if let Ok(url) = std::env::var("PANEL_DB_PATH") {
+            self.database.url = url;
+        }
+        if let Ok(addr) = std::env::var("PANEL_LISTEN_ADDR") {
+            self.server.listen_addr = addr;
+        }
+        if let Ok(environment) = std::env::var("PANEL_ENVIRONMENT") {
+            self.server.environment = environment;
+        }
+        if let Ok(scheme) = std::env::var("PANEL_PUBLIC_SCHEME") {
+            self.apply_public_scheme(&scheme)?;
+        }
+        self.validate()?;
+        Ok(self)
+    }
+
+    fn apply_public_scheme(&mut self, scheme: &str) -> Result<(), ConfigError> {
+        let secure = match scheme {
+            "http" => false,
+            "https" => true,
+            _ => {
+                return Err(ConfigError::Invalid(
+                    "PANEL_PUBLIC_SCHEME must be http or https".to_string(),
+                ));
+            }
+        };
+        // Explicit auth configuration remains authoritative for TLS deployments.
+        if self.auth.cookie_secure.is_none() {
+            self.auth.cookie_secure = Some(secure);
+        }
+        Ok(())
+    }
+
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.server.environment == "production" {
+            if self.server.listen_addr != "127.0.0.1:7700" {
+                return Err(ConfigError::Invalid(
+                    "production API must listen on 127.0.0.1:7700".to_string(),
+                ));
+            }
+            let path = self
+                .database
+                .url
+                .strip_prefix("sqlite://")
+                .unwrap_or(&self.database.url);
+            // This configuration targets Linux even when checked on Windows.
+            if !path.starts_with('/') {
+                return Err(ConfigError::Invalid(
+                    "production database path must be absolute".to_string(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_http_install_can_use_session_cookies() {
+        let mut config = PanelConfig::default();
+        assert!(config.apply_public_scheme("http").is_ok());
+        assert_eq!(config.auth.cookie_secure, Some(false));
+        config.auth.cookie_secure = None;
+        assert!(config.apply_public_scheme("https").is_ok());
+        assert_eq!(config.auth.cookie_secure, Some(true));
+        assert!(config.apply_public_scheme("invalid").is_err());
+        assert!(config.apply_public_scheme("http").is_ok());
+        assert_eq!(config.auth.cookie_secure, Some(true));
+    }
+
+    #[test]
+    fn production_rejects_relative_database_and_public_api() {
+        let mut config = PanelConfig::default();
+        config.server.environment = "production".to_string();
+        config.database.url = "sqlite://panel.db".to_string();
+        assert!(config.validate().is_err());
+        config.database.url = "sqlite:///var/lib/panel/panel.db".to_string();
+        assert!(config.validate().is_ok());
+        config.server.listen_addr = "0.0.0.0:7700".to_string();
+        assert!(config.validate().is_err());
     }
 }

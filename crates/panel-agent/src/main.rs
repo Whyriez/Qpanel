@@ -10,6 +10,10 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().any(|arg| arg == "--version" || arg == "-V") {
+        println!("panel-agent {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -23,9 +27,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/run/panel/agent.sock"));
 
+    let output = panel_core::production::system_command("id")
+        .args(["-u", "panel-api"])
+        .output()?;
+    let api_uid = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u32>()?;
+    if !output.status.success() || api_uid == 0 {
+        return Err("panel-api must be an existing non-root service identity".into());
+    }
     let config = AgentConfig {
         socket_path,
-        allowed_uid: None,
+        allowed_uid: Some(api_uid),
     };
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel(1);
@@ -33,9 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::select! {
         res = server.run(shutdown_rx) => {
-            if let Err(e) = res {
-                eprintln!("Agent server error: {e}");
-            }
+            res?;
         }
         _ = tokio::signal::ctrl_c() => {
             info!("Received Ctrl+C, terminating agent...");

@@ -30,12 +30,18 @@ cargo build --release --target "${TARGET}" \
     -p panel-api \
     -p panel-cli
 
+bash "${SCRIPT_DIR}/scripts/check-glibc.sh" \
+    "${SCRIPT_DIR}/target/${TARGET}/release/panel-api" \
+    "${SCRIPT_DIR}/target/${TARGET}/release/panel-agent" \
+    "${SCRIPT_DIR}/target/${TARGET}/release/panelctl"
+
 # 3. Create staging directory
 STAGE_NAME="nusa-panel-v${VERSION}-${TARGET}"
 STAGE_DIR="${OUTPUT_DIR}/${STAGE_NAME}"
 rm -rf "${STAGE_DIR}"
 mkdir -p "${STAGE_DIR}/bin"
 mkdir -p "${STAGE_DIR}/templates/systemd"
+mkdir -p "${STAGE_DIR}/templates/nginx"
 
 # Copy binaries
 cp -f "${SCRIPT_DIR}/target/${TARGET}/release/panel-agent" "${STAGE_DIR}/bin/"
@@ -45,6 +51,7 @@ chmod 0755 "${STAGE_DIR}/bin/"*
 
 # Copy templates and scripts
 cp -f "${SCRIPT_DIR}/templates/systemd/"*.service "${STAGE_DIR}/templates/systemd/"
+cp -f "${SCRIPT_DIR}/templates/nginx/nusa-panel.conf" "${STAGE_DIR}/templates/nginx/"
 cp -f "${SCRIPT_DIR}/install.sh" "${STAGE_DIR}/"
 cp -f "${SCRIPT_DIR}/uninstall.sh" "${STAGE_DIR}/"
 chmod 0755 "${STAGE_DIR}/install.sh" "${STAGE_DIR}/uninstall.sh"

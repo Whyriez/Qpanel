@@ -12,6 +12,19 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().any(|arg| arg == "--version" || arg == "-V") {
+        println!("panel-api {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    #[cfg(unix)]
+    {
+        let identity = panel_core::production::system_command("id")
+            .arg("-u")
+            .output()?;
+        if !identity.status.success() || String::from_utf8_lossy(&identity.stdout).trim() == "0" {
+            return Err("panel-api must run as a non-root user".into());
+        }
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -21,10 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting Nusa Panel API daemon...");
 
-    let config = PanelConfig::load(None).unwrap_or_else(|e| {
-        error!("Error loading configuration: {}, using defaults", e);
-        PanelConfig::default()
-    });
+    let config = PanelConfig::load(None)?;
 
     info!(
         "Server listening on {}, Agent socket configured at {}",
