@@ -129,12 +129,12 @@ begin_transaction() {
     done
     # Snapshot existing panel config for review/recovery; tenant vhosts are never replaced.
     [[ ! -d /etc/panel ]] || cp -a /etc/panel "$BACKUP_DIR/panel-config"
-    systemctl is-active --quiet panel-api && API_WAS_ACTIVE=true
-    systemctl is-active --quiet panel-agent && AGENT_WAS_ACTIVE=true
-    systemctl is-active --quiet nginx && NGINX_WAS_ACTIVE=true
-    systemctl is-enabled --quiet panel-api && API_WAS_ENABLED=true
-    systemctl is-enabled --quiet panel-agent && AGENT_WAS_ENABLED=true
-    systemctl is-enabled --quiet nginx && NGINX_WAS_ENABLED=true
+    if systemctl is-active --quiet panel-api.service >/dev/null 2>&1; then API_WAS_ACTIVE=true; fi
+    if systemctl is-active --quiet panel-agent.service >/dev/null 2>&1; then AGENT_WAS_ACTIVE=true; fi
+    if systemctl is-active --quiet nginx.service >/dev/null 2>&1; then NGINX_WAS_ACTIVE=true; fi
+    if systemctl is-enabled --quiet panel-api.service >/dev/null 2>&1; then API_WAS_ENABLED=true; fi
+    if systemctl is-enabled --quiet panel-agent.service >/dev/null 2>&1; then AGENT_WAS_ENABLED=true; fi
+    if systemctl is-enabled --quiet nginx.service >/dev/null 2>&1; then NGINX_WAS_ENABLED=true; fi
     TRANSACTION=true
     # Stop the old API first: v0.1.0 incorrectly owned /run/panel's lifecycle.
     if systemctl cat panel-api.service >/dev/null 2>&1; then systemctl stop panel-api.service; fi
@@ -223,7 +223,10 @@ install_binaries_and_units() {
 initialize_database() {
     # The setup-token command runs migrations, always under the service identity.
     # It is idempotent: an existing administrator/token is never overwritten.
-    runuser -u panel-api -- /usr/local/bin/panelctl --db-path /var/lib/panel/panel.db setup-token status
+    if ! runuser -u panel-api -- /usr/local/bin/panelctl --db-path /var/lib/panel/panel.db setup-token status >/dev/null 2>&1; then
+        fail 'Inisialisasi/migrasi SQLite gagal sebagai panel-api; periksa akses database dan konfigurasi panelctl'
+        return 1
+    fi
     local admins token
     admins="$(runuser -u panel-api -- sqlite3 /var/lib/panel/panel.db "SELECT COUNT(*) FROM users WHERE role='admin';")"
     if [[ "$admins" == 0 ]]; then
@@ -269,12 +272,20 @@ install_nginx_proxy() {
     ln -s /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/.nusa-panel.new
     mv -Tf /etc/nginx/sites-enabled/.nusa-panel.new /etc/nginx/sites-enabled/nusa-panel.conf
     nginx -t
-    systemctl enable nginx
-    if systemctl is-active --quiet nginx; then systemctl reload nginx; else systemctl start nginx; fi
     printf '%s\n' "$PANEL_PUBLIC_PORT" > /etc/panel/public-port
     chmod 0644 /etc/panel/public-port
     rm -rf "$STAGING_DIR"
     STAGING_DIR=""
+}
+
+activate_nginx_proxy() {
+    nginx -t
+    systemctl enable nginx.service
+    if systemctl is-active --quiet nginx.service; then
+        systemctl reload nginx.service
+    else
+        systemctl start nginx.service
+    fi
 }
 
 configure_firewall() {
@@ -291,12 +302,33 @@ configure_firewall() {
 }
 
 wait_health() {
-    local url="$1" attempt
-    for attempt in {1..30}; do
-        if curl --connect-timeout 1 --max-time 2 -fsS "$url" >/dev/null; then return 0; fi
-        sleep 1
+    local url="$1" attempts="${2:-75}" attempt status
+    for ((attempt=1; attempt<=attempts; attempt++)); do
+        if status="$(curl --noproxy '*' --connect-timeout 1 --max-time 2 -fsS \
+            --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null)" && [[ "$status" == 200 ]]; then
+            return 0
+        fi
+        if (( attempt < attempts )); then sleep 0.2; fi
     done
-    fail "Health HTTP gagal: $url"
+    fail "Health check timeout setelah $attempts percobaan: $url"
+}
+
+validate_api_binding() {
+    local bindings
+    if ! bindings="$(ss -H -lnt 'sport = :7700' 2>/dev/null | awk 'NF {print $4}')"; then
+        fail 'Gagal membaca listener API dengan ss (port 7700)'
+        return 1
+    fi
+    # Accept multiple entries for the expected address, but no other interface.
+    if grep -Fxq '127.0.0.1:7700' <<< "$bindings" &&
+        ! grep -Fxqv '127.0.0.1:7700' <<< "$bindings"; then
+        return 0
+    fi
+    {
+        printf '[ERROR] API listener validation failed.\nExpected:\n  127.0.0.1:7700\nDetected:\n'
+        printf '%s\n' "${bindings:-<none>}" | sed 's/^/  /'
+    } >&2
+    return 1
 }
 
 wait_agent_ready() {
@@ -329,11 +361,6 @@ validate_health() {
             fail "Ownership SQLite salah: $file"; return 1
         fi
     done
-    local bindings
-    bindings="$(ss -H -lnt 'sport = :7700' | awk '{print $4}')"
-    [[ "$bindings" == 127.0.0.1:7700 ]] || { fail 'API harus listen hanya pada 127.0.0.1:7700'; return 1; }
-    wait_health http://127.0.0.1:7700/healthz
-    nginx -t
     wait_health "http://127.0.0.1:${PANEL_PUBLIC_PORT}/healthz"
 }
 
@@ -364,6 +391,10 @@ main() {
     systemctl start panel-agent.service
     wait_agent_ready
     systemctl start panel-api.service
+    # Type=simple reports started before bind/migrations finish: poll readiness first.
+    wait_health http://127.0.0.1:7700/healthz
+    validate_api_binding
+    activate_nginx_proxy
     validate_health
     configure_firewall
     TRANSACTION=false

@@ -52,7 +52,7 @@ curl() { return 1; }
 sleep() { :; }
 if wait_health http://127.0.0.1:7700/healthz >/dev/null 2>&1; then exit 1; fi
 pass 'failed HTTP health gate returns nonzero'
-curl() { return 0; }
+curl() { printf '200'; }
 wait_health http://127.0.0.1:7700/healthz
 pass 'healthy HTTP endpoint accepted'
 
@@ -104,6 +104,7 @@ for failing in validate_health install_nginx_proxy; do
         setup_identity() { :; }; install_binaries_and_units() { :; }
         initialize_database() { :; }; install_nginx_proxy() { :; }
         systemctl() { :; }; wait_agent_ready() { :; }; validate_health() { :; }; configure_firewall() { :; }
+        wait_health() { :; }; validate_api_binding() { :; }; activate_nginx_proxy() { :; }
         rollback() { echo ROLLBACK_CALLED; }
         if [[ "$2" == validate_health ]]; then
             validate_health() { return 1; }
@@ -148,3 +149,4 @@ for version in GLIBC_2.35 GLIBC_2.39 none; do
     pass "GLIBC release gate: $version"
 done
 printf '%s regression checks passed. VM acceptance was not run.\n' "$count"
+bash "$REPO/scripts/tests/install-startup-race-test.sh"
