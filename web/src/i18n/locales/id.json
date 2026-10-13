@@ -19,7 +19,7 @@
     "dashboard": "Beranda",
     "sites": "Situs",
     "tenants": "Tenant",
-    "plans": "Paket Hosting",
+    "plans": "Paket hosting",
     "users": "Pengguna",
     "analytics": "Analitik",
     "runtime": "Runtime",
@@ -28,7 +28,7 @@
     "settings": "Pengaturan",
     "files": "Berkas",
     "terminal": "Terminal",
-    "profile": "Profil & Keamanan"
+    "profile": "Profil dan keamanan"
   },
   "dashboard": {
     "overview": "Semua layanan normal",
@@ -60,8 +60,8 @@
   "auth": {
     "loginTitle": "Masuk ke Panel",
     "loginSubtitle": "Masukkan nama pengguna dan kata sandi Anda",
-    "username": "Nama Pengguna",
-    "password": "Kata Sandi",
+    "username": "Nama pengguna",
+    "password": "Kata sandi",
     "loginButton": "Masuk",
     "logout": "Keluar",
     "twoFactorTitle": "Verifikasi Dua Faktor",
@@ -71,7 +71,7 @@
     "useRecoveryCode": "Gunakan kode pemulihan",
     "useTotpCode": "Gunakan kode autentikator",
     "recoveryCode": "Kode Pemulihan (8 karakter)",
-    "firstRunSetup": "Pertama kali memasang panel? Buka Wizard Setup"
+    "firstRunSetup": "Pertama kali memasang panel? Siapkan akun administrator"
   },
   "profile": {
     "title": "Profil & Keamanan",
@@ -141,7 +141,7 @@
   "sites": {
     "title": "Manajemen Situs",
     "subtitle": "Kelola konfigurasi vhost Nginx, domain alias, sertifikat SSL/TLS, dan live log server",
-    "newSite": "Situs Baru",
+    "newSite": "Situs baru",
     "emptyTitle": "Belum ada situs yang dibuat",
     "emptyDesc": "Buat situs web statis pertama Anda dengan vhost Nginx terisolasi dan SSL otomatis.",
     "createFirst": "Buat Situs Sekarang",
@@ -688,4 +688,3 @@
     "comparePrevious": "Bandingkan Periode Lalu"
   }
 }
-

@@ -13,10 +13,10 @@ export const SettingsPage: React.FC = () => {
       {/* Page Header */}
       <div>
         <h1 className="text-xl font-bold text-[var(--ink)]">
-          Pengaturan Sistem & Pengoptimal Server
+          Pengaturan server
         </h1>
         <p className="text-xs text-[var(--ink-muted)] mt-1">
-          Konfigurasi otomatis performa server, profiling hardware, audit keamanan OWASP ASVS L2, isolasi nftables, dan validasi efisiensi PRD Bab 9.
+          Kelola performa, keamanan, pemeliharaan, dan penggunaan sumber daya server.
         </p>
       </div>
 
@@ -72,7 +72,7 @@ export const SettingsPage: React.FC = () => {
           }`}
         >
           <Activity className="w-3.5 h-3.5" />
-          Profil Memori & Efisiensi (PRD Bab 9)
+          Penggunaan memori
         </button>
 
         <button
@@ -111,7 +111,7 @@ export const SettingsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Cpu className="w-5 h-5 text-[var(--primary)]" />
             <h2 className="text-base font-semibold text-[var(--ink)]">
-              Kriteria Tingkatan Profil Tuning (P10-T2)
+              Profil performa server
             </h2>
           </div>
           <p className="text-xs text-[var(--ink-muted)] leading-relaxed">

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   Globe,
@@ -10,24 +10,26 @@ import {
   ShieldCheck,
   UserCheck,
   Settings,
-  ChevronDown,
   Search,
   Sun,
   Moon,
   Monitor,
   Menu,
-  Server,
   LogOut,
   Layers,
   FolderTree,
   Terminal,
-} from 'lucide-react';
-import { ThemeMode } from '../../types/api';
-import { useAuth } from '../../context/AuthContext';
-import { JobTray } from './JobTray';
-import { CommandPalette } from '../ui/CommandPalette';
-import { ImpersonationBanner } from './ImpersonationBanner';
-import { NotificationBell } from '../notifications/NotificationBell';
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
+} from "lucide-react";
+import { ThemeMode } from "../../types/api";
+import { useAuth } from "../../context/AuthContext";
+import { JobTray } from "./JobTray";
+import { CommandPalette } from "../ui/CommandPalette";
+import { ImpersonationBanner } from "./ImpersonationBanner";
+import { NotificationBell } from "../notifications/NotificationBell";
+import { Brand } from "../ui/Brand";
 
 export interface ShellProps {
   children: React.ReactNode;
@@ -39,216 +41,315 @@ export interface ShellProps {
 
 export const Shell: React.FC<ShellProps> = ({
   children,
-  activeNav = 'dashboard',
+  activeNav = "dashboard",
   onNavigate = () => {},
   theme,
   onThemeChange,
 }) => {
   const { t, i18n } = useTranslation();
   const { user, logout } = useAuth();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-
-  const navItems = [
-    { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
-    { id: 'sites', label: t('nav.sites'), icon: Globe },
-    { id: 'files', label: t('nav.files'), icon: FolderTree },
-    { id: 'terminal', label: t('nav.terminal'), icon: Terminal },
-    { id: 'tenants', label: t('nav.tenants'), icon: Users },
-    { id: 'plans', label: t('nav.plans'), icon: Layers },
-    { id: 'analytics', label: t('nav.analytics'), icon: BarChart3 },
-    { id: 'runtime', label: t('nav.runtime'), icon: Cpu },
-    { id: 'jobs', label: t('nav.jobs'), icon: ListTodo },
-    { id: 'audit', label: t('nav.audit'), icon: ShieldCheck },
-    { id: 'profile', label: t('nav.profile'), icon: UserCheck },
-    { id: 'settings', label: t('nav.settings'), icon: Settings },
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const admin = user?.role === "admin";
+  const groups = [
+    {
+      label: t("design.hosting"),
+      items: [
+        { id: "dashboard", icon: LayoutDashboard },
+        { id: "sites", icon: Globe },
+        { id: "files", icon: FolderTree },
+        { id: "terminal", icon: Terminal },
+        { id: "analytics", icon: BarChart3 },
+      ],
+    },
+    {
+      label: t("design.management"),
+      items: [
+        ...(admin
+          ? [
+              { id: "tenants", icon: Users },
+              { id: "plans", icon: Layers },
+              { id: "runtime", icon: Cpu },
+            ]
+          : []),
+        { id: "jobs", icon: ListTodo },
+        ...(admin
+          ? [
+              { id: "audit", icon: ShieldCheck },
+              { id: "settings", icon: Settings },
+            ]
+          : []),
+      ],
+    },
   ];
-
-  const cycleTheme = () => {
-    if (theme === 'light') onThemeChange('dark');
-    else if (theme === 'dark') onThemeChange('system');
-    else onThemeChange('light');
+  const navigate = (id: string) => {
+    onNavigate(id);
+    setMobileOpen(false);
   };
-
-  const toggleLanguage = () => {
-    const nextLang = i18n.language === 'id' ? 'en' : 'id';
-    i18n.changeLanguage(nextLang);
-  };
-
-  const userInitial = user?.username ? user.username.slice(0, 2).toUpperCase() : 'NP';
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    const media = window.matchMedia("(min-width: 768px)");
+    const resize = () => {
+      if (media.matches) setMobileOpen(false);
+    };
+    media.addEventListener("change", resize);
+    return () => {
+      window.removeEventListener("keydown", close);
+      media.removeEventListener("change", resize);
+    };
+  }, []);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const controls = () =>
+      Array.from(
+        sidebarRef.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not(:disabled)",
+        ) || [],
+      ).filter(
+        (button) =>
+          button.getClientRects().length > 0 &&
+          window.getComputedStyle(button).visibility === "visible",
+      );
+    let focusFrame: number;
+    const focusWhenVisible = () => {
+      const first = controls()[0];
+      if (first) first.focus();
+      else focusFrame = window.requestAnimationFrame(focusWhenVisible);
+    };
+    focusFrame = window.requestAnimationFrame(focusWhenVisible);
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const buttons = controls();
+      const first = buttons[0];
+      const last = buttons.at(-1);
+      if (!sidebarRef.current?.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    window.addEventListener("keydown", trapFocus);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", trapFocus);
+      menuButtonRef.current?.focus();
+    };
+  }, [mobileOpen]);
+  const cycleTheme = () =>
+    onThemeChange(
+      theme === "light" ? "dark" : theme === "dark" ? "system" : "light",
+    );
+  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
+  const initial = user?.username.slice(0, 2).toUpperCase() || "N";
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--ink)]">
-      {/* Sidebar Navigation */}
+    <div
+      className={`panel-shell ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-mobile-open" : ""}`}
+    >
+      <a className="skip-link" href="#panel-main">
+        {t("design.skipContent")}
+      </a>
+      {mobileOpen && (
+        <button
+          className="sidebar-backdrop"
+          aria-label={t("design.closeMenu")}
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
       <aside
-        className={`flex flex-col border-r border-[var(--line)] bg-[var(--surface)] transition-all duration-200 z-20 ${
-          isSidebarCollapsed ? 'w-16' : 'w-56'
-        }`}
+        ref={sidebarRef}
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen || undefined}
+        className="panel-sidebar"
+        id="panel-navigation"
+        aria-label={t("design.mainNavigation")}
       >
-        {/* Brand / Logo */}
-        <div className="flex items-center justify-between h-14 px-4 border-b border-[var(--line)]">
-          {!isSidebarCollapsed && (
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-[var(--radius-sm)] bg-[var(--primary)] flex items-center justify-center text-white font-bold text-xs tracking-wider">
-                N
-              </div>
-              <span className="font-semibold text-sm tracking-tight text-[var(--ink)]">
-                {t('common.appName')}
-              </span>
-            </div>
-          )}
-          {isSidebarCollapsed && (
-            <div className="w-6 h-6 mx-auto rounded-[var(--radius-sm)] bg-[var(--primary)] flex items-center justify-center text-white font-bold text-xs">
-              N
-            </div>
-          )}
+        <div className="sidebar-brand">
+          <Brand />
           <button
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="p-1 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
-            title="Toggle Sidebar"
+            className="mobile-close icon-button"
+            aria-label={t("design.closeMenu")}
+            onClick={() => setMobileOpen(false)}
           >
-            <Menu className="w-4 h-4" />
+            <X size={19} />
           </button>
         </div>
-
-        {/* Navigation Items */}
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeNav === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onNavigate(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs font-medium transition-colors cursor-pointer ${
-                  isActive
-                    ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-semibold'
-                    : 'text-[var(--ink-muted)] hover:bg-[var(--raised)] hover:text-[var(--ink)]'
-                }`}
-                title={item.label}
-              >
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[var(--primary)]' : ''}`} />
-                {!isSidebarCollapsed && <span>{item.label}</span>}
-              </button>
-            );
-          })}
+        <nav
+          className="sidebar-navigation"
+          aria-label={t("design.mainNavigation")}
+        >
+          {groups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <p className="nav-group-label">{group.label}</p>
+              {group.items.map(({ id, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`nav-link ${id === activeNav ? "is-active" : ""}`}
+                  aria-current={id === activeNav ? "page" : undefined}
+                  aria-label={t(`nav.${id}`)}
+                  title={t(`nav.${id}`)}
+                  onClick={() => navigate(id)}
+                >
+                  <Icon size={18} strokeWidth={1.7} />
+                  <span className="nav-label">{t(`nav.${id}`)}</span>
+                </button>
+              ))}
+            </div>
+          ))}
         </nav>
-
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t border-[var(--line)] flex items-center justify-between text-xs text-[var(--ink-muted)]">
-          {!isSidebarCollapsed && (
-            <span className="text-[11px] font-mono opacity-70">v0.1.0-alpha</span>
-          )}
-          <div className="flex items-center gap-1 mx-auto">
+        <div className="sidebar-bottom">
+          <button
+            className={`nav-link ${activeNav === "profile" ? "is-active" : ""}`}
+            onClick={() => navigate("profile")}
+            aria-label={t("nav.profile")}
+            title={t("nav.profile")}
+          >
+            <UserCheck size={18} strokeWidth={1.7} />
+            <span className="nav-label">{t("nav.profile")}</span>
+          </button>
+          <div className="sidebar-preferences">
             <button
+              className="icon-button"
               onClick={cycleTheme}
-              className="p-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--raised)] hover:text-[var(--ink)] cursor-pointer"
-              title={`Tema: ${theme}`}
+              aria-label={t("design.changeTheme")}
+              title={`${t("design.changeTheme")}: ${theme}`}
             >
-              {theme === 'light' && <Sun className="w-3.5 h-3.5" />}
-              {theme === 'dark' && <Moon className="w-3.5 h-3.5" />}
-              {theme === 'system' && <Monitor className="w-3.5 h-3.5" />}
+              <ThemeIcon size={17} />
             </button>
             <button
-              onClick={toggleLanguage}
-              className="px-1.5 py-0.5 rounded-[var(--radius-sm)] hover:bg-[var(--raised)] hover:text-[var(--ink)] font-mono text-[11px] cursor-pointer"
-              title="Ganti Bahasa (ID / EN)"
+              className="language-button"
+              onClick={() =>
+                i18n.changeLanguage(
+                  i18n.language.startsWith("id") ? "en" : "id",
+                )
+              }
+              aria-label={t("design.changeLanguage")}
             >
-              {i18n.language.toUpperCase()}
+              {i18n.language.startsWith("id") ? "ID" : "EN"}
+            </button>
+            <button
+              className="desktop-collapse icon-button"
+              onClick={() => setCollapsed(!collapsed)}
+              aria-label={
+                collapsed ? t("design.expandNav") : t("design.collapseNav")
+              }
+              title={
+                collapsed ? t("design.expandNav") : t("design.collapseNav")
+              }
+            >
+              {collapsed ? (
+                <PanelLeftOpen size={17} />
+              ) : (
+                <PanelLeftClose size={17} />
+              )}
             </button>
           </div>
         </div>
       </aside>
-
-      {/* Main Container */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Impersonation Banner */}
+      <div className="panel-workspace" inert={mobileOpen || undefined}>
         {user?.impersonated_by && (
           <ImpersonationBanner
             impersonatedBy={user.impersonated_by}
             username={user.username}
           />
         )}
-
-        {/* Topbar Header */}
-        <header className="h-14 border-b border-[var(--line)] bg-[var(--surface)] px-6 flex items-center justify-between gap-4 z-10">
-          {/* Server Selector Badge */}
-          <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-2.5 py-1 text-xs font-medium border border-[var(--line)] rounded-[var(--radius-sm)] bg-[var(--raised)] text-[var(--ink)] hover:border-[var(--primary)]/40 transition-colors cursor-pointer">
-              <Server className="w-3.5 h-3.5 text-[var(--primary)]" />
-              <span>vps-01</span>
-              <ChevronDown className="w-3 h-3 text-[var(--ink-muted)]" />
-            </button>
+        <header className="panel-topbar">
+          <button
+            className="mobile-menu icon-button"
+            ref={menuButtonRef}
+            aria-label={t("design.openMenu")}
+            aria-expanded={mobileOpen}
+            aria-controls="panel-navigation"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
+            <Menu size={20} />
+          </button>
+          <div className="workspace-breadcrumb">
+            <span>Nusa Panel</span>
+            <span aria-hidden="true">/</span>
+            <strong>{t(`nav.${activeNav}`)}</strong>
           </div>
-
-          {/* Quick Search & Commands Trigger */}
-          <div className="flex-1 max-w-md">
-            <div
-              className="relative cursor-pointer"
-              onClick={() => setIsCommandPaletteOpen(true)}
-            >
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" />
-              <input
-                type="text"
-                readOnly
-                placeholder={t('common.search')}
-                className="w-full bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] pl-9 pr-14 py-1.5 text-xs text-[var(--ink)] placeholder-[var(--ink-muted)] focus:outline-none cursor-pointer"
-              />
-              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono px-1.5 py-0.5 border border-[var(--line)] rounded bg-[var(--surface)] text-[var(--ink-muted)]">
-                Ctrl+K
-              </kbd>
-            </div>
-          </div>
-
-          {/* User & Actions */}
-          <div className="flex items-center gap-3">
+          <button
+            className="workspace-search"
+            onClick={() => setPaletteOpen(true)}
+            aria-label={t("common.search")}
+          >
+            <Search size={16} />
+            <span>{t("common.search")}</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+          <div className="topbar-actions">
             <NotificationBell
               userRole={user?.role}
               onNavigateUrl={(url) => {
-                const segment = url.replace(/^\//, '').split('/')[0];
-                if (segment) onNavigate(segment);
+                const segment = url.replace(/^\//, "").split("/")[0];
+                if (segment) navigate(segment);
               }}
             />
-
-            {/* Profile trigger */}
-            <div
-              onClick={() => onNavigate('profile')}
-              className="flex items-center gap-2 pl-2 border-l border-[var(--line)] cursor-pointer hover:opacity-80 transition-opacity"
-              title="Profil & Keamanan"
-            >
-              <div className="w-7 h-7 rounded-[var(--radius-full)] bg-[var(--primary)] text-white font-semibold text-xs flex items-center justify-center">
-                {userInitial}
-              </div>
-              <span className="text-xs font-medium hidden sm:inline text-[var(--ink)]">
-                {user?.username || 'admin'}
-              </span>
-            </div>
-
             <button
-              onClick={logout}
-              className="p-1.5 rounded-[var(--radius-sm)] text-[var(--danger)] hover:bg-[var(--danger)]/10 cursor-pointer"
-              title={t('auth.logout')}
+              className="account-button"
+              onClick={() => navigate("profile")}
+              aria-label={t("nav.profile")}
             >
-              <LogOut className="w-4 h-4" />
+              <span className="account-avatar">{initial}</span>
+              <span className="account-name">{user?.username}</span>
+            </button>
+            <button
+              className="icon-button logout-button"
+              onClick={logout}
+              aria-label={t("auth.logout")}
+              title={t("auth.logout")}
+            >
+              <LogOut size={17} />
             </button>
           </div>
         </header>
-
-        {/* Content Area */}
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-[1280px] w-full text-left mx-0">
-            {children}
-          </div>
+        <main className="panel-content" id="panel-main" tabIndex={-1}>
+          <div className="panel-page">{children}</div>
         </main>
-
-        {/* Floating Job Tray */}
-        <JobTray onNavigateToJobs={() => onNavigate('jobs')} />
-
-        {/* Command Palette Modal */}
+        <nav
+          className="mobile-navigation"
+          aria-label={t("design.quickNavigation")}
+        >
+          {groups[0].items
+            .filter((item) => item.id !== "terminal")
+            .map(({ id, icon: Icon }) => (
+              <button
+                key={id}
+                className={activeNav === id ? "is-active" : ""}
+                aria-current={activeNav === id ? "page" : undefined}
+                onClick={() => navigate(id)}
+              >
+                <Icon size={19} />
+                <span>{t(`nav.${id}`)}</span>
+              </button>
+            ))}
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label={t("design.openMenu")}
+          >
+            <Menu size={19} />
+            <span>{t("design.more")}</span>
+          </button>
+        </nav>
+        <JobTray onNavigateToJobs={() => navigate("jobs")} />
         <CommandPalette
-          isOpen={isCommandPaletteOpen}
-          onClose={() => setIsCommandPaletteOpen(false)}
-          onNavigate={onNavigate}
+          isOpen={paletteOpen}
+          onOpen={() => setPaletteOpen(true)}
+          onClose={() => setPaletteOpen(false)}
+          onNavigate={navigate}
           theme={theme}
           onThemeChange={onThemeChange}
         />

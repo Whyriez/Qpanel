@@ -12,6 +12,7 @@ node_modules/
 web/dist/
 web/.vite/
 web/coverage/
+web/artifacts/
 
 
 # =========================

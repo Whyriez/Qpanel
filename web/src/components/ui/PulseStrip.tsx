@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useId } from 'react';
-import { fetchSiteAnalyticsTimeseries } from '../../api/client';
-import { SiteTimeseriesPointDto } from '../../types/api';
+import React, { useEffect, useState, useId } from "react";
+import { fetchSiteAnalyticsTimeseries } from "../../api/client";
+import { SiteTimeseriesPointDto } from "../../types/api";
 
 export interface PulseStripProps {
   siteId?: number;
@@ -11,22 +11,28 @@ export interface PulseStripProps {
   height?: number;
   showTooltip?: boolean;
   intervalMs?: number;
+  responsive?: boolean;
+  label?: string;
 }
 
 export const PulseStrip: React.FC<PulseStripProps> = ({
   siteId,
   data: initialData,
   hasError: propHasError,
-  className = '',
+  className = "",
   width = 120,
   height = 24,
   showTooltip = false,
   intervalMs,
+  responsive = false,
+  label = "Aktivitas real-time sparkline",
 }) => {
   const gradientId = useId();
   const [pointsData, setPointsData] = useState<number[]>(initialData || []);
   const [hasError, setHasError] = useState<boolean>(propHasError ?? false);
-  const [loading, setLoading] = useState<boolean>(siteId !== undefined && !initialData);
+  const [loading, setLoading] = useState<boolean>(
+    siteId !== undefined && !initialData,
+  );
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   useEffect(() => {
@@ -44,13 +50,17 @@ export const PulseStrip: React.FC<PulseStripProps> = ({
 
     async function loadData() {
       try {
-        const res = await fetchSiteAnalyticsTimeseries(siteId!, { interval: '1m' });
+        const res = await fetchSiteAnalyticsTimeseries(siteId!, {
+          interval: "1m",
+        });
         if (!isMounted) return;
         const pts: SiteTimeseriesPointDto[] = res.points || [];
         // Take last 30-60 data points
         const recent = pts.slice(-30);
         const reqs = recent.map((p) => p.requests);
-        const anyErrors = recent.some((p) => (p.status_4xx || 0) + (p.status_5xx || 0) > 0);
+        const anyErrors = recent.some(
+          (p) => (p.status_4xx || 0) + (p.status_5xx || 0) > 0,
+        );
         setPointsData(reqs.length > 0 ? reqs : [0, 0, 0, 0, 0]);
         setHasError(propHasError ?? anyErrors);
       } catch {
@@ -91,24 +101,31 @@ export const PulseStrip: React.FC<PulseStripProps> = ({
     return { x, y, val };
   });
 
-  const pathD = coords.length > 1
-    ? `M ${coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' L ')}`
-    : `M 0,${height / 2} L ${width},${height / 2}`;
+  const pathD =
+    coords.length > 1
+      ? `M ${coords.map((c) => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(" L ")}`
+      : `M 0,${height / 2} L ${width},${height / 2}`;
 
-  const areaD = coords.length > 1
-    ? `${pathD} L ${width},${height} L 0,${height} Z`
-    : '';
+  const areaD =
+    coords.length > 1 ? `${pathD} L ${width},${height} L 0,${height} Z` : "";
 
-  const strokeColor = hasError ? 'var(--danger, #ef4444)' : 'var(--primary, #3b82f6)';
+  const strokeColor = hasError
+    ? "var(--danger, #ef4444)"
+    : "var(--primary, #3b82f6)";
 
   if (loading) {
     return (
       <div
         className={`inline-flex items-center opacity-40 animate-pulse ${className}`}
-        style={{ width, height }}
+        style={{ width: responsive ? "100%" : width, height }}
         title="Memuat metrik aktivitas..."
       >
-        <svg width={width} height={height} className="overflow-hidden">
+        <svg
+          width={responsive ? "100%" : width}
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          className="overflow-hidden"
+        >
           <line
             x1="0"
             y1={height / 2}
@@ -129,13 +146,14 @@ export const PulseStrip: React.FC<PulseStripProps> = ({
     <div
       className={`relative inline-flex items-center group ${className}`}
       onMouseLeave={() => setHoverIndex(null)}
-      style={{ width, height }}
+      style={{ width: responsive ? "100%" : width, height }}
     >
       <svg
-        width={width}
+        width={responsive ? "100%" : width}
+        viewBox={`0 0 ${width} ${height}`}
         height={height}
         className="overflow-visible"
-        aria-label="Aktivitas real-time sparkline"
+        aria-label={label}
         role="img"
       >
         <defs>
@@ -164,23 +182,17 @@ export const PulseStrip: React.FC<PulseStripProps> = ({
           strokeLinejoin="round"
           className="transition-all duration-300"
           style={{
-            animation: 'pulseStripEntrance 600ms ease-out forwards',
+            animation: "pulseStripEntrance 600ms ease-out forwards",
           }}
         />
 
         {/* Pulsing latest point */}
         {lastCoord && (
-          <g transform={`translate(${lastCoord.x.toFixed(1)}, ${lastCoord.y.toFixed(1)})`}>
-            <circle
-              r="4.5"
-              fill={strokeColor}
-              opacity="0.3"
-              className="animate-ping"
-            />
-            <circle
-              r="2.5"
-              fill={strokeColor}
-            />
+          <g
+            transform={`translate(${lastCoord.x.toFixed(1)}, ${lastCoord.y.toFixed(1)})`}
+          >
+            <circle r="4.5" fill={strokeColor} opacity="0.3" />
+            <circle r="2.5" fill={strokeColor} />
           </g>
         )}
 
@@ -218,9 +230,9 @@ export const PulseStrip: React.FC<PulseStripProps> = ({
           style={{
             left: `${Math.min(Math.max(coords[hoverIndex].x - 20, 0), width - 40)}px`,
             bottom: `${height + 4}px`,
-            backgroundColor: 'var(--surface-overlay, #1e293b)',
-            color: 'var(--ink, #f8fafc)',
-            border: '1px solid var(--line, #334155)',
+            backgroundColor: "var(--surface-overlay, #1e293b)",
+            color: "var(--ink, #f8fafc)",
+            border: "1px solid var(--line, #334155)",
           }}
         >
           {coords[hoverIndex].val} req

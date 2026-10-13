@@ -102,8 +102,10 @@ export const JobTray: React.FC<JobTrayProps> = ({ onNavigateToJobs }) => {
     }
   };
 
+  if (activeCount === 0 && !isOpen) return null;
+
   return (
-    <div className="fixed bottom-4 right-6 z-40 flex flex-col items-end">
+    <div className="hosting-job-tray fixed bottom-4 right-6 z-40 flex flex-col items-end">
       {/* Expanded Popover */}
       {isOpen && (
         <div className="mb-3 w-84 sm:w-96 bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] overflow-hidden transition-all duration-200">

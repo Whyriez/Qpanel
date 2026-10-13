@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Command } from 'cmdk';
-import { useTranslation } from 'react-i18next';
+import React, { useEffect, useState } from "react";
+import { Command } from "cmdk";
+import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   Globe,
@@ -15,13 +15,14 @@ import {
   LogOut,
   FolderTree,
   Terminal,
-} from 'lucide-react';
-import { ThemeMode } from '../../types/api';
-import { useAuth } from '../../context/AuthContext';
+} from "lucide-react";
+import { ThemeMode } from "../../types/api";
+import { useAuth } from "../../context/AuthContext";
 
 export interface CommandPaletteProps {
   isOpen?: boolean;
   onClose?: () => void;
+  onOpen?: () => void;
   onNavigate: (nav: string) => void;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
@@ -30,12 +31,13 @@ export interface CommandPaletteProps {
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
   isOpen: controlledOpen,
   onClose,
+  onOpen,
   onNavigate,
   theme,
   onThemeChange,
 }) => {
   const { t, i18n } = useTranslation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [open, setOpen] = useState(false);
 
   const isControlled = controlledOpen !== undefined;
@@ -48,22 +50,23 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         if (isControlled) {
           if (isVisible && onClose) onClose();
+          else if (!isVisible && onOpen) onOpen();
         } else {
           setOpen((prev) => !prev);
         }
       }
-      if (e.key === 'Escape' && isVisible) {
+      if (e.key === "Escape" && isVisible) {
         handleClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isVisible, isControlled, onClose]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isVisible, isControlled, onClose, onOpen]);
 
   if (!isVisible) return null;
 
@@ -73,7 +76,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   };
 
   const handleToggleLang = () => {
-    const nextLang = i18n.language === 'id' ? 'en' : 'id';
+    const nextLang = i18n.language === "id" ? "en" : "id";
     i18n.changeLanguage(nextLang);
     handleClose();
   };
@@ -96,7 +99,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           <div className="flex items-center px-4 border-b border-[var(--line)]">
             <Command.Input
               autoFocus
-              placeholder={t('common.search')}
+              placeholder={t("common.search")}
               className="w-full h-12 bg-transparent text-sm text-[var(--ink)] placeholder-[var(--ink-muted)] outline-none"
             />
             <kbd className="text-[10px] font-mono px-1.5 py-0.5 border border-[var(--line)] rounded bg-[var(--raised)] text-[var(--ink-muted)]">
@@ -114,61 +117,65 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               className="text-[11px] font-semibold text-[var(--ink-muted)] uppercase tracking-wider px-2 py-1"
             >
               <Command.Item
-                onSelect={() => handleSelectNav('dashboard')}
+                onSelect={() => handleSelectNav("dashboard")}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
               >
                 <LayoutDashboard className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.dashboard')}</span>
+                <span>{t("nav.dashboard")}</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => handleSelectNav('sites')}
+                onSelect={() => handleSelectNav("sites")}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
               >
                 <Globe className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.sites')}</span>
+                <span>{t("nav.sites")}</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => handleSelectNav('files')}
+                onSelect={() => handleSelectNav("files")}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
               >
                 <FolderTree className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.files')}</span>
+                <span>{t("nav.files")}</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => handleSelectNav('terminal')}
+                onSelect={() => handleSelectNav("terminal")}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
               >
                 <Terminal className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.terminal')}</span>
+                <span>{t("nav.terminal")}</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => handleSelectNav('jobs')}
+                onSelect={() => handleSelectNav("jobs")}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
               >
                 <ListTodo className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.jobs')}</span>
+                <span>{t("nav.jobs")}</span>
               </Command.Item>
+              {user?.role === "admin" && (
+                <Command.Item
+                  onSelect={() => handleSelectNav("audit")}
+                  className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
+                >
+                  <ShieldCheck className="w-4 h-4 text-[var(--ink-muted)]" />
+                  <span>{t("nav.audit")}</span>
+                </Command.Item>
+              )}
               <Command.Item
-                onSelect={() => handleSelectNav('audit')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <ShieldCheck className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.audit')}</span>
-              </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelectNav('profile')}
+                onSelect={() => handleSelectNav("profile")}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
               >
                 <UserCheck className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.profile')}</span>
+                <span>{t("nav.profile")}</span>
               </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelectNav('settings')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <Settings className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.settings')}</span>
-              </Command.Item>
+              {user?.role === "admin" && (
+                <Command.Item
+                  onSelect={() => handleSelectNav("settings")}
+                  className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
+                >
+                  <Settings className="w-4 h-4 text-[var(--ink-muted)]" />
+                  <span>{t("nav.settings")}</span>
+                </Command.Item>
+              )}
             </Command.Group>
 
             <Command.Group
@@ -177,7 +184,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             >
               <Command.Item
                 onSelect={() => {
-                  onThemeChange('light');
+                  onThemeChange("light");
                   handleClose();
                 }}
                 className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
@@ -186,11 +193,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   <Sun className="w-4 h-4 text-[var(--accent)]" />
                   <span>Tema: Terang</span>
                 </div>
-                {theme === 'light' && <span className="text-[10px] text-[var(--primary)] font-bold">Aktif</span>}
+                {theme === "light" && (
+                  <span className="text-[10px] text-[var(--primary)] font-bold">
+                    Aktif
+                  </span>
+                )}
               </Command.Item>
               <Command.Item
                 onSelect={() => {
-                  onThemeChange('dark');
+                  onThemeChange("dark");
                   handleClose();
                 }}
                 className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
@@ -199,11 +210,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   <Moon className="w-4 h-4 text-[var(--primary)]" />
                   <span>Tema: Gelap</span>
                 </div>
-                {theme === 'dark' && <span className="text-[10px] text-[var(--primary)] font-bold">Aktif</span>}
+                {theme === "dark" && (
+                  <span className="text-[10px] text-[var(--primary)] font-bold">
+                    Aktif
+                  </span>
+                )}
               </Command.Item>
               <Command.Item
                 onSelect={() => {
-                  onThemeChange('system');
+                  onThemeChange("system");
                   handleClose();
                 }}
                 className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
@@ -212,7 +227,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   <Monitor className="w-4 h-4 text-[var(--ink-muted)]" />
                   <span>Tema: Sistem</span>
                 </div>
-                {theme === 'system' && <span className="text-[10px] text-[var(--primary)] font-bold">Aktif</span>}
+                {theme === "system" && (
+                  <span className="text-[10px] text-[var(--primary)] font-bold">
+                    Aktif
+                  </span>
+                )}
               </Command.Item>
               <Command.Item
                 onSelect={handleToggleLang}
@@ -220,16 +239,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               >
                 <div className="flex items-center gap-3">
                   <Languages className="w-4 h-4 text-[var(--ink-muted)]" />
-                  <span>Ganti Bahasa: {i18n.language === 'id' ? 'English' : 'Indonesia'}</span>
+                  <span>
+                    Ganti Bahasa:{" "}
+                    {i18n.language === "id" ? "English" : "Indonesia"}
+                  </span>
                 </div>
-                <span className="font-mono text-[10px] uppercase text-[var(--ink-muted)]">{i18n.language}</span>
+                <span className="font-mono text-[10px] uppercase text-[var(--ink-muted)]">
+                  {i18n.language}
+                </span>
               </Command.Item>
               <Command.Item
                 onSelect={handleLogout}
                 className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--danger)] hover:bg-[var(--raised)] cursor-pointer"
               >
                 <LogOut className="w-4 h-4 text-[var(--danger)]" />
-                <span>{t('auth.logout')}</span>
+                <span>{t("auth.logout")}</span>
               </Command.Item>
             </Command.Group>
           </Command.List>

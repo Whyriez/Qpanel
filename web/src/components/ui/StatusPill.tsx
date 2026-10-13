@@ -28,7 +28,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({
   const bgColorClass = {
     success: 'bg-[var(--success)]/10 text-[var(--success)] border-[var(--success)]/20',
     danger: 'bg-[var(--danger)]/10 text-[var(--danger)] border-[var(--danger)]/20',
-    warning: 'bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]/25',
+    warning: 'bg-[var(--accent)]/15 text-[var(--warning-ink)] border-[var(--accent)]/25',
     info: 'bg-[var(--info)]/10 text-[var(--info)] border-[var(--info)]/20',
     neutral: 'bg-[var(--line)]/50 text-[var(--ink-muted)] border-[var(--line)]',
   }[variant];

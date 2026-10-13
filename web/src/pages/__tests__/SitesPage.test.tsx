@@ -12,8 +12,8 @@ describe('SitesPage Component', () => {
       </AuthProvider>
     );
 
-    expect(html).toContain('Manajemen Situs');
-    expect(html).toContain('Situs Baru');
+    expect(html).toContain('Situs');
+    expect(html).toContain('Situs baru');
     expect(html).toContain('Cari nama domain...');
   });
 });

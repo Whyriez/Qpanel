@@ -127,7 +127,7 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
   });
 
   return (
-    <div className="space-y-6">
+    <div className="hosting-sites space-y-6">
       {/* Toast Alert */}
       {toastMessage && (
         <div
@@ -158,10 +158,10 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-[var(--ink)]">
-            {t('sites.title')}
+            {t('nav.sites')}
           </h1>
           <p className="text-xs text-[var(--ink-muted)] mt-1">
-            {t('sites.subtitle')}
+            {t('design.manageWebsites')}
           </p>
         </div>
 
@@ -186,11 +186,12 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
       </div>
 
       {/* Search and Filters Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)]">
+      <div className="site-filters flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" />
           <input
             type="text"
+            aria-label={t('sites.searchPlaceholder')}
             placeholder={t('sites.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -201,6 +202,7 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-[var(--ink-muted)] shrink-0" />
           <select
+            aria-label={t('sites.table.status')}
             value={statusFilter}
             onChange={(e) =>
               setStatusFilter(e.target.value as 'all' | 'active' | 'disabled')
@@ -265,7 +267,7 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
                           <div>
                             <button
                               onClick={() => onSelectSite(site.id)}
-                              className="font-mono font-semibold text-xs text-[var(--ink)] hover:text-[var(--primary)] hover:underline flex items-center gap-1 text-left"
+                              className="font-semibold text-sm text-[var(--ink)] hover:text-[var(--primary)] hover:underline flex items-center gap-1 text-left"
                             >
                               {site.primary_domain}
                             </button>

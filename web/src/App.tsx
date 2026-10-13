@@ -146,7 +146,7 @@ const MainApp: React.FC = () => {
         theme={theme}
         onThemeChange={setTheme}
       >
-        {activeNav === 'dashboard' && <DashboardPage />}
+        {activeNav === 'dashboard' && <DashboardPage onNavigate={setActiveNav} onSelectSite={(id) => { setSelectedSiteId(id); setActiveNav('site-detail'); }} />}
         <Suspense fallback={<PageFallback />}>
           {activeNav === 'audit' && <AuditLogPage />}
           {activeNav === 'jobs' && <JobsPage />}

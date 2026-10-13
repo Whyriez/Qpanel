@@ -68,8 +68,8 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen w-screen flex flex-col items-center justify-center p-4 bg-[var(--bg)] text-[var(--ink)]">
-      <div className="w-full max-w-xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-8">
+    <div className="auth-wizard min-h-screen w-full flex flex-col items-center justify-center p-4 bg-[var(--bg)] text-[var(--ink)]">
+      <div className="w-full max-w-xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-md)] p-8">
         {/* Wizard Progress Stepper */}
         <div className="flex items-center justify-between border-b border-[var(--line)] pb-6 mb-6">
           <div className="flex items-center gap-3">

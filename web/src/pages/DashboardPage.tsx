@@ -1,286 +1,422 @@
-import { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { RefreshCw, Plus, Cpu, HardDrive, Network, Layers } from 'lucide-react';
-import { fetchSystemInfo } from '../api/client';
-import { SystemInfoResponse } from '../types/api';
-import { StatusPill } from '../components/ui/StatusPill';
-import { PulseStrip } from '../components/ui/PulseStrip';
-import { Skeleton } from '../components/ui/Skeleton';
-import { toast } from 'sonner';
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  RefreshCw,
+  Plus,
+  Cpu,
+  HardDrive,
+  Network,
+  MemoryStick,
+  Globe,
+  ExternalLink,
+  Activity,
+  Server,
+} from "lucide-react";
+import {
+  fetchSystemInfo,
+  fetchSites,
+  fetchSystemAnalyticsTimeseries,
+} from "../api/client";
+import {
+  Site,
+  SystemInfoResponse,
+  SystemTimeseriesResponse,
+} from "../types/api";
+import { useAuth } from "../context/AuthContext";
+import { StatusPill } from "../components/ui/StatusPill";
+import { PulseStrip } from "../components/ui/PulseStrip";
+import { Skeleton } from "../components/ui/Skeleton";
+import { SiteWizardDialog } from "../components/sites/SiteWizardDialog";
 
-export const DashboardPage: React.FC = () => {
-  const { t } = useTranslation();
-  const [systemInfo, setSystemInfo] = useState<SystemInfoResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface DashboardPageProps {
+  onNavigate?: (page: string) => void;
+  onSelectSite?: (id: number) => void;
+}
 
-  const loadData = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const info = await fetchSystemInfo();
-      setSystemInfo(info);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Gagal memuat status sistem';
-      setError(msg);
-      toast.error('Gagal mengambil data sistem', { description: msg });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+export function DashboardPage({
+  onNavigate = () => {},
+  onSelectSite = () => {},
+}: DashboardPageProps) {
+  const { t, i18n } = useTranslation();
+  const { user } = useAuth();
+  const admin = user?.role === "admin";
+  const [info, setInfo] = useState<SystemInfoResponse | null>(null);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [metrics, setMetrics] = useState<SystemTimeseriesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [infoError, setInfoError] = useState(false);
+  const [sitesError, setSitesError] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [updated, setUpdated] = useState<Date | null>(null);
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const [system, website, host] = await Promise.allSettled([
+      fetchSystemInfo(),
+      fetchSites(),
+      admin
+        ? fetchSystemAnalyticsTimeseries({ interval: "1m" })
+        : Promise.resolve(null),
+    ]);
+    setInfo(system.status === "fulfilled" ? system.value : null);
+    setInfoError(system.status === "rejected");
+    setSites(website.status === "fulfilled" ? website.value : []);
+    setSitesError(website.status === "rejected");
+    setMetrics(host.status === "fulfilled" ? host.value : null);
+    setUpdated(new Date());
+    setLoading(false);
+  }, [admin]);
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
+
+  const points = metrics?.points || [];
+  const latest = points.at(-1);
+  const number = (value: number, digits = 1) =>
+    new Intl.NumberFormat(i18n.language, {
+      maximumFractionDigits: digits,
+    }).format(value);
+  const bytes = (value: number) =>
+    value >= 1024 ** 3
+      ? `${number(value / 1024 ** 3)} GB`
+      : `${number(value / 1024 ** 2)} MB`;
+  const active = sites.filter((site) => site.status === "active").length;
+  const stats = [
+    {
+      label: t("dashboard.quickStats.cpu"),
+      icon: Cpu,
+      value: latest ? `${number(latest.cpu_avg)}%` : "—",
+      caption: t("design.averageUsage"),
+      data: points.map((point) => point.cpu_avg),
+    },
+    {
+      label: t("dashboard.quickStats.memory"),
+      icon: MemoryStick,
+      value: latest ? bytes(latest.memory_used_avg_bytes) : "—",
+      caption: t("design.memoryUsed"),
+      data: points.map((point) => point.memory_used_avg_bytes),
+    },
+    {
+      label: t("dashboard.quickStats.disk"),
+      icon: HardDrive,
+      value: latest ? bytes(latest.disk_used_avg_bytes) : "—",
+      caption: t("design.storageUsed"),
+      data: points.map((point) => point.disk_used_avg_bytes),
+    },
+    {
+      label: t("dashboard.quickStats.network"),
+      icon: Network,
+      value: latest
+        ? `${number(((latest.net_rx_avg_bytes_sec + latest.net_tx_avg_bytes_sec) * 8) / 1_000_000)} Mb/s`
+        : "—",
+      caption: t("design.inboundOutbound"),
+      data: points.map(
+        (point) => point.net_rx_avg_bytes_sec + point.net_tx_avg_bytes_sec,
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner Status */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
+    <div className="hosting-dashboard">
+      <div className="page-heading">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight text-[var(--ink)]">
-              {t('nav.dashboard')}
-            </h1>
-            {systemInfo?.agent_connected ? (
-              <StatusPill variant="success" label="Agent Terhubung" pulse />
-            ) : (
-              <StatusPill variant="danger" label="Agent Terputus" />
-            )}
-          </div>
-          <p className="text-xs text-[var(--ink-muted)] mt-1">
-            {t('dashboard.overview')} · {t('dashboard.attentionNeeded', { count: 1 })}
-          </p>
+          <h1>{t("nav.dashboard")}</h1>
+          <p>{t("design.dashboardDescription")}</p>
         </div>
-
-        <div className="flex items-center gap-2">
+        <div className="page-actions">
           <button
+            className="button-secondary"
             onClick={loadData}
-            disabled={isLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-[var(--line)] rounded-[var(--radius-sm)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--raised)] disabled:opacity-50 transition-colors"
+            disabled={loading}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>{t('common.refresh')}</span>
+            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+            {t("common.refresh")}
           </button>
           <button
-            onClick={() => toast.info('Fitur pembuatan situs akan aktif pada Phase 3')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[var(--primary)] text-[var(--primary-foreground)] rounded-[var(--radius-sm)] hover:bg-[var(--primary-hover)] transition-colors"
+            className="button-primary"
+            onClick={() => setWizardOpen(true)}
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t('dashboard.sitesTable.newSite')}</span>
+            <Plus size={17} />
+            {t("sites.newSite")}
           </button>
         </div>
       </div>
-
-      {/* IPC & System Info Card */}
-      <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)]">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--ink-muted)] mb-3">
-          Status Komponen Platform (Phase 0 Foundation)
-        </h2>
-
-        {isLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
+      <div className="hosting-summary">
+        <div className="hosting-summary-title">
+          <span className="summary-icon">
+            <Globe size={20} />
+          </span>
+          <div>
+            <h2>{t("design.yourHosting")}</h2>
+            <p>
+              {loading
+                ? t("design.loadingHosting")
+                : sitesError
+                  ? t("design.sitesUnavailable")
+                  : t("design.siteSummary", { count: sites.length, active })}
+            </p>
           </div>
-        ) : error ? (
-          <div className="p-3 bg-[var(--danger)]/10 text-[var(--danger)] rounded-[var(--radius-sm)] text-xs flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={loadData} className="underline font-semibold ml-2">Coba lagi</button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-            <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--raised)] border border-[var(--line)]">
-              <span className="text-[var(--ink-muted)] block text-[11px] mb-1">HTTP API (axum)</span>
-              <span className="font-mono font-semibold text-sm">v{systemInfo?.api_version}</span>
+        </div>
+        <StatusPill
+          variant={
+            loading || infoError
+              ? "neutral"
+              : info?.agent_connected
+                ? "success"
+                : "warning"
+          }
+          label={
+            loading
+              ? t("design.checkingStatus")
+              : infoError
+                ? t("design.statusUnavailable")
+                : info?.agent_connected
+                  ? t("design.managementConnected")
+                  : t("design.managementDisconnected")
+          }
+        />
+      </div>
+      {admin && (
+        <section
+          className="resource-grid"
+          aria-label={t("design.serverResources")}
+        >
+          {stats.map(({ label, icon: Icon, value, caption, data }) => (
+            <article className="resource-stat" key={label}>
+              <div className="resource-label">
+                <span>{label}</span>
+                <Icon size={16} />
+              </div>
+              {loading ? (
+                <Skeleton className="h-9 w-24 my-2" />
+              ) : (
+                <strong className="resource-value">{value}</strong>
+              )}
+              <div className="resource-bottom">
+                <span>{latest ? caption : t("design.waitingMetrics")}</span>
+                {!loading && data.length > 1 && (
+                  <PulseStrip data={data} width={72} height={22} />
+                )}
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
+      <div className={`dashboard-detail-grid ${!admin ? "is-tenant" : ""}`}>
+        <section
+          className="hosting-panel sites-overview"
+          aria-labelledby="dashboard-sites-title"
+        >
+          <header className="section-heading">
+            <div>
+              <h2 id="dashboard-sites-title">{t("nav.sites")}</h2>
+              <p>{t("design.manageWebsites")}</p>
             </div>
-            <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--raised)] border border-[var(--line)]">
-              <span className="text-[var(--ink-muted)] block text-[11px] mb-1">Root Agent (IPC)</span>
-              <span className="font-mono font-semibold text-sm">
-                {systemInfo?.agent_version ? `v${systemInfo.agent_version}` : 'Offline'}
-              </span>
+            <button className="text-button" onClick={() => onNavigate("sites")}>
+              {t("design.viewAll")}
+            </button>
+          </header>
+          {loading ? (
+            <div className="dashboard-loading" role="status">
+              <Skeleton className="h-12" />
+              <Skeleton className="h-12" />
+              <Skeleton className="h-12" />
+              <span className="sr-only">{t("design.loadingHosting")}</span>
             </div>
-            <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--raised)] border border-[var(--line)]">
-              <span className="text-[var(--ink-muted)] block text-[11px] mb-1">Protokol RPC</span>
-              <span className="font-mono font-semibold text-sm">v{systemInfo?.proto_version}</span>
+          ) : sitesError ? (
+            <div className="dashboard-empty" role="alert">
+              <Globe size={27} />
+              <h3>{t("design.sitesUnavailable")}</h3>
+              <p>{t("design.retryDescription")}</p>
+              <button className="button-secondary" onClick={loadData}>
+                {t("common.retry")}
+              </button>
             </div>
-            <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--raised)] border border-[var(--line)]">
-              <span className="text-[var(--ink-muted)] block text-[11px] mb-1">Host OS & Arch</span>
-              <span className="font-mono font-semibold text-sm capitalize">
-                {systemInfo?.os} / {systemInfo?.arch}
-              </span>
+          ) : sites.length === 0 ? (
+            <div className="dashboard-empty">
+              <Globe size={30} strokeWidth={1.3} />
+              <h3>{t("design.noSites")}</h3>
+              <p>{t("design.noSitesDescription")}</p>
+              <button
+                className="button-primary"
+                onClick={() => setWizardOpen(true)}
+              >
+                <Plus size={16} />
+                {t("sites.newSite")}
+              </button>
             </div>
-          </div>
+          ) : (
+            <div className="hosting-table-scroll">
+              <table className="hosting-table">
+                <thead>
+                  <tr>
+                    <th>{t("dashboard.sitesTable.domain")}</th>
+                    <th>{t("sites.table.type")}</th>
+                    <th>{t("sites.table.status")}</th>
+                    <th>
+                      <span className="sr-only">{t("common.actions")}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sites.slice(0, 7).map((site) => (
+                    <tr key={site.id}>
+                      <td>
+                        <button
+                          className="domain-link"
+                          onClick={() => onSelectSite(site.id)}
+                        >
+                          {site.primary_domain}
+                        </button>
+                        <span className="domain-detail">
+                          {site.force_https ? "HTTPS" : "HTTP"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="runtime-label">
+                          {{
+                            static: "Static",
+                            php: "PHP",
+                            nodejs: "Node.js",
+                            python: "Python",
+                            proxy: "Reverse proxy",
+                          }[site.kind] || site.kind}
+                          {site.version ? ` ${site.version}` : ""}
+                        </span>
+                      </td>
+                      <td>
+                        <StatusPill
+                          size="sm"
+                          variant={
+                            site.status === "active"
+                              ? "success"
+                              : site.status === "suspended"
+                                ? "warning"
+                                : "neutral"
+                          }
+                          label={
+                            site.status === "active"
+                              ? t("design.active")
+                              : site.status === "suspended"
+                                ? t("design.suspended")
+                                : t("design.inactive")
+                          }
+                        />
+                      </td>
+                      <td>
+                        <a
+                          className="icon-button"
+                          href={`${site.force_https ? "https" : "http"}://${site.primary_domain}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={t("design.visitSite", {
+                            domain: site.primary_domain,
+                          })}
+                        >
+                          <ExternalLink size={15} />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!loading && !sitesError && sites.length > 0 && (
+            <footer className="table-footer">
+              {t("design.showingSites", {
+                shown: Math.min(sites.length, 7),
+                total: sites.length,
+              })}
+            </footer>
+          )}
+        </section>
+        {admin && (
+          <section className="hosting-panel server-overview">
+            <header className="section-heading">
+              <div>
+                <h2>{t("design.serverActivity")}</h2>
+                <p>{t("design.recentCpu")}</p>
+              </div>
+              <Activity size={17} className="muted-icon" />
+            </header>
+            <div className="cpu-chart">
+              {loading ? (
+                <Skeleton className="h-32" />
+              ) : points.length > 1 ? (
+                <>
+                  <div className="chart-current">
+                    <strong>
+                      {number(latest!.cpu_avg)}
+                      <span>%</span>
+                    </strong>
+                    <span>{t("design.cpuAverage")}</span>
+                  </div>
+                  <PulseStrip
+                  responsive
+                  label={t('design.recentCpu')}
+                    data={points.map((point) => point.cpu_avg)}
+                    width={400}
+                    height={112}
+                  />
+                  <div className="chart-time">
+                    <span>
+                      {new Date(points[0].timestamp * 1000).toLocaleTimeString(
+                        i18n.language,
+                        { hour: "2-digit", minute: "2-digit" },
+                      )}
+                    </span>
+                    <span>
+                      {new Date(
+                        points[points.length - 1].timestamp * 1000,
+                      ).toLocaleTimeString(i18n.language, {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="metrics-empty">
+                  <Activity size={28} strokeWidth={1.4} />
+                  <p>{t("design.noMetrics")}</p>
+                </div>
+              )}
+            </div>
+            <div className="server-information">
+              <Server size={16} />
+              <span>{t("design.serverEnvironment")}</span>
+              <strong>{info ? `${info.os} · ${info.arch}` : "—"}</strong>
+            </div>
+            <button
+              className="panel-footer-action"
+              onClick={() => onNavigate("analytics")}
+            >
+              {t("design.openAnalytics")}
+            </button>
+          </section>
         )}
       </div>
-
-      {/* Quick Resource Meters (Section 8.4 Wireframe) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* CPU */}
-        <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-[var(--ink-muted)] flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-[var(--primary)]" />
-              {t('dashboard.quickStats.cpu')}
-            </span>
-            <span className="text-xs font-mono text-[var(--ink)]">18%</span>
-          </div>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-lg font-bold tabular-nums">18.4%</span>
-            <PulseStrip data={[10, 15, 12, 18, 22, 17, 19, 24, 18]} width={80} height={16} />
-          </div>
-        </div>
-
-        {/* Memory */}
-        <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-[var(--ink-muted)] flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-[var(--primary)]" />
-              {t('dashboard.quickStats.memory')}
-            </span>
-            <span className="text-xs font-mono text-[var(--ink)]">1.2 / 4 GB</span>
-          </div>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-lg font-bold tabular-nums">30%</span>
-            <PulseStrip data={[28, 29, 30, 30, 31, 30, 30, 30, 30]} width={80} height={16} />
-          </div>
-        </div>
-
-        {/* Disk */}
-        <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-[var(--ink-muted)] flex items-center gap-1.5">
-              <HardDrive className="w-3.5 h-3.5 text-[var(--primary)]" />
-              {t('dashboard.quickStats.disk')}
-            </span>
-            <span className="text-xs font-mono text-[var(--ink)]">41 / 80 GB</span>
-          </div>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-lg font-bold tabular-nums">51.2%</span>
-            <PulseStrip data={[50, 50, 50, 51, 51, 51, 51, 51, 51]} width={80} height={16} />
-          </div>
-        </div>
-
-        {/* Network */}
-        <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-[var(--ink-muted)] flex items-center gap-1.5">
-              <Network className="w-3.5 h-3.5 text-[var(--primary)]" />
-              {t('dashboard.quickStats.network')}
-            </span>
-            <span className="text-xs font-mono text-[var(--ink)]">naik 2.1 Mb/s</span>
-          </div>
-          <div className="flex items-baseline justify-between mt-2">
-            <span className="text-lg font-bold tabular-nums">2.1 Mb/s</span>
-            <PulseStrip data={[5, 12, 8, 20, 15, 30, 22, 18, 25]} width={80} height={16} />
-          </div>
-        </div>
-      </div>
-
-      {/* Sites List (PRD Section 8.4 Wireframe) */}
-      <div className="border border-[var(--line)] rounded-[var(--radius-md)] bg-[var(--surface)] overflow-hidden">
-        <div className="p-4 border-b border-[var(--line)] flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--ink)]">
-            {t('dashboard.sitesTable.title')}
-          </h2>
-          <span className="text-xs text-[var(--ink-muted)] font-mono">3 situs terdaftar</span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-[var(--raised)] text-[var(--ink-muted)]">
-                <th className="py-2.5 px-4 font-medium">{t('dashboard.sitesTable.domain')}</th>
-                <th className="py-2.5 px-4 font-medium">{t('dashboard.sitesTable.runtime')}</th>
-                <th className="py-2.5 px-4 font-medium">{t('dashboard.sitesTable.pulse')}</th>
-                <th className="py-2.5 px-4 font-medium">{t('dashboard.sitesTable.requests')}</th>
-                <th className="py-2.5 px-4 font-medium">{t('dashboard.sitesTable.latency')}</th>
-                <th className="py-2.5 px-4 font-medium text-right">{t('common.actions')}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--line)]">
-              {/* Site 1 */}
-              <tr className="hover:bg-[var(--raised)]/60 transition-colors">
-                <td className="py-3 px-4 font-medium text-[var(--ink)]">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[var(--success)]" />
-                    <span className="font-mono">example.com</span>
-                  </div>
-                </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-0.5 rounded border border-[var(--line)] bg-[var(--raised)] font-mono text-[11px]">
-                    PHP 8.3
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                  <PulseStrip data={[12, 14, 18, 25, 22, 19, 26, 30, 24, 28, 35, 32]} />
-                </td>
-                <td className="py-3 px-4 tabular-nums">1.2k req/mnt</td>
-                <td className="py-3 px-4 tabular-nums font-mono">180 ms</td>
-                <td className="py-3 px-4 text-right">
-                  <button className="text-[var(--primary)] hover:underline font-medium">
-                    {t('dashboard.sitesTable.viewDetails')}
-                  </button>
-                </td>
-              </tr>
-
-              {/* Site 2 */}
-              <tr className="hover:bg-[var(--raised)]/60 transition-colors">
-                <td className="py-3 px-4 font-medium text-[var(--ink)]">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[var(--success)]" />
-                    <span className="font-mono">api.acme.dev</span>
-                  </div>
-                </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-0.5 rounded border border-[var(--line)] bg-[var(--raised)] font-mono text-[11px]">
-                    Node 22
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                  <PulseStrip data={[20, 22, 24, 21, 23, 22, 25, 26, 24, 25, 27, 26]} />
-                </td>
-                <td className="py-3 px-4 tabular-nums">340 req/mnt</td>
-                <td className="py-3 px-4 tabular-nums font-mono">42 ms</td>
-                <td className="py-3 px-4 text-right">
-                  <button className="text-[var(--primary)] hover:underline font-medium">
-                    {t('dashboard.sitesTable.viewDetails')}
-                  </button>
-                </td>
-              </tr>
-
-              {/* Site 3 - Warning */}
-              <tr className="hover:bg-[var(--raised)]/60 transition-colors bg-[var(--accent)]/5">
-                <td className="py-3 px-4 font-medium text-[var(--ink)]">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[var(--danger)]" />
-                    <span className="font-mono">blog.rafi.id</span>
-                  </div>
-                </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-0.5 rounded border border-[var(--line)] bg-[var(--raised)] font-mono text-[11px]">
-                    PHP 8.1
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                  <PulseStrip data={[5, 10, 15, 45, 80, 70, 50, 40, 30, 25]} hasError />
-                </td>
-                <td className="py-3 px-4 text-[var(--danger)] font-medium tabular-nums">
-                  5xx naik ke 4.2%
-                </td>
-                <td className="py-3 px-4 tabular-nums font-mono">450 ms</td>
-                <td className="py-3 px-4 text-right">
-                  <button className="text-[var(--danger)] hover:underline font-medium">
-                    Lihat penyebab
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <footer className="dashboard-footer">
+        <span>{t("design.workspaceOverview")}</span>
+        <span>
+          {updated
+            ? t("design.updatedAt", {
+                time: updated.toLocaleTimeString(i18n.language, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              })
+            : t("design.loadingHosting")}
+        </span>
+      </footer>
+      <SiteWizardDialog
+        isOpen={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onSuccess={() => {
+          setWizardOpen(false);
+          void loadData();
+        }}
+      />
     </div>
   );
-};
+}

@@ -1,19 +1,19 @@
-import { describe, it, expect } from 'vitest';
-import { renderToString } from 'react-dom/server';
-import { PanelMemoryProfileCard } from '../PanelMemoryProfileCard';
-import type { PanelMemoryProfileReport } from '../../../types/api';
+import { describe, it, expect } from "vitest";
+import { renderToString } from "react-dom/server";
+import { PanelMemoryProfileCard } from "../PanelMemoryProfileCard";
+import type { PanelMemoryProfileReport } from "../../../types/api";
 
-describe('PanelMemoryProfileCard Component', () => {
+describe("PanelMemoryProfileCard Component", () => {
   const mockReport: PanelMemoryProfileReport = {
-    generated_at: '1720000000-epoch-sec',
-    allocator: 'mimalloc',
+    generated_at: "1720000000-epoch-sec",
+    allocator: "mimalloc",
     release_profile: {
-      opt_level: '3',
-      lto: 'fat',
+      opt_level: "3",
+      lto: "fat",
       codegen_units: 1,
-      panic_strategy: 'abort',
+      panic_strategy: "abort",
       strip: true,
-      memory_allocator: 'mimalloc',
+      memory_allocator: "mimalloc",
     },
     api_process: {
       pid: 1001,
@@ -21,7 +21,7 @@ describe('PanelMemoryProfileCard Component', () => {
       rss_mb: 32.0,
       vsize_bytes: 90 * 1024 * 1024,
       vsize_mb: 90.0,
-      allocator: 'mimalloc',
+      allocator: "mimalloc",
       timestamp_epoch_secs: 1720000000,
     },
     agent_process: {
@@ -30,7 +30,7 @@ describe('PanelMemoryProfileCard Component', () => {
       rss_mb: 14.0,
       vsize_bytes: 45 * 1024 * 1024,
       vsize_mb: 45.0,
-      allocator: 'mimalloc',
+      allocator: "mimalloc",
       timestamp_epoch_secs: 1720000000,
     },
     total_panel_rss_mb: 46.0,
@@ -39,89 +39,94 @@ describe('PanelMemoryProfileCard Component', () => {
     api_read_latency_p95_ms: 12.5,
     targets: [
       {
-        target_id: 'BAB9-RAM-API',
-        name: 'RAM Idle panel-api',
-        threshold: '≤ 40.0 MB RSS',
-        measured: '32.0 MB RSS',
+        target_id: "BAB9-RAM-API",
+        name: "RAM Idle panel-api",
+        threshold: "≤ 40.0 MB RSS",
+        measured: "32.0 MB RSS",
         passed: true,
-        notes: 'Memori proses REST API saat kondisi standby (mimalloc)',
+        notes: "Memori proses REST API saat kondisi standby (mimalloc)",
       },
       {
-        target_id: 'BAB9-RAM-AGENT',
-        name: 'RAM Idle panel-agent',
-        threshold: '≤ 20.0 MB RSS',
-        measured: '14.0 MB RSS',
+        target_id: "BAB9-RAM-AGENT",
+        name: "RAM Idle panel-agent",
+        threshold: "≤ 20.0 MB RSS",
+        measured: "14.0 MB RSS",
         passed: true,
-        notes: 'Memori root daemon agent saat standby (mimalloc)',
+        notes: "Memori root daemon agent saat standby (mimalloc)",
       },
       {
-        target_id: 'BAB9-RAM-TOTAL',
-        name: 'RAM Total Panel (100 situs, 10 sesi)',
-        threshold: '≤ 150.0 MB RSS',
-        measured: '46.0 MB RSS',
+        target_id: "BAB9-RAM-TOTAL",
+        name: "RAM Total Panel (100 situs, 10 sesi)",
+        threshold: "≤ 150.0 MB RSS",
+        measured: "46.0 MB RSS",
         passed: true,
-        notes: 'Total footprint panel-api + panel-agent saat beban aktif',
+        notes: "Total footprint panel-api + panel-agent saat beban aktif",
       },
       {
-        target_id: 'BAB9-COLD-START',
-        name: 'Start Cold panel-api',
-        threshold: '< 1000 ms',
-        measured: '380 ms',
+        target_id: "BAB9-COLD-START",
+        name: "Start Cold panel-api",
+        threshold: "< 1000 ms",
+        measured: "380 ms",
         passed: true,
-        notes: 'Waktu inisialisasi cold start',
+        notes: "Waktu inisialisasi cold start",
       },
       {
-        target_id: 'BAB9-API-LATENCY',
-        name: 'Latensi API Baca (p95)',
-        threshold: '< 50.0 ms',
-        measured: '12.50 ms',
+        target_id: "BAB9-API-LATENCY",
+        name: "Latensi API Baca (p95)",
+        threshold: "< 50.0 ms",
+        measured: "12.50 ms",
         passed: true,
-        notes: 'Respons endpoint baca di bawah 50ms',
+        notes: "Respons endpoint baca di bawah 50ms",
       },
       {
-        target_id: 'BAB9-WEB-BUNDLE',
-        name: 'Web UI Initial Bundle (gzip)',
-        threshold: '≤ 250.0 KB',
-        measured: '145.46 KB',
+        target_id: "BAB9-WEB-BUNDLE",
+        name: "Web UI Initial Bundle (gzip)",
+        threshold: "≤ 250.0 KB",
+        measured: "145.46 KB",
         passed: true,
-        notes: 'Ukuran bundle entry point gzip',
+        notes: "Ukuran bundle entry point gzip",
       },
     ],
     all_passed: true,
-    summary: 'Semua 6 target efisiensi memori & performa PRD Bab 9 terpenuhi secara valid.',
+    summary:
+      "Semua 6 target efisiensi memori & performa PRD Bab 9 terpenuhi secara valid.",
   };
 
-  it('renders initial report without crashing', () => {
-    const html = renderToString(<PanelMemoryProfileCard initialReport={mockReport} />);
+  it("renders initial report without crashing", () => {
+    const html = renderToString(
+      <PanelMemoryProfileCard initialReport={mockReport} />,
+    );
 
-    expect(html).toContain('Profil Memori &amp; Efisiensi Sistem (PRD Bab 9)');
-    expect(html).toContain('100% Target Lolos');
-    expect(html).toContain('mimalloc');
-    expect(html).toContain('opt-level=3');
-    expect(html).toContain('LTO=fat');
-    expect(html).toContain('panic=abort');
+    expect(html).toContain("Profil Memori &amp; Efisiensi Sistem");
+    expect(html).toContain("100% Target Lolos");
+    expect(html).not.toMatch(/mimalloc|Release Profile|PRD Bab 9/);
+    expect(html).not.toContain("opt-level=3");
+    expect(html).not.toContain("LTO=fat");
+    expect(html).not.toContain("panic=abort");
   });
 
-  it('displays all 6 PRD Section 9 target IDs and statuses', () => {
-    const html = renderToString(<PanelMemoryProfileCard initialReport={mockReport} />);
+  it("displays operational measurements and statuses without internal requirement IDs", () => {
+    const html = renderToString(
+      <PanelMemoryProfileCard initialReport={mockReport} />,
+    );
 
-    expect(html).toContain('BAB9-RAM-API');
-    expect(html).toContain('BAB9-RAM-AGENT');
-    expect(html).toContain('BAB9-RAM-TOTAL');
-    expect(html).toContain('BAB9-COLD-START');
-    expect(html).toContain('BAB9-API-LATENCY');
-    expect(html).toContain('BAB9-WEB-BUNDLE');
-    expect(html).toContain('Lolos');
+    for (const target of mockReport.targets) {
+      expect(html).toContain(target.measured);
+      expect(html).not.toContain(target.target_id);
+    }
+    expect(html).toContain("Lolos");
   });
 
-  it('displays accurate measured metric values in cards', () => {
-    const html = renderToString(<PanelMemoryProfileCard initialReport={mockReport} />);
+  it("displays accurate measured metric values in cards", () => {
+    const html = renderToString(
+      <PanelMemoryProfileCard initialReport={mockReport} />,
+    );
 
-    expect(html).toContain('32.0 MB');
-    expect(html).toContain('14.0 MB');
-    expect(html).toContain('46.0 MB');
-    expect(html).toContain('380 ms');
-    expect(html).toContain('12.5 ms');
-    expect(html).toContain('145.5 KB');
+    expect(html).toContain("32.0 MB");
+    expect(html).toContain("14.0 MB");
+    expect(html).toContain("46.0 MB");
+    expect(html).toContain("380 ms");
+    expect(html).toContain("12.5 ms");
+    expect(html).toContain("145.5 KB");
   });
 });
