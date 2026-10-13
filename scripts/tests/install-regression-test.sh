@@ -87,7 +87,8 @@ grep -q 'DEFAULT_DATABASE_PATH.*"/var/lib/panel/panel.db"' "$REPO/crates/panel-c
 grep -q 'DEFAULT_DATABASE_PATH' "$REPO/crates/panel-api/src/config.rs"
 grep -q 'DEFAULT_DATABASE_PATH' "$REPO/crates/panel-cli/src/main.rs"
 pass 'API and CLI share an absolute production database default'
-grep -q 'runs-on: ubuntu-22.04' "$REPO/.github/workflows/release.yml"
+grep -q 'runner: ubuntu-22.04$' "$REPO/.github/workflows/release.yml"
+grep -q 'runner: ubuntu-22.04-arm$' "$REPO/.github/workflows/release.yml"
 grep -q 'scripts/check-glibc.sh' "$REPO/.github/workflows/release.yml"
 grep -q 'templates/nginx/nusa-panel.conf' "$REPO/scripts/build-release.sh"
 pass 'release baseline gate and proxy template packaging'
@@ -150,3 +151,4 @@ for version in GLIBC_2.35 GLIBC_2.39 none; do
 done
 printf '%s regression checks passed. VM acceptance was not run.\n' "$count"
 bash "$REPO/scripts/tests/install-startup-race-test.sh"
+bash "$REPO/scripts/tests/release-build-test.sh"

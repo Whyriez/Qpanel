@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-x86_64-unknown-linux-gnu}"
 OUTPUT_DIR="${SCRIPT_DIR}/release"
 VERSION="$(grep -m1 '^version' "${SCRIPT_DIR}/Cargo.toml" | cut -d '"' -f 2 || echo "0.1.0")"
+cd "$SCRIPT_DIR"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$SCRIPT_DIR/target/release-native/$TARGET}"
+BIN_DIR="$CARGO_TARGET_DIR/$TARGET/release"
 
 echo "================================================================================"
 echo "          MEMBANGUN PAKET RILIS NUSA PANEL v${VERSION} (${TARGET})              "
@@ -25,15 +28,12 @@ fi
 
 # 2. Build Rust release binaries
 echo "==> Mengompilasi biner release untuk target ${TARGET}..."
-cargo build --release --target "${TARGET}" \
-    -p panel-agent \
-    -p panel-api \
-    -p panel-cli
+bash "$SCRIPT_DIR/scripts/compile-release.sh" "$TARGET"
 
 bash "${SCRIPT_DIR}/scripts/check-glibc.sh" \
-    "${SCRIPT_DIR}/target/${TARGET}/release/panel-api" \
-    "${SCRIPT_DIR}/target/${TARGET}/release/panel-agent" \
-    "${SCRIPT_DIR}/target/${TARGET}/release/panelctl"
+    "$BIN_DIR/panel-api" \
+    "$BIN_DIR/panel-agent" \
+    "$BIN_DIR/panelctl"
 
 # 3. Create staging directory
 STAGE_NAME="nusa-panel-v${VERSION}-${TARGET}"
@@ -44,9 +44,9 @@ mkdir -p "${STAGE_DIR}/templates/systemd"
 mkdir -p "${STAGE_DIR}/templates/nginx"
 
 # Copy binaries
-cp -f "${SCRIPT_DIR}/target/${TARGET}/release/panel-agent" "${STAGE_DIR}/bin/"
-cp -f "${SCRIPT_DIR}/target/${TARGET}/release/panel-api" "${STAGE_DIR}/bin/"
-cp -f "${SCRIPT_DIR}/target/${TARGET}/release/panelctl" "${STAGE_DIR}/bin/"
+cp -f "$BIN_DIR/panel-agent" "${STAGE_DIR}/bin/"
+cp -f "$BIN_DIR/panel-api" "${STAGE_DIR}/bin/"
+cp -f "$BIN_DIR/panelctl" "${STAGE_DIR}/bin/"
 chmod 0755 "${STAGE_DIR}/bin/"*
 
 # Copy templates and scripts
