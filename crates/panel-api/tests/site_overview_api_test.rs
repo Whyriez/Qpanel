@@ -87,6 +87,13 @@ async fn setup_test_context() -> TestContext {
     runner.set_response("chown", 0, b"", b"");
     runner.set_response("chmod", 0, b"", b"");
 
+    // The overview fixture creates a PHP site through the provisioning API.
+    runner.add_existing_path("/usr/sbin/php-fpm8.3");
+    runner.add_existing_path("/usr/bin/php8.3");
+    runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
+    runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
+    runner.set_response("systemctl is-enabled php8.3-fpm.service", 0, b"masked\n", b"");
+
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
     ));
@@ -259,9 +266,14 @@ async fn test_site_overview_and_quick_actions() {
         .unwrap();
 
     let resp = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::CREATED);
-
+    let status = resp.status();
     let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "Overview site creation response: {}",
+        String::from_utf8_lossy(&body)
+    );
     let site: SiteResponse = serde_json::from_slice(&body).unwrap();
     assert_eq!(site.primary_domain, "overview-demo.com");
 

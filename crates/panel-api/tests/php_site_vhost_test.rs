@@ -31,7 +31,6 @@ use tower::ServiceExt;
 
 struct TestContext {
     app: axum::Router,
-    #[allow(dead_code)]
     pool: panel_db::pool::DbPool,
     _temp: tempfile::TempDir,
     nginx_dir: std::path::PathBuf,
@@ -52,6 +51,10 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
 }
 
 async fn setup_test_context() -> TestContext {
+    setup_test_context_with_php_sockets(true).await
+}
+
+async fn setup_test_context_with_php_sockets(sockets_available: bool) -> TestContext {
     let tmp = tempdir().expect("tempdir");
     let db_file = tmp.path().join("panel.db");
 
@@ -88,6 +91,21 @@ async fn setup_test_context() -> TestContext {
     runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
     runner.set_response("php-fpm8.2", 0, b"test is successful", b"");
     runner.set_response("php-fpm8.4", 0, b"test is successful", b"");
+
+    // Installed runtimes require both binary paths; healthy provisioning also needs a socket.
+    for version in ["8.2", "8.3", "8.4"] {
+        runner.add_existing_path(format!("/usr/sbin/php-fpm{version}"));
+        runner.add_existing_path(format!("/usr/bin/php{version}"));
+        runner.set_response(
+            &format!("systemctl is-enabled php{version}-fpm.service"),
+            0,
+            b"masked\n",
+            b"",
+        );
+        if sockets_available {
+            runner.add_existing_path(format!("/run/panel/php/p_alice-{version}.sock"));
+        }
+    }
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
@@ -248,6 +266,18 @@ async fn setup_test_context() -> TestContext {
     }
 }
 
+async fn read_created_site(response: axum::response::Response) -> SiteResponse {
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "PHP site creation response: {}",
+        String::from_utf8_lossy(&body)
+    );
+    serde_json::from_slice(&body).expect("parse created PHP site")
+}
+
 #[tokio::test]
 async fn test_create_php_site_generic_preset_and_vhost() {
     let ctx = setup_test_context().await;
@@ -280,10 +310,7 @@ async fn test_create_php_site_generic_preset_and_vhost() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
     assert_eq!(site.kind, "php");
     assert_eq!(site.primary_domain, "app-generic.com");
 
@@ -336,10 +363,7 @@ async fn test_create_php_site_wordpress_preset_security_rules() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
     assert_eq!(site.kind, "php");
 
     let vhost_path = ctx
@@ -388,10 +412,7 @@ async fn test_create_php_site_laravel_preset_routing() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
 
     let vhost_path = ctx
         .nginx_dir
@@ -436,10 +457,7 @@ async fn test_create_php_site_custom_front_controller() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
 
     let vhost_path = ctx
         .nginx_dir
@@ -483,10 +501,7 @@ async fn test_create_php_site_with_fastcgi_cache() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
 
     let vhost_path = ctx
         .nginx_dir
@@ -535,8 +550,7 @@ async fn test_php_site_domain_redirects_and_recompile() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
 
     // 2. Add an alias domain with redirect to primary
     let add_domain_req = AddSiteDomainRequest {
@@ -606,8 +620,7 @@ async fn test_delete_php_site_removes_vhost() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let site: SiteResponse = serde_json::from_slice(&body).unwrap();
+    let site = read_created_site(res).await;
 
     let vhost_path = ctx
         .nginx_dir
@@ -635,4 +648,63 @@ async fn test_delete_php_site_removes_vhost() {
     assert_eq!(msg.status, "deleted");
 
     assert!(!vhost_path.exists());
+}
+
+#[tokio::test]
+async fn test_php_site_rejects_missing_runtime_or_socket_without_leaving_records() {
+    for (version, sockets_available, expected_status, expected_error) in [
+        (
+            "8.1",
+            true,
+            StatusCode::BAD_REQUEST,
+            "Runtime PHP belum terpasang. Buka Runtime Manager terlebih dahulu.",
+        ),
+        (
+            "8.3",
+            false,
+            StatusCode::BAD_GATEWAY,
+            "Health check PHP-FPM gagal; pembuatan situs dibatalkan.",
+        ),
+    ] {
+        let ctx = setup_test_context_with_php_sockets(sockets_available).await;
+        let payload = CreateSiteRequest {
+            domain: "rejected-php.test".to_string(),
+            user_id: Some(ctx.alice_id),
+            kind: Some("php".to_string()),
+            php_version: Some(version.to_string()),
+            preset: Some("generic".to_string()),
+            ..Default::default()
+        };
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/v1/sites")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::COOKIE,
+                format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+            )
+            .header(CSRF_HEADER_NAME, &ctx.admin_csrf)
+            .body(Body::from(serde_json::to_string(&payload).unwrap()))
+            .unwrap();
+        let response = ctx.app.clone().oneshot(req).await.unwrap();
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            status,
+            expected_status,
+            "Rejected PHP site response: {}",
+            String::from_utf8_lossy(&body)
+        );
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["error"], expected_error);
+
+        let counts: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM sites), (SELECT COUNT(*) FROM domains)",
+        )
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        assert_eq!(counts, (0, 0), "Rejected provisioning left site records");
+        assert!(!ctx.nginx_dir.join("sites-enabled/site_1.conf").exists());
+    }
 }
