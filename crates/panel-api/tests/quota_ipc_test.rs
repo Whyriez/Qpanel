@@ -9,6 +9,8 @@ use panel_api::agent_client::AgentClient;
 use panel_api::jobs::registry::JobRegistry;
 use panel_api::jobs::runner::JobRunner;
 use panel_api::jobs::worker::process_one_job;
+use panel_db::models::CreateUser;
+use panel_db::repositories::SqliteUserRepository;
 use panel_db::{DbPool, init_pool, run_migrations};
 use panel_proto::{QuotaGetRequest, QuotaScanRequest, QuotaSetRequest};
 use std::sync::Arc;
@@ -133,12 +135,25 @@ async fn test_quota_management_and_job_over_ipc() {
 
     // 5. Test Background Quota Job Execution
     let pool = setup_test_db().await;
+    // The worker resolves execution identity from the database, not the home directory.
+    let tenant = SqliteUserRepository::new(pool.clone())
+        .create(&CreateUser {
+            username: "quota_user".to_string(),
+            password_hash: "unused-test-password-hash".to_string(),
+            role: "user".to_string(),
+            email: None,
+            linux_username: Some("p_quota_user".to_string()),
+            linux_uid: Some(10001),
+            plan_id: None,
+        })
+        .await
+        .expect("create quota tenant fixture");
     let registry = JobRegistry::new_with_agent(Arc::clone(&client));
     let runner = Arc::new(JobRunner::with_registry(pool.clone(), registry));
 
     let (job, _) = runner
         .enqueue(
-            None,
+            Some(tenant.id),
             None,
             "quota.report".to_string(),
             serde_json::json!({
@@ -162,14 +177,59 @@ async fn test_quota_management_and_job_over_ipc() {
         .expect("find job")
         .expect("job exists");
 
-    assert_eq!(finished_job.status, "succeeded");
+    assert_eq!(
+        finished_job.status,
+        "succeeded",
+        "Quota job failed: {:?}",
+        finished_job.error_message
+    );
+    assert_eq!(finished_job.user_id, Some(tenant.id));
+    assert!(finished_job.error_message.is_none());
     assert_eq!(finished_job.progress, 100);
     let result_val: serde_json::Value =
         serde_json::from_str(&finished_job.result_json.unwrap()).expect("parse result");
     assert_eq!(result_val["uid"], 10001);
+    assert_eq!(result_val["username"], "p_quota_user");
     assert_eq!(result_val["bytes_used"], 48);
     assert_eq!(result_val["inodes_used"], 3);
 
     let _ = shutdown_tx.send(());
     let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn test_quota_jobs_reject_unregistered_tenant_before_ipc() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let pool = setup_test_db().await;
+    // No agent is started: an unknown tenant must be rejected before connecting.
+    let client = Arc::new(AgentClient::new(tmp.path().join("no-agent.sock")));
+    let registry = JobRegistry::new_with_agent(client);
+    let runner = Arc::new(JobRunner::with_registry(pool, registry));
+
+    for name in ["quota.report", "quota.scan"] {
+        let (job, _) = runner
+            .enqueue(
+                None,
+                None,
+                name.to_string(),
+                serde_json::json!({"uid": 10001, "username": "p_quota_user"}).to_string(),
+                Some(1),
+            )
+            .await
+            .expect("enqueue quota job for unregistered tenant");
+        assert!(process_one_job(&runner).await.expect("process quota job"));
+        let finished_job = runner
+            .job_repo
+            .find_by_id(&job.id)
+            .await
+            .expect("find quota job")
+            .expect("quota job exists");
+        assert_eq!(finished_job.status, "failed");
+        assert_eq!(
+            finished_job.error_message.as_deref(),
+            Some("Identitas tenant pekerjaan tidak ditemukan")
+        );
+        assert_eq!(finished_job.progress, 0);
+        assert!(finished_job.result_json.is_none());
+    }
 }
