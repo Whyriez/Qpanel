@@ -60,6 +60,11 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
 }
 
 async fn setup_test_context() -> TestContext {
+    // Match the provisioner's tenant UID range (10000..=59999).
+    setup_test_context_with_alice_uid(10001).await
+}
+
+async fn setup_test_context_with_alice_uid(alice_uid: i64) -> TestContext {
     let tmp = tempdir().expect("tempdir");
     let db_file = tmp.path().join("panel.db");
     let analytics_db_file = tmp.path().join("analytics.db");
@@ -174,7 +179,7 @@ async fn setup_test_context() -> TestContext {
             email: Some("alice@example.com".to_string()),
             plan_id: None,
             linux_username: Some("p_alice".to_string()),
-            linux_uid: Some(1001),
+            linux_uid: Some(alice_uid),
         })
         .await
         .expect("create alice");
@@ -188,7 +193,7 @@ async fn setup_test_context() -> TestContext {
             email: Some("bob@example.com".to_string()),
             plan_id: None,
             linux_username: Some("p_bob".to_string()),
-            linux_uid: Some(1002),
+            linux_uid: Some(10002),
         })
         .await
         .expect("create bob");
@@ -756,7 +761,7 @@ async fn test_runtime_app_metrics_php_and_node() {
         .body(Body::empty())
         .expect("req");
     let resp_fpm = ctx.app.clone().oneshot(req_fpm).await.expect("resp");
-    assert_eq!(resp_fpm.status(), StatusCode::OK);
+    let status_fpm = resp_fpm.status();
 
     let bytes = resp_fpm
         .into_body()
@@ -764,6 +769,12 @@ async fn test_runtime_app_metrics_php_and_node() {
         .await
         .expect("bytes")
         .to_bytes();
+    assert_eq!(
+        status_fpm,
+        StatusCode::OK,
+        "PHP metrics response: {}",
+        String::from_utf8_lossy(&bytes)
+    );
     let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse");
     assert_eq!(body["site_id"], ctx.alice_site_id);
     assert_eq!(body["runtime"], "php:8.3");
@@ -811,7 +822,7 @@ async fn test_runtime_app_metrics_php_and_node() {
         .body(Body::empty())
         .expect("req");
     let resp_node = ctx.app.clone().oneshot(req_node).await.expect("resp");
-    assert_eq!(resp_node.status(), StatusCode::OK);
+    let status_node = resp_node.status();
 
     let bytes_node = resp_node
         .into_body()
@@ -819,10 +830,54 @@ async fn test_runtime_app_metrics_php_and_node() {
         .await
         .expect("bytes")
         .to_bytes();
+    assert_eq!(
+        status_node,
+        StatusCode::OK,
+        "Node metrics response: {}",
+        String::from_utf8_lossy(&bytes_node)
+    );
     let body_node: serde_json::Value = serde_json::from_slice(&bytes_node).expect("parse");
     assert_eq!(body_node["site_id"], ctx.node_site_id);
     assert_eq!(body_node["app_process"]["app_type"], "node");
     assert_eq!(body_node["app_process"]["cpu_avg"], 12.5);
+}
+
+#[tokio::test]
+async fn test_php_app_metrics_reject_invalid_tenant_uid_for_owner_and_admin() {
+    // A regular system UID must stay invalid even when the requester is an admin.
+    let ctx = setup_test_context_with_alice_uid(1001).await;
+    let base_ts = 1_700_000_000;
+
+    for (session, csrf) in [
+        (&ctx.alice_session, &ctx.alice_csrf),
+        (&ctx.admin_session, &ctx.admin_csrf),
+    ] {
+        let req = Request::builder()
+            .uri(format!(
+                "/api/v1/sites/{}/analytics/app?from={}&to={}",
+                ctx.alice_site_id,
+                base_ts - 60,
+                base_ts + 120
+            ))
+            .header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={session}"))
+            .header(CSRF_HEADER_NAME, csrf)
+            .body(Body::empty())
+            .expect("req");
+        let resp = ctx.app.clone().oneshot(req).await.expect("resp");
+        let status = resp.status();
+        let bytes = resp.into_body().collect().await.expect("bytes").to_bytes();
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "Invalid tenant UID response: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse");
+        assert_eq!(
+            body["error"],
+            "Tenant belum memiliki identitas Linux yang valid. Provision tenant terlebih dahulu."
+        );
+    }
 }
 
 #[tokio::test]

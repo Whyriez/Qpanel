@@ -163,7 +163,7 @@ async fn setup_test_context() -> TestContext {
             email: Some("alice@example.com".to_string()),
             plan_id: None,
             linux_username: Some("p_alice".to_string()),
-            linux_uid: Some(1001),
+            linux_uid: Some(10001),
         })
         .await
         .expect("create alice");

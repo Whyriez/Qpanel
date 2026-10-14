@@ -133,7 +133,7 @@ async fn setup_test_context() -> TestContext {
             role: "admin".to_string(),
             plan_id: None,
             linux_username: Some("p_admin".to_string()),
-            linux_uid: Some(1001),
+            linux_uid: Some(10001),
         })
         .await
         .expect("create admin");
@@ -147,7 +147,7 @@ async fn setup_test_context() -> TestContext {
             role: "user".to_string(),
             plan_id: None,
             linux_username: Some("p_tenant1".to_string()),
-            linux_uid: Some(1002),
+            linux_uid: Some(10002),
         })
         .await
         .expect("create tenant");

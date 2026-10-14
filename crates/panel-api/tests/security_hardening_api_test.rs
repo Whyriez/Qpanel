@@ -139,7 +139,7 @@ async fn setup_test_context() -> TestContext {
             role: "admin".to_string(),
             plan_id: None,
             linux_username: Some("p_admin".to_string()),
-            linux_uid: Some(1001),
+            linux_uid: Some(10001),
         })
         .await
         .expect("create admin");
@@ -153,7 +153,7 @@ async fn setup_test_context() -> TestContext {
             role: "user".to_string(),
             plan_id: None,
             linux_username: Some("p_tenant1".to_string()),
-            linux_uid: Some(1002),
+            linux_uid: Some(10002),
         })
         .await
         .expect("create tenant");
@@ -380,12 +380,12 @@ async fn test_sync_nftables_loopback_admin_success() {
         custom_bindings: Some(vec![
             TenantPortBindingDto {
                 site_id: 101,
-                tenant_uid: 1001,
+                tenant_uid: 10001,
                 port: 20050,
             },
             TenantPortBindingDto {
                 site_id: 102,
-                tenant_uid: 1002,
+                tenant_uid: 10002,
                 port: 20060,
             },
         ]),
@@ -420,7 +420,7 @@ async fn test_sync_nftables_invalid_port_rejected() {
     let payload = NftablesSyncPayload {
         custom_bindings: Some(vec![TenantPortBindingDto {
             site_id: 101,
-            tenant_uid: 1001,
+            tenant_uid: 10001,
             port: 80, // Invalid: must be 20000..=29999
         }]),
     };
