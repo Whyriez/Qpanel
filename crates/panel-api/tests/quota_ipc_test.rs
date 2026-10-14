@@ -178,8 +178,7 @@ async fn test_quota_management_and_job_over_ipc() {
         .expect("job exists");
 
     assert_eq!(
-        finished_job.status,
-        "succeeded",
+        finished_job.status, "succeeded",
         "Quota job failed: {:?}",
         finished_job.error_message
     );
