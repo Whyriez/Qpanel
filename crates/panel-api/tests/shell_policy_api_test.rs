@@ -392,11 +392,9 @@ async fn test_terminal_blocked_for_sftp_and_none_policy() {
 
     let body = resp.into_body().collect().await.expect("body").to_bytes();
     let json: Value = serde_json::from_slice(&body).expect("json");
-    assert!(
-        json["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("Akses terminal interaktif tidak diizinkan")
+    assert_eq!(
+        json["error"],
+        "Kebijakan shell tenant tidak mengizinkan terminal interaktif."
     );
 
     // 3. Admin sets Alice policy to "none"
@@ -440,6 +438,13 @@ async fn test_terminal_blocked_for_sftp_and_none_policy() {
 
     let resp = ctx.app.clone().oneshot(req).await.expect("resp");
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    let body = resp.into_body().collect().await.expect("body").to_bytes();
+    let json: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(
+        json["error"],
+        "Kebijakan shell tenant tidak mengizinkan terminal interaktif."
+    );
 }
 
 #[tokio::test]
