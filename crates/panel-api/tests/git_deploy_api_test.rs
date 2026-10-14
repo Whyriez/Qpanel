@@ -22,9 +22,9 @@ use panel_api::git_deploy::{
 use panel_api::routes::AppState;
 use panel_core::auth::hash_password;
 use panel_core::git_deploy::compute_hmac_sha256;
-use panel_db::models::CreateUser;
+use panel_db::models::{CreateDomain, CreateSite, CreateUser};
 use panel_db::pool::{init_pool, run_migrations};
-use panel_db::repositories::SqliteUserRepository;
+use panel_db::repositories::{SqliteDomainRepository, SqliteSiteRepository, SqliteUserRepository};
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -147,7 +147,7 @@ async fn setup_test_context() -> TestContext {
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let alice_hash = hash_password("AlicePass123!").expect("hash pass");
-    let _alice = user_repo
+    let alice = user_repo
         .create(&CreateUser {
             username: "alice".to_string(),
             password_hash: alice_hash,
@@ -219,29 +219,32 @@ async fn setup_test_context() -> TestContext {
         serde_json::from_slice(&login_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let alice_csrf = login_json["csrf_token"].as_str().unwrap().to_string();
 
-    // Create site for alice via API
-    let site_payload = serde_json::json!({
-        "domain": "example.com",
-        "kind": "php",
-        "php_version": "8.3",
-    });
-    let site_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/sites")
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, alice_session),
-        )
-        .header(CSRF_HEADER_NAME, &alice_csrf)
-        .body(Body::from(serde_json::to_vec(&site_payload).unwrap()))
-        .unwrap();
-
-    let site_res = app.clone().oneshot(site_req).await.unwrap();
-    assert_eq!(site_res.status(), StatusCode::CREATED);
-    let site_body_bytes = site_res.into_body().collect().await.unwrap().to_bytes();
-    let site_val: serde_json::Value = serde_json::from_slice(&site_body_bytes).unwrap();
-    let site_id = site_val["id"].as_i64().unwrap();
+    // Git tests start with an existing site; PHP provisioning has its own suite.
+    let site_id = SqliteSiteRepository::new(pool.clone())
+        .create(&CreateSite {
+            user_id: alice.id,
+            kind: "php".to_string(),
+            docroot: "/home/p_alice/sites/example.com/public".to_string(),
+            runtime: Some("php".to_string()),
+            version: Some("8.3".to_string()),
+            status: Some("active".to_string()),
+            settings_json: None,
+        })
+        .await
+        .expect("seed existing Alice site for Git tests")
+        .id;
+    SqliteDomainRepository::new(pool.clone())
+        .create(&CreateDomain {
+            site_id,
+            name: "example.com".to_string(),
+            unicode_name: "example.com".to_string(),
+            is_primary: true,
+            redirect_mode: None,
+            redirect_target: None,
+            status: Some("active".to_string()),
+        })
+        .await
+        .expect("seed primary domain for Git tests");
 
     TestContext {
         app,

@@ -17,11 +17,10 @@ use panel_api::config::AuthConfig;
 use panel_api::create_router;
 use panel_api::cron::{CronJobListResponse, ValidateCronResponse};
 use panel_api::routes::AppState;
-use panel_api::sites::SiteResponse;
 use panel_core::auth::hash_password;
-use panel_db::models::CreateUser;
+use panel_db::models::{CreateDomain, CreateSite, CreateUser};
 use panel_db::pool::{init_pool, run_migrations};
-use panel_db::repositories::SqliteUserRepository;
+use panel_db::repositories::{SqliteDomainRepository, SqliteSiteRepository, SqliteUserRepository};
 use serde_json::Value;
 use std::fs;
 use std::sync::Arc;
@@ -31,7 +30,6 @@ use tower::ServiceExt;
 
 struct TestContext {
     app: axum::Router,
-    #[allow(dead_code)]
     pool: panel_db::pool::DbPool,
     _temp: tempfile::TempDir,
     _shutdown_tx: tokio::sync::broadcast::Sender<()>,
@@ -39,7 +37,6 @@ struct TestContext {
     alice_csrf: String,
     bob_session: String,
     bob_csrf: String,
-    #[allow(dead_code)]
     alice_id: i64,
 }
 
@@ -86,7 +83,6 @@ async fn setup_test_context() -> TestContext {
     runner.set_response("setfacl", 0, b"", b"");
     runner.set_response("chown", 0, b"", b"");
     runner.set_response("chmod", 0, b"", b"");
-    runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
     runner.set_response("systemctl", 0, b"", b"");
     runner.set_response(
         "journalctl",
@@ -274,36 +270,32 @@ async fn setup_test_context() -> TestContext {
 }
 
 async fn create_alice_site(ctx: &TestContext, name: &str) -> i64 {
-    let site_payload = serde_json::to_string(&serde_json::json!({
-        "domain": name,
-        "kind": "php",
-        "php_version": "8.3",
-    }))
-    .unwrap();
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/sites")
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.alice_session),
-        )
-        .header(CSRF_HEADER_NAME, &ctx.alice_csrf)
-        .body(Body::from(site_payload))
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    let status = res.status();
-    let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
-    if status != StatusCode::CREATED {
-        panic!(
-            "create site failed: status={status}, body={}",
-            String::from_utf8_lossy(&body_bytes)
-        );
-    }
-    let site_res: SiteResponse = serde_json::from_slice(&body_bytes).unwrap();
-    site_res.id
+    // Cron tests start with an existing site; PHP provisioning has its own suite.
+    let site = SqliteSiteRepository::new(ctx.pool.clone())
+        .create(&CreateSite {
+            user_id: ctx.alice_id,
+            kind: "php".to_string(),
+            docroot: format!("/home/p_alice/sites/{name}/public"),
+            runtime: Some("php".to_string()),
+            version: Some("8.3".to_string()),
+            status: Some("active".to_string()),
+            settings_json: None,
+        })
+        .await
+        .expect("seed existing Alice site for cron tests");
+    SqliteDomainRepository::new(ctx.pool.clone())
+        .create(&CreateDomain {
+            site_id: site.id,
+            name: name.to_string(),
+            unicode_name: name.to_string(),
+            is_primary: true,
+            redirect_mode: None,
+            redirect_target: None,
+            status: Some("active".to_string()),
+        })
+        .await
+        .expect("seed primary domain for cron tests");
+    site.id
 }
 
 #[tokio::test]

@@ -21,9 +21,11 @@ use panel_api::databases::{
 };
 use panel_api::routes::AppState;
 use panel_core::auth::hash_password;
-use panel_db::models::{CreatePlan, CreateUser};
+use panel_db::models::{CreateDomain, CreatePlan, CreateSite, CreateUser};
 use panel_db::pool::{init_pool, run_migrations};
-use panel_db::repositories::{SqlitePlanRepository, SqliteUserRepository};
+use panel_db::repositories::{
+    SqliteDomainRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteUserRepository,
+};
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -196,7 +198,7 @@ async fn setup_test_context() -> TestContext {
         .expect("create admin");
 
     let alice_hash = hash_password("AlicePass123!").expect("hash pass");
-    let _alice = user_repo
+    let alice = user_repo
         .create(&CreateUser {
             username: "alice".to_string(),
             password_hash: alice_hash,
@@ -295,35 +297,32 @@ async fn setup_test_context() -> TestContext {
         serde_json::from_slice(&admin_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let admin_csrf = admin_json["csrf_token"].as_str().unwrap().to_string();
 
-    // Create site for alice
-    let site_payload = serde_json::json!({
-        "domain": "example.com",
-        "kind": "php",
-        "php_version": "8.3",
-    });
-    let site_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/sites")
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, alice_session),
-        )
-        .header(CSRF_HEADER_NAME, &alice_csrf)
-        .body(Body::from(serde_json::to_vec(&site_payload).unwrap()))
-        .unwrap();
-
-    let site_res = app.clone().oneshot(site_req).await.unwrap();
-    let site_status = site_res.status();
-    let site_body_bytes = site_res.into_body().collect().await.unwrap().to_bytes();
-    if site_status != StatusCode::CREATED {
-        panic!(
-            "create site failed: status={site_status}, body={}",
-            String::from_utf8_lossy(&site_body_bytes)
-        );
-    }
-    let site_val: serde_json::Value = serde_json::from_slice(&site_body_bytes).unwrap();
-    let site_id = site_val["id"].as_i64().unwrap();
+    // Database tests start with an existing site; PHP provisioning has its own suite.
+    let site_id = SqliteSiteRepository::new(pool.clone())
+        .create(&CreateSite {
+            user_id: alice.id,
+            kind: "php".to_string(),
+            docroot: "/home/p_alice/sites/example.com/public".to_string(),
+            runtime: Some("php".to_string()),
+            version: Some("8.3".to_string()),
+            status: Some("active".to_string()),
+            settings_json: None,
+        })
+        .await
+        .expect("seed existing Alice site for database tests")
+        .id;
+    SqliteDomainRepository::new(pool.clone())
+        .create(&CreateDomain {
+            site_id,
+            name: "example.com".to_string(),
+            unicode_name: "example.com".to_string(),
+            is_primary: true,
+            redirect_mode: None,
+            redirect_target: None,
+            status: Some("active".to_string()),
+        })
+        .await
+        .expect("seed primary domain for database tests");
 
     TestContext {
         app,
