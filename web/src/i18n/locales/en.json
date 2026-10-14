@@ -185,7 +185,7 @@
       "staticTitle": "Static Site (HTML/CSS/JS)",
       "staticDesc": "Ideal for pure HTML, static site generators (Astro, Hugo), or SPAs (React, Vue)",
       "phpTitle": "PHP (Multi-Version)",
-      "phpDesc": "Available in Phase 4 with isolated PHP-FPM pools",
+      "phpDesc": "PHP sites with your choice of installed version and application preset",
       "nodeTitle": "Node.js Application",
       "nodeDesc": "Standalone Node.js application with sandboxed systemd unit, dedicated local port, and reverse proxy",
       "pythonTitle": "Python Application (uv + venv)",

@@ -52,15 +52,11 @@ describe('SshConnectModal Component', () => {
     );
 
     expect(html).toContain('Koneksi SSH &amp; SFTP');
-    expect(html).toContain('Parameter Koneksi Server');
-    expect(html).toContain('Host / Alamat:');
-    expect(html).toContain('Pengguna Linux:');
-    expect(html).toContain('SSH Terminal');
-    expect(html).toContain('SFTP &amp; GUI Client');
-    expect(html).toContain('~/.ssh/config &amp; Key');
+    expect(html).toContain('Memuat informasi koneksi...');
+    expect(html).not.toContain('Parameter Koneksi Server');
   });
 
-  it('renders interactive SSH command with target directory and PTY flags', () => {
+  it('does not fabricate SSH commands before connection data arrives', () => {
     vi.spyOn(client, 'fetchSshConnectionInfo').mockResolvedValue(sampleFullInfo);
 
     const html = renderToString(
@@ -73,9 +69,8 @@ describe('SshConnectModal Component', () => {
       />
     );
 
-    expect(html).toContain('Salin Perintah SSH (Buka di Folder Aktif)');
-    expect(html).toContain('exec \\$SHELL -l');
-    expect(html).toContain('Alokasi PTY (-t)');
+    expect(html).not.toContain('ssh -t p_alice@');
+    expect(html).not.toContain('Salin Perintah SSH (Buka di Folder Aktif)');
   });
 
   it('renders SFTP details and copy actions', () => {
@@ -91,7 +86,7 @@ describe('SshConnectModal Component', () => {
       />
     );
 
-    expect(html).toContain('Salin Perintah SFTP CLI');
-    expect(html).toContain('sftp p_alice@');
+    expect(html).not.toContain('Salin Perintah SFTP CLI');
+    expect(html).not.toContain('sftp p_alice@');
   });
 });

@@ -261,37 +261,11 @@ async fn resolve_tenant(
     user: &AuthenticatedUser,
     requested_tenant: Option<&str>,
 ) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
-    let target = if let Some(req_t) = requested_tenant {
-        if req_t != user.username && !user.is_admin() {
-            return Err((
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({
-                    "error": "Forbidden: Tenant users cannot access files of another tenant"
-                })),
-            ));
-        }
-        req_t
-    } else {
-        &user.username
-    };
-
-    let user_repo = panel_db::repositories::SqliteUserRepository::new(state.pool.clone());
-    if let Some(linux_uname) = user_repo
-        .find_by_username(target)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|u| u.linux_username)
-        .filter(|u| !u.is_empty())
-    {
-        return Ok(linux_uname);
-    }
-
-    if target.starts_with("p_") {
-        Ok(target.to_string())
-    } else {
-        Ok(format!("p_{}", target))
-    }
+    Ok(
+        crate::tenant_context::resolve_tenant_context(state, user, requested_tenant, None)
+            .await?
+            .linux_username,
+    )
 }
 
 /// List files and directories within a confined folder.
@@ -771,18 +745,16 @@ pub async fn upload_init_handler(
     auth_user: AuthenticatedUser,
     Json(payload): Json<UploadInitPayload>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let tenant = resolve_tenant(&state, &auth_user, payload.tenant.as_deref()).await?;
-
-    // Pre-flight quota check
-    let target = payload.tenant.as_deref().unwrap_or(&auth_user.username);
-    let user_repo = panel_db::repositories::SqliteUserRepository::new(state.pool.clone());
-    let uid = if let Ok(Some(u)) = user_repo.find_by_username(target).await {
-        u.linux_uid.map(|id| id as u32)
-    } else {
-        None
-    };
-
-    if let Some(uid) = uid {
+    let context = crate::tenant_context::resolve_tenant_context(
+        &state,
+        &auth_user,
+        payload.tenant.as_deref(),
+        None,
+    )
+    .await?;
+    let tenant = context.linux_username;
+    let uid = context.uid;
+    {
         let quota_res = state
             .agent_client
             .get_quota(QuotaGetRequest {

@@ -11,7 +11,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use panel_db::repositories::{SqlitePlanRepository, SqliteUserRepository};
+use panel_db::repositories::SqlitePlanRepository;
 use tracing::{info, warn};
 
 use crate::auth::AuthenticatedUser;
@@ -31,124 +31,44 @@ async fn resolve_terminal_user(
     user: &AuthenticatedUser,
     target_tenant: Option<&str>,
 ) -> Result<(i64, String, u32, u32, usize), (StatusCode, Json<serde_json::Value>)> {
-    let user_repo = SqliteUserRepository::new(state.pool.clone());
-    let plan_repo = SqlitePlanRepository::new(state.pool.clone());
-
-    if let Some(req_t) = target_tenant {
-        if req_t != user.username && !user.is_admin() {
-            return Err((
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({
-                    "error": "Forbidden: Tenant users cannot spawn terminal sessions as another user"
-                })),
-            ));
-        }
-
-        let target_user = user_repo
-            .find_by_username(req_t)
+    let context =
+        crate::tenant_context::resolve_tenant_context(state, user, target_tenant, None).await?;
+    let plan = if let Some(id) = context.user.plan_id {
+        SqlitePlanRepository::new(state.pool.clone())
+            .find_by_id(id)
             .await
-            .map_err(|e| {
+            .map_err(|err| {
+                tracing::error!(error=%err, "Terminal plan lookup failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
+                    Json(serde_json::json!({"error":"Gagal memuat kebijakan terminal."})),
                 )
             })?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({ "error": "Target tenant user not found" })),
-                )
-            })?;
-
-        let plan = if let Some(pid) = target_user.plan_id {
-            plan_repo.find_by_id(pid).await.ok().flatten()
-        } else {
-            None
-        };
-
-        let max_terms = plan.map(|p| p.max_terminal_sessions as usize).unwrap_or(2);
-        let uname = target_user
-            .linux_username
-            .filter(|u| !u.is_empty())
-            .unwrap_or_else(|| {
-                if target_user.username.starts_with("p_") {
-                    target_user.username.clone()
-                } else {
-                    format!("p_{}", target_user.username)
-                }
-            });
-
-        let target_uid = target_user.linux_uid.unwrap_or(10000 + target_user.id) as u32;
-        let target_gid = target_uid;
-
-        Ok((target_user.id, uname, target_uid, target_gid, max_terms))
     } else {
-        let current_db_user = user_repo
-            .find_by_id(user.id)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-            })?
-            .ok_or_else(|| {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({ "error": "User account not found" })),
-                )
-            })?;
-
-        let plan = if let Some(pid) = current_db_user.plan_id {
-            plan_repo.find_by_id(pid).await.ok().flatten()
-        } else {
-            None
-        };
-
-        let effective_policy = current_db_user
-            .shell_policy
-            .as_deref()
-            .or_else(|| plan.as_ref().map(|p| p.shell_policy.as_str()))
-            .unwrap_or("none");
-
-        if !user.is_admin() && effective_policy != "full" {
-            warn!(
-                "User {} attempted terminal access with non-full shell policy: {}",
-                user.username, effective_policy
-            );
-            return Err((
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({
-                    "error": format!(
-                        "Kebijakan shell akun Anda adalah '{}'. Akses terminal interaktif tidak diizinkan.",
-                        effective_policy
-                    )
-                })),
-            ));
-        }
-
-        let max_terms = if user.is_admin() {
-            10
-        } else {
-            plan.map(|p| p.max_terminal_sessions as usize).unwrap_or(2)
-        };
-
-        let uname = current_db_user
-            .linux_username
-            .filter(|u| !u.is_empty())
-            .unwrap_or_else(|| {
-                if current_db_user.username.starts_with("p_") {
-                    current_db_user.username.clone()
-                } else {
-                    format!("p_{}", current_db_user.username)
-                }
-            });
-
-        let current_uid = current_db_user.linux_uid.unwrap_or(10000 + user.id) as u32;
-        let current_gid = current_uid;
-
-        Ok((user.id, uname, current_uid, current_gid, max_terms))
+        None
+    };
+    let policy = context
+        .user
+        .shell_policy
+        .as_deref()
+        .or_else(|| plan.as_ref().map(|p| p.shell_policy.as_str()))
+        .unwrap_or("none");
+    if policy != "full" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(
+                serde_json::json!({"error":"Kebijakan shell tenant tidak mengizinkan terminal interaktif."}),
+            ),
+        ));
     }
+    let max_sessions = plan.map(|p| p.max_terminal_sessions as usize).unwrap_or(2);
+    Ok((
+        context.user.id,
+        context.linux_username,
+        context.uid,
+        context.uid,
+        max_sessions,
+    ))
 }
 
 /// Create and spawn a new PTY terminal session.
@@ -282,21 +202,14 @@ pub async fn list_sessions_handler(
     user: AuthenticatedUser,
     Query(query): Query<TerminalListQuery>,
 ) -> Result<Json<TerminalSessionListResponse>, (StatusCode, Json<serde_json::Value>)> {
-    let raw_sessions = state
+    let context =
+        crate::tenant_context::resolve_tenant_context(&state, &user, query.tenant.as_deref(), None)
+            .await?;
+    let sessions = state
         .terminal_hub
-        .list_sessions_for_user(user.id, user.is_admin())
-        .await;
-
-    let sessions = raw_sessions
+        .list_sessions_for_user(context.user.id, false)
+        .await
         .into_iter()
-        .filter(|s| {
-            if let Some(tenant) = query.tenant.as_deref()
-                && !tenant.is_empty()
-            {
-                return s.username == tenant || s.username == format!("p_{}", tenant);
-            }
-            true
-        })
         .map(|s| s.to_response())
         .collect();
 

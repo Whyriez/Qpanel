@@ -503,10 +503,14 @@ pub async fn run_python_site_job_handler(
         }
     };
 
-    let linux_uname = user
-        .linux_username
-        .as_deref()
-        .unwrap_or(user.username.as_str());
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let linux_uname = resolved_linux_name.as_str();
     let settings: serde_json::Value = serde_json::from_str(&site.settings_json).unwrap_or_default();
     let python_ver = site
         .version
@@ -564,7 +568,7 @@ pub async fn run_python_site_job_handler(
     let job_req = PythonSiteJobRequest {
         site_id: format!("site_{}", site.id),
         username: linux_uname.to_string(),
-        uid: user.linux_uid.unwrap_or(user.id) as u32,
+        uid: resolved_linux_uid,
         python_version: python_ver,
         app_dir,
         venv_dir,

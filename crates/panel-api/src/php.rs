@@ -1148,8 +1148,15 @@ pub async fn update_site_php_settings_handler(
     }
 
     // 4. Re-apply PHP-FPM pool via Agent IPC
-    let linux_uname = owner.linux_username.as_deref().unwrap_or(&owner.username);
-    let owner_uid = owner.linux_uid.unwrap_or(10001) as u32;
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&owner) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let linux_uname = resolved_linux_name.as_str();
+    let owner_uid = resolved_linux_uid;
     let php_version = site.version.as_deref().unwrap_or("8.3");
 
     let pool_req = panel_proto::PhpFpmPoolApplyRequest {
@@ -1297,26 +1304,18 @@ pub async fn get_php_fpm_master_status_handler(
             .into_response();
     }
 
-    if !auth_user.is_admin() {
-        let user_repo = SqliteUserRepository::new(state.pool.clone());
-        let current_user = match user_repo.find_by_id(auth_user.id).await {
-            Ok(Some(u)) => u,
-            _ => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "Pengguna tidak ditemukan" })),
-                )
-                    .into_response();
-            }
-        };
-        if current_user.linux_username.as_deref() != Some(&username) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "Anda tidak memiliki akses ke master FPM tenant ini" })),
-            )
-                .into_response();
-        }
-    }
+    let context = match crate::tenant_context::resolve_tenant_context(
+        &state,
+        &auth_user,
+        Some(&username),
+        None,
+    )
+    .await
+    {
+        Ok(context) => context,
+        Err(err) => return err.into_response(),
+    };
+    let username = context.linux_username;
 
     match state
         .agent_client
@@ -1371,26 +1370,18 @@ pub async fn reload_php_fpm_master_handler(
             .into_response();
     }
 
-    if !auth_user.is_admin() {
-        let user_repo = SqliteUserRepository::new(state.pool.clone());
-        let current_user = match user_repo.find_by_id(auth_user.id).await {
-            Ok(Some(u)) => u,
-            _ => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "Pengguna tidak ditemukan" })),
-                )
-                    .into_response();
-            }
-        };
-        if current_user.linux_username.as_deref() != Some(&username) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "Anda tidak memiliki izin me-reload master FPM ini" })),
-            )
-                .into_response();
-        }
-    }
+    let context = match crate::tenant_context::resolve_tenant_context(
+        &state,
+        &auth_user,
+        Some(&username),
+        None,
+    )
+    .await
+    {
+        Ok(context) => context,
+        Err(err) => return err.into_response(),
+    };
+    let username = context.linux_username;
 
     match state
         .agent_client
@@ -1456,26 +1447,18 @@ pub async fn restart_php_fpm_master_handler(
             .into_response();
     }
 
-    if !auth_user.is_admin() {
-        let user_repo = SqliteUserRepository::new(state.pool.clone());
-        let current_user = match user_repo.find_by_id(auth_user.id).await {
-            Ok(Some(u)) => u,
-            _ => {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "Pengguna tidak ditemukan" })),
-                )
-                    .into_response();
-            }
-        };
-        if current_user.linux_username.as_deref() != Some(&username) {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "Anda tidak memiliki izin me-restart master FPM ini" })),
-            )
-                .into_response();
-        }
-    }
+    let context = match crate::tenant_context::resolve_tenant_context(
+        &state,
+        &auth_user,
+        Some(&username),
+        None,
+    )
+    .await
+    {
+        Ok(context) => context,
+        Err(err) => return err.into_response(),
+    };
+    let username = context.linux_username;
 
     match state
         .agent_client
@@ -1621,11 +1604,15 @@ pub async fn switch_site_php_version_handler(
                 .into_response();
         }
     };
-    let linux_uname = owner
-        .linux_username
-        .as_deref()
-        .unwrap_or(owner.username.as_str());
-    let owner_uid = owner.linux_uid.unwrap_or(10000) as u32;
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&owner) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let linux_uname = resolved_linux_name.as_str();
+    let owner_uid = resolved_linux_uid;
     let site_id_str = format!("site_{id}");
 
     let domains = match domain_repo.find_by_site_id(id).await {
@@ -1944,10 +1931,14 @@ pub async fn get_site_php_status_handler(
         }
     };
 
-    let linux_uname = owner
-        .linux_username
-        .as_deref()
-        .unwrap_or(owner.username.as_str());
+    let (resolved_linux_name, _resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&owner) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let linux_uname = resolved_linux_name.as_str();
     let version = site.version.as_deref().unwrap_or("8.3");
     let pool_name = format!("site_{id}");
 
@@ -2088,10 +2079,14 @@ pub async fn get_site_php_logs_handler(
         }
     };
 
-    let linux_uname = owner
-        .linux_username
-        .as_deref()
-        .unwrap_or(owner.username.as_str());
+    let (resolved_linux_name, _resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&owner) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let linux_uname = resolved_linux_name.as_str();
     let version = site.version.as_deref().unwrap_or("8.3");
     let pool_name = format!("site_{id}");
 

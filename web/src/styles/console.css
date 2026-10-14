@@ -918,7 +918,8 @@ button:disabled {
     border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .mobile-navigation button {
+  .mobile-navigation button,
+  .mobile-navigation a {
     display: flex;
     flex: 1;
     align-items: center;
@@ -930,7 +931,8 @@ button:disabled {
     color: var(--ink-muted);
     font-size: 10px;
   }
-  .mobile-navigation button.is-active {
+  .mobile-navigation button.is-active,
+  .mobile-navigation a.is-active {
     color: var(--primary);
   }
   .hosting-dashboard {

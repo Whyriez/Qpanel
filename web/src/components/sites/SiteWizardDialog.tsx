@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TenantListItem, Site, CreateSiteRequest } from '../../types/api';
-import { fetchTenants, createSite } from '../../api/client';
+import { fetchTenants, fetchTenantDetail, createSite, fetchPhpVersions } from '../../api/client';
+import { RouteLink } from '../../lib/router';
 import { useAuth } from '../../context/AuthContext';
 
 export interface SiteWizardDialogProps {
@@ -38,6 +39,12 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const [spaFallback, setSpaFallback] = useState(false);
   const [forceHttps, setForceHttps] = useState(true);
   const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null);
+  const [phpVersions, setPhpVersions] = useState<string[]>([]);
+  const [phpLoading, setPhpLoading] = useState(false);
+  const [phpError, setPhpError] = useState('');
+  const [phpVersion, setPhpVersion] = useState('');
+  const [phpPreset, setPhpPreset] = useState<'generic'|'wordpress'|'laravel'|'custom'>('generic');
+  const [phpEntry, setPhpEntry] = useState('index.php');
 
   // Node.js specific fields (Phase 7 - P7-T2 / P7-T6)
   const [nodeVersion, setNodeVersion] = useState<string>('22.14.0');
@@ -80,13 +87,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
 
       // Load tenants for tenant selection
       setIsLoadingTenants(true);
-      fetchTenants()
+      setSelectedTenantId(null);
+      setPhpPreset('generic'); setPhpEntry('index.php');
+      (user?.role === 'admin' ? fetchTenants() : fetchTenantDetail(user!.id).then(result => [result.tenant]))
         .then((data) => {
+          data = data.filter(tenant => !!tenant.linux_username && !!tenant.linux_uid && tenant.status === 'active');
           setTenants(data);
           // If current logged-in user is a regular user or matches tenant, auto-select
           if (user?.role !== 'admin' && data.length > 0) {
-            setSelectedTenantId(data[0].id);
-          } else if (data.length > 0) {
             setSelectedTenantId(data[0].id);
           }
         })
@@ -99,11 +107,23 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
     }
   }, [isOpen, user]);
 
+  useEffect(() => {
+    if (!isOpen || siteType !== 'php') return;
+    let current = true;
+    setPhpLoading(true); setPhpError('');
+    fetchPhpVersions().then(result => {
+      if (!current) return;
+      const versions = result.versions.filter(v => v.installed && v.fpm_binary_exists).map(v=>v.version);
+      setPhpVersions(versions); setPhpVersion(version => versions.includes(version) ? version : versions.at(-1) || '');
+    }).catch(err => { if(current){setPhpVersions([]);setPhpVersion('');setPhpError(err.message || 'Gagal memuat runtime PHP.');} }).finally(()=>{if(current)setPhpLoading(false);});
+    return () => { current=false; };
+  }, [isOpen, siteType]);
+
   if (!isOpen) return null;
 
   const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
-  const tenantSlug = selectedTenant?.linux_username || (selectedTenant ? `p_${selectedTenant.username}` : 'p_<slug>');
-  const docrootPreview = `/home/${tenantSlug}/sites/${domain.trim() || '<domain>'}/public`;
+  const tenantSlug = selectedTenant?.linux_username || '<tenant>';
+  const docrootPreview = `/home/${tenantSlug}/sites/${domain.trim() || '<domain>'}/${siteType === 'php' && phpPreset === 'laravel' ? 'app/public' : 'public'}`;
 
   const handleNodeFrameworkChange = (preset: string) => {
     setNodeFramework(preset);
@@ -141,6 +161,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   };
 
   const handleNextStep1 = () => {
+    if (siteType === 'php' && (phpLoading || !phpVersion)) {
+      setErrorMessage(phpError || 'Belum ada runtime PHP yang terpasang. Buka Runtime Manager terlebih dahulu.'); return;
+    }
     setErrorMessage(null);
     setStep(2);
   };
@@ -160,6 +183,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
     if (siteType === 'proxy' && !proxyUpstream.trim()) {
       setErrorMessage('URL target upstream wajib diisi.');
       return;
+    }
+    if (siteType === 'php' && (!phpVersions.includes(phpVersion) || (phpPreset === 'custom' && !/^[a-zA-Z0-9_.-]+\.php$/.test(phpEntry)))) {
+      setErrorMessage('Pilih runtime PHP terpasang dan front-controller PHP yang valid.'); return;
     }
     setErrorMessage(null);
     setStep(3);
@@ -183,22 +209,25 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
       user_id: selectedTenantId || undefined,
       spa_fallback: siteType === 'static' ? spaFallback : false,
       force_https: forceHttps,
-      ...(siteType === 'node'
+      ...(siteType === 'php' ? {kind:'php',runtime:'php',php_version:phpVersion,preset:phpPreset,custom_entry_file:phpPreset==='custom' ? phpEntry : undefined} : siteType === 'node'
         ? {
             kind: 'nodejs',
             runtime: 'nodejs',
+            node_version: nodeVersion,
             version: nodeVersion,
             framework: nodeFramework,
-            entrypoint: nodeEntrypoint.trim() || undefined,
+            entrypoint_value: nodeEntrypoint.trim() || undefined,
             entrypoint_type: nodeEntrypointType,
           }
         : siteType === 'python'
         ? {
+            kind: 'python',
             runtime: 'python',
+            python_version: pythonVersion,
             version: pythonVersion,
             framework: pythonFramework,
             server_type: pythonServer,
-            entrypoint: pythonEntrypoint.trim() || undefined,
+            entrypoint_value: pythonEntrypoint.trim() || undefined,
             entrypoint_type: pythonEntrypointType,
             workers: pythonWorkers,
           }
@@ -335,21 +364,20 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </p>
                 </div>
 
-                {/* PHP (Phase 4 disabled) */}
-                <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] opacity-60 cursor-not-allowed">
+                <button type="button" aria-pressed={siteType==='php'} onClick={()=>setSiteType('php')} className={`p-4 text-left rounded-[var(--radius-md)] border ${siteType==='php' ? 'border-[var(--primary)]' : 'border-[var(--line)]'} bg-[var(--raised)]`}>
                   <div className="flex items-center justify-between mb-2">
                     <Server className="w-5 h-5 text-[var(--ink-muted)]" />
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink-muted)] font-semibold uppercase">
-                      Fase 4
+                      PHP-FPM
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
                     {t('sites.wizard.phpTitle')}
                   </h3>
                   <p className="text-xs text-[var(--ink-muted)]">
-                    {t('sites.wizard.phpDesc')}
+                    Generic, WordPress, Laravel, atau custom front-controller.
                   </p>
-                </div>
+                </button>
 
                 {/* Node.js Application (Available in Phase 7) */}
                 <div
@@ -424,8 +452,17 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           )}
 
           {/* STEP 2: Domain & Routing */}
+          {siteType==='php' && step<=2 && <div role={phpError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
+            {phpLoading ? 'Memuat runtime PHP…' : phpError || (phpVersions.length ? `${phpVersions.length} versi PHP terpasang.` : 'Belum ada runtime PHP yang terpasang.')}
+            {!phpLoading && phpVersions.length===0 && <div className="mt-2">{user?.role==='admin' ? <RouteLink href="/runtime" onClick={onClose}>Buka Runtime Manager</RouteLink> : 'Hubungi administrator untuk memasang PHP.'}</div>}
+          </div>}
           {step === 2 && (
             <form id="step2-form" onSubmit={handleNextStep2} className="space-y-4">
+              {siteType === 'php' && <div className="grid gap-4 sm:grid-cols-2">
+                <label>Versi PHP<select aria-label="Versi PHP" value={phpVersion} onChange={e=>setPhpVersion(e.target.value)} className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]">{phpVersions.map(v=><option key={v} value={v}>PHP {v}</option>)}</select></label>
+                <label>Preset PHP<select aria-label="Preset PHP" value={phpPreset} onChange={e=>setPhpPreset(e.target.value as typeof phpPreset)} className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]"><option value="generic">Generic PHP</option><option value="wordpress">WordPress</option><option value="laravel">Laravel</option><option value="custom">Custom front-controller</option></select></label>
+                {phpPreset==='custom' && <label>Front-controller<input aria-label="Front-controller" value={phpEntry} onChange={e=>setPhpEntry(e.target.value)} required className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]" /></label>}
+              </div>}
               <div>
                 <label className="block text-xs font-semibold text-[var(--ink)] mb-1.5">
                   {t('sites.wizard.domainLabel')}{' '}
@@ -715,7 +752,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   {tenants.map((tItem) => {
                     const isSelected = tItem.id === selectedTenantId;
                     return (
-                      <div
+                      <button
+                        type="button"
+                        aria-pressed={isSelected}
                         key={tItem.id}
                         onClick={() => setSelectedTenantId(tItem.id)}
                         className={`cursor-pointer p-3 rounded-[var(--radius-md)] border transition-all flex items-center justify-between ${
@@ -739,7 +778,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                               {tItem.username}
                             </div>
                             <div className="text-[11px] font-mono text-[var(--ink-muted)]">
-                              uid: {tItem.linux_uid || '-'} &bull; linux: {tItem.linux_username || `p_${tItem.username}`}
+                              uid: {tItem.linux_uid || '-'} &bull; linux: {tItem.linux_username}
                             </div>
                           </div>
                         </div>
@@ -747,7 +786,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                         {isSelected && (
                           <CheckCircle2 className="w-4 h-4 text-[var(--primary)] shrink-0" />
                         )}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

@@ -47,6 +47,7 @@ PRD*.md
 FIX_V0.1.1.md
 GITHUB_AUTOMATED_RELEASE.md
 FIX_INSTALLER_STARTUP_RACE.md
+FIX_POST_INSTALL_RUNTIME_UI.md
 
 # =========================
 # OS & Editors

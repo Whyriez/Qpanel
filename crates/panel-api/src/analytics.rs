@@ -978,20 +978,11 @@ pub async fn get_site_app_metrics_handler(
     let mut app_process = None;
 
     if runtime_str.starts_with("php") {
-        // Find tenant username and linux_username from user_id
-        let user_repo = panel_db::repositories::SqliteUserRepository::new(state.pool.clone());
-        let (username, linux_user) = if let Ok(Some(u)) = user_repo.find_by_id(site.user_id).await {
-            (u.username, u.linux_username)
-        } else {
-            ("unknown".to_string(), None)
-        };
-        let php_ver = runtime_str.strip_prefix("php:").unwrap_or("8.3");
-
-        let candidate_pools = if let Some(ref lu) = linux_user {
-            vec![format!("{lu}-{php_ver}"), format!("{username}-{php_ver}")]
-        } else {
-            vec![format!("{username}-{php_ver}")]
-        };
+        let context =
+            crate::tenant_context::resolve_tenant_context(&state, &auth_user, None, Some(site_id))
+                .await?;
+        let php_ver = site.version.as_deref().unwrap_or("8.3");
+        let candidate_pools = vec![format!("{}-{php_ver}", context.linux_username)];
 
         for pool_name in candidate_pools {
             if let Ok(rollups) = analytics.query_php_fpm_1m(&pool_name, from_ts, to_ts).await

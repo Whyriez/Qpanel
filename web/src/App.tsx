@@ -6,6 +6,7 @@ import { ToastProvider } from './components/ui/Toast';
 import { ThemeMode } from './types/api';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import './i18n';
+import { navigate, pagePath, useBrowserRoute } from './lib/router';
 
 const FirstRunWizardPage = lazy(() =>
   import('./pages/FirstRunWizardPage').then((m) => ({ default: m.FirstRunWizardPage }))
@@ -58,14 +59,29 @@ const PageFallback: React.FC = () => (
 );
 
 const MainApp: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [theme, setTheme] = useState<ThemeMode>(() => {
     return (localStorage.getItem('nusa_theme') as ThemeMode) || 'system';
   });
-  const [activeNav, setActiveNav] = useState('dashboard');
-  const [selectedTenantId, setSelectedTenantId] = useState<number | null>(null);
-  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const route = useBrowserRoute();
+  const tenantMatch = /^\/tenants\/(\d+)(?:\/.*)?$/.exec(route.pathname);
+  const siteMatch = /^\/sites\/(\d+)(?:\/.*)?$/.exec(route.pathname);
+  const activeNav = tenantMatch ? 'tenant-detail' : siteMatch ? 'site-detail' : route.pathname.slice(1);
+  const selectedTenantId = tenantMatch ? Number(tenantMatch[1]) : null;
+  const selectedSiteId = siteMatch ? Number(siteMatch[1]) : null;
+  const isWizardOpen = route.pathname === '/setup';
+  const setActiveNav = (page: string) => navigate(pagePath(page));
+  const loginPath = `/login?returnTo=${encodeURIComponent(route.search.get('returnTo') || '/dashboard')}`;
+  useEffect(() => {
+    if (isLoading) return;
+    if (route.pathname === '/') { navigate('/dashboard', true); return; }
+    if (!isAuthenticated && !['/login', '/setup'].includes(route.pathname)) {
+      navigate(`/login?returnTo=${encodeURIComponent(route.url)}`, true);
+    } else if (isAuthenticated && ['/login', '/setup'].includes(route.pathname)) {
+      const target = route.search.get('returnTo') || '/dashboard';
+      navigate(target.startsWith('/') && !target.startsWith('//') && !/^\/(login|setup)/.test(target) ? target : '/dashboard', true);
+    }
+  }, [isLoading, isAuthenticated, route.url, route.pathname, route.search]);
 
   useEffect(() => {
     localStorage.setItem('nusa_theme', theme);
@@ -111,8 +127,8 @@ const MainApp: React.FC = () => {
     return (
       <Suspense fallback={<PageFallback />}>
         <FirstRunWizardPage
-          onFinish={() => setIsWizardOpen(false)}
-          onBackToLogin={() => setIsWizardOpen(false)}
+          onFinish={() => navigate(loginPath)}
+          onBackToLogin={() => navigate(loginPath)}
         />
       </Suspense>
     );
@@ -120,7 +136,11 @@ const MainApp: React.FC = () => {
 
   // Not authenticated: render Login Page
   if (!isAuthenticated) {
-    return <LoginPage onOpenWizard={() => setIsWizardOpen(true)} />;
+    return <LoginPage onOpenWizard={() => navigate(`/setup?${route.search.toString()}`)} />;
+  }
+
+  if (user?.role !== 'admin' && ['tenants', 'users', 'tenant-detail', 'plans', 'runtime', 'settings', 'audit', 'analytics'].includes(activeNav)) {
+    return <Shell activeNav="dashboard" onNavigate={setActiveNav} theme={theme} onThemeChange={setTheme}><div role="alert">Anda tidak memiliki akses ke halaman ini. <a href="/dashboard">Buka dashboard</a></div></Shell>;
   }
 
   // Authenticated: render Shell and active page
@@ -134,19 +154,11 @@ const MainApp: React.FC = () => {
             ? 'sites'
             : activeNav
         }
-        onNavigate={(nav) => {
-          if (nav === 'tenants' || nav === 'users') {
-            setSelectedTenantId(null);
-          }
-          if (nav === 'sites') {
-            setSelectedSiteId(null);
-          }
-          setActiveNav(nav);
-        }}
+        onNavigate={setActiveNav}
         theme={theme}
         onThemeChange={setTheme}
       >
-        {activeNav === 'dashboard' && <DashboardPage onNavigate={setActiveNav} onSelectSite={(id) => { setSelectedSiteId(id); setActiveNav('site-detail'); }} />}
+        {activeNav === 'dashboard' && <DashboardPage onNavigate={setActiveNav} onSelectSite={(id) => navigate(`/sites/${id}`)} />}
         <Suspense fallback={<PageFallback />}>
           {activeNav === 'audit' && <AuditLogPage />}
           {activeNav === 'jobs' && <JobsPage />}
@@ -154,8 +166,7 @@ const MainApp: React.FC = () => {
           {activeNav === 'sites' && (
             <SitesPage
               onSelectSite={(id) => {
-                setSelectedSiteId(id);
-                setActiveNav('site-detail');
+                navigate(`/sites/${id}`);
               }}
             />
           )}
@@ -163,16 +174,14 @@ const MainApp: React.FC = () => {
             <SiteDetailPage
               siteId={selectedSiteId}
               onBack={() => {
-                setSelectedSiteId(null);
-                setActiveNav('sites');
+                navigate('/sites');
               }}
             />
           )}
           {(activeNav === 'tenants' || activeNav === 'users') && (
             <TenantsPage
               onSelectTenant={(id) => {
-                setSelectedTenantId(id);
-                setActiveNav('tenant-detail');
+                navigate(`/tenants/${id}`);
               }}
               onNavigateToPlans={() => setActiveNav('plans')}
             />
@@ -181,8 +190,7 @@ const MainApp: React.FC = () => {
             <TenantDetailPage
               tenantId={selectedTenantId}
               onBack={() => {
-                setSelectedTenantId(null);
-                setActiveNav('tenants');
+                navigate('/tenants');
               }}
             />
           )}
@@ -192,6 +200,7 @@ const MainApp: React.FC = () => {
           {activeNav === 'terminal' && <TerminalPage />}
           {activeNav === 'analytics' && <AnalyticsPage />}
           {activeNav === 'settings' && <SettingsPage />}
+          {!['dashboard','audit','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','login','setup'].includes(activeNav) && <div role="alert">Halaman tidak ditemukan. <a href="/dashboard">Buka dashboard</a></div>}
         </Suspense>
       </Shell>
       <ToastProvider />

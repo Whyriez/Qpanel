@@ -4,8 +4,23 @@ import { createTerminalSession, closeTerminalSession } from '../api/client';
 import { TerminalTabs } from '../components/terminal/TerminalTabs';
 import { TerminalInstance } from '../components/terminal/TerminalInstance';
 import { toast } from 'sonner';
+import { TenantTarget } from '../components/tenants/TenantTarget';
 
-export const TerminalPage: React.FC = () => {
+export const TerminalPage: React.FC = () => <TenantTarget>{tenant => <TenantTerminal key={tenant || 'self'} tenant={tenant} />}</TenantTarget>;
+export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
+  const initialized = React.useRef(false);
+  const liveSessions = React.useRef(new Set<string>());
+  const mounted = React.useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    const sessions = liveSessions.current;
+    return () => {
+      mounted.current = false;
+      sessions.forEach(id => { void closeTerminalSession(id).catch(() => {}); });
+      sessions.clear();
+    };
+  }, []);
+
   const [tabs, setTabs] = useState<TerminalTabItem[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isSpawning, setIsSpawning] = useState(false);
@@ -33,11 +48,14 @@ export const TerminalPage: React.FC = () => {
 
       try {
         const session: TerminalSession = await createTerminalSession({
+          tenant,
           cwd: targetCwd || undefined,
           cols: 80,
           rows: 24,
         });
 
+        if (!mounted.current) { await closeTerminalSession(session.session_id); return; }
+        liveSessions.current.add(session.session_id);
         setTabs((prev) =>
           prev.map((t) =>
             t.id === tempId
@@ -58,12 +76,13 @@ export const TerminalPage: React.FC = () => {
         setIsSpawning(false);
       }
     },
-    [isSpawning, tabs.length]
+    [isSpawning, tabs.length, tenant]
   );
 
   // Spawn initial tab on mount if empty
   useEffect(() => {
-    if (tabs.length === 0 && !isSpawning) {
+    if (!initialized.current && tabs.length === 0 && !isSpawning) {
+      initialized.current = true;
       spawnTab();
     }
   }, [tabs.length, isSpawning, spawnTab]);
@@ -73,6 +92,7 @@ export const TerminalPage: React.FC = () => {
     if (tabToClose?.session) {
       try {
         await closeTerminalSession(tabToClose.session.session_id);
+        liveSessions.current.delete(tabToClose.session.session_id);
       } catch {
         // ignore
       }

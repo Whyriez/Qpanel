@@ -226,6 +226,8 @@ async fn setup_test_context() -> TestContext {
             &agent_client,
         ))),
         analytics_storage: Arc::new(tokio::sync::RwLock::new(None)),
+        analytics_db_path: tmp.path().join("analytics.db"),
+        collector_status: Arc::new(tokio::sync::RwLock::new(Default::default())),
     };
 
     let app = create_router(state);

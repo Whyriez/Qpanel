@@ -508,9 +508,14 @@ pub async fn create_database_handler(
         }
     };
 
-    let tenant_username = tenant_user
-        .linux_username
-        .unwrap_or_else(|| tenant_user.username.clone());
+    let (resolved_linux_name, _resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&tenant_user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let tenant_username = resolved_linux_name;
 
     // 2. Check plan database limit
     let mut plan_max_dbs = 5;
@@ -1103,10 +1108,15 @@ pub async fn export_database_handler(
         }
     };
 
-    let tenant_username = tenant_user
-        .linux_username
-        .unwrap_or_else(|| tenant_user.username.clone());
-    let tenant_uid = tenant_user.linux_uid.unwrap_or(10001) as u32;
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&tenant_user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let tenant_username = resolved_linux_name;
+    let tenant_uid = resolved_linux_uid;
 
     let now_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1215,10 +1225,15 @@ pub async fn import_database_handler(
         }
     };
 
-    let tenant_username = tenant_user
-        .linux_username
-        .unwrap_or_else(|| tenant_user.username.clone());
-    let tenant_uid = tenant_user.linux_uid.unwrap_or(10001) as u32;
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&tenant_user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let tenant_username = resolved_linux_name;
+    let tenant_uid = resolved_linux_uid;
 
     if let Err(e) = validate_dump_path(&payload.import_file_path, &tenant_username) {
         return (

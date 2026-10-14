@@ -40,21 +40,7 @@ import {
   Key,
 } from 'lucide-react';
 import { FsEntry, ViewMode, SortField, SortDirection, TrashedItem, UploadItem, DiskQuotaStatus } from '../../types/files';
-import {
-  fetchFileList,
-  createFolder,
-  renameFile,
-  moveFile,
-  copyFile,
-  moveToTrash,
-  fetchTrashList,
-  restoreTrash,
-  emptyTrash,
-  compressArchive,
-  extractArchive,
-  initUpload,
-  uploadChunk,
-} from '../../api/client';
+import { createFileClient } from '../../api/files';
 import { FileEditorModal } from './FileEditorModal';
 import { FilePreviewModal } from './FilePreviewModal';
 import { FilePermissionModal } from './FilePermissionModal';
@@ -63,6 +49,7 @@ import { TerminalDrawer } from '../terminal/TerminalDrawer';
 import { SshConnectModal } from '../ssh/SshConnectModal';
 
 export interface FileManagerProps {
+  tenant?: string;
   initialPath?: string;
   baseRootPath?: string;
   title?: string;
@@ -79,12 +66,15 @@ interface TreeNode {
 }
 
 export const FileManager: React.FC<FileManagerProps> = ({
+  tenant,
   initialPath = '',
   baseRootPath = '',
   title = 'Pengelola Berkas',
-  quotaInfo = { usedBytes: 4.5 * 1024 * 1024 * 1024, limitBytes: 5 * 1024 * 1024 * 1024, percentage: 90 },
+  quotaInfo,
   onNavigateTerminal,
 }) => {
+  const fileApi = React.useMemo(() => createFileClient(tenant), [tenant]);
+  const { fetchFileList, createFolder, renameFile, moveFile, copyFile, moveToTrash, fetchTrashList, restoreTrash, emptyTrash, compressArchive, extractArchive, initUpload, uploadChunk } = fileApi;
   // Navigation and files state
   const [currentPath, setCurrentPath] = useState(initialPath || baseRootPath);
   const [entries, setEntries] = useState<FsEntry[]>([]);
@@ -215,7 +205,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPath, sortBy, sortOrder, showHidden]);
+  }, [currentPath, sortBy, sortOrder, showHidden, fetchFileList]);
 
   useEffect(() => {
     loadFiles(currentPath);
@@ -232,7 +222,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
     } finally {
       setIsLoadingTrash(false);
     }
-  }, []);
+  }, [fetchTrashList]);
 
   // ----------------------------------------------------
   // Sorting and Client Filtering
@@ -365,33 +355,9 @@ export const FileManager: React.FC<FileManagerProps> = ({
   const openEditorForFile = async (path: string, sizeBytes: number = 0) => {
     const fileName = path.split('/').pop() || '';
     try {
-      const res = await fetch(`/api/v1/files/content?path=${encodeURIComponent(path)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setActiveEditor({
-          filePath: path,
-          fileName,
-          initialContent: data.content || '',
-          sizeBytes: data.size_bytes || sizeBytes,
-          mtime: data.modified_at,
-          etag: data.etag,
-        });
-      } else {
-        setActiveEditor({
-          filePath: path,
-          fileName,
-          initialContent: '',
-          sizeBytes,
-        });
-      }
-    } catch {
-      setActiveEditor({
-        filePath: path,
-        fileName,
-        initialContent: '',
-        sizeBytes,
-      });
-    }
+      const data = await fileApi.request<{content:string;size_bytes:number;modified_at?:number;etag?:string}>(`/api/v1/files/content?path=${encodeURIComponent(path)}`);
+      setActiveEditor({filePath:path,fileName,initialContent:data.content,sizeBytes:data.size_bytes || sizeBytes,mtime:data.modified_at,etag:data.etag});
+    } catch (err) { setErrorMessage(err instanceof Error ? err.message : 'Gagal membaca berkas'); }
   };
 
   const openPreviewForFile = (path: string, sizeBytes: number = 0) => {
@@ -1622,7 +1588,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  window.open(`/api/v1/files/download?path=${encodeURIComponent(contextMenu.targetEntry!.path)}`);
+                  window.open(fileApi.url(`/api/v1/files/download?path=${encodeURIComponent(contextMenu.targetEntry!.path)}`));
                   setContextMenu(null);
                 }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--surface-hover)] text-left"
@@ -2080,16 +2046,11 @@ export const FileManager: React.FC<FileManagerProps> = ({
             loadFiles(currentPath);
           }}
           onSave={async (payload) => {
-            const res = await fetch('/api/v1/files/content', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-            if (res.status === 409) {
-              return { conflict: true, message: 'Berkas telah dimodifikasi oleh proses lain' };
-            }
-            if (!res.ok) {
-              throw new Error('Gagal menyimpan berkas');
+            try {
+              await fileApi.request('/api/v1/files/content', {method:'PUT', body:JSON.stringify({path:payload.path,content:payload.content,expected_mtime:payload.expectedMtime,expected_etag:payload.expectedEtag,force:payload.force})});
+            } catch (err) {
+              if ((err as Error & {status?:number}).status === 409) return {conflict:true,message:(err as Error).message};
+              throw err;
             }
             loadFiles(currentPath);
             return {};
@@ -2102,6 +2063,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
           isOpen={true}
           filePath={activePreview.filePath}
           fileName={activePreview.fileName}
+          apiBaseUrl={fileApi.url('/api/v1/files/download')}
           sizeBytes={activePreview.sizeBytes}
           onClose={() => setActivePreview(null)}
           onOpenEditor={() => {
@@ -2120,16 +2082,16 @@ export const FileManager: React.FC<FileManagerProps> = ({
           onClose={() => setActivePermission(null)}
           onSave={async (payload) => {
             const endpoint = payload.isRecursive
-              ? '/api/v1/files/permission/recursive'
-              : '/api/v1/files/permission';
-            await fetch(endpoint, {
-              method: 'PUT',
+              ? '/api/v1/files/chmod-recursive'
+              : '/api/v1/files/chmod';
+            await fileApi.request(endpoint, {
+              method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 path: payload.path,
-                mode: payload.mode ? parseInt(payload.mode, 8) : undefined,
-                file_mode: payload.fileMode ? parseInt(payload.fileMode, 8) : undefined,
-                dir_mode: payload.dirMode ? parseInt(payload.dirMode, 8) : undefined,
+                mode: payload.mode,
+                file_mode: payload.fileMode,
+                dir_mode: payload.dirMode,
               }),
             });
             setActivePermission(null);
@@ -2142,6 +2104,10 @@ export const FileManager: React.FC<FileManagerProps> = ({
         <FileSearchModal
           isOpen={true}
           currentPath={currentPath}
+          onExecuteSearch={async params => {
+            const report = await fileApi.request<{items:{path:string;is_dir:boolean;size_bytes:number;modified_at?:number;matches:{line_number:number;line_text:string}[]}[]; total_scanned:number;limit_reached:boolean;timed_out:boolean;duration_ms:number}>('/api/v1/files/search', {method:'POST',body:JSON.stringify({path:params.path,query:params.query,search_content:params.searchContent,case_sensitive:params.caseSensitive,extension:params.extension})});
+            return {items:report.items.map(item=>({path:item.path,isDir:item.is_dir,sizeBytes:item.size_bytes,modifiedAt:item.modified_at,matches:item.matches.map(m=>({lineNumber:m.line_number,lineText:m.line_text}))})),totalScanned:report.total_scanned,limitReached:report.limit_reached,timedOut:report.timed_out,durationMs:report.duration_ms};
+          }}
           onClose={() => setIsSearchOpen(false)}
           onOpenFileEditor={(p: string) => {
             setIsSearchOpen(false);
@@ -2158,12 +2124,14 @@ export const FileManager: React.FC<FileManagerProps> = ({
         isOpen={isTerminalOpen}
         onClose={() => setIsTerminalOpen(false)}
         initialCwd={currentPath}
+        tenant={tenant}
       />
 
       <SshConnectModal
         isOpen={isSshModalOpen}
         onClose={() => setIsSshModalOpen(false)}
         path={activeSshPath || currentPath}
+        tenantUsername={tenant}
       />
     </div>
   );

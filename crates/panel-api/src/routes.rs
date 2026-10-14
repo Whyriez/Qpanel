@@ -18,6 +18,9 @@ use panel_db::pool::DbPool;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        crate::setup::validate_token,
+        crate::setup::create_administrator,
+        crate::telemetry::current_metrics,
         healthz_handler,
         system_info_handler,
         crate::auth::handlers::login_handler,
@@ -141,6 +144,9 @@ use panel_db::pool::DbPool;
     ),
     components(
         schemas(
+            crate::setup::SetupRequest,
+            crate::setup::SetupResponse,
+            crate::setup::SetupTokenRequest,
             HealthResponse,
             SystemInfoResponse,
             LoginRequest,
@@ -374,6 +380,8 @@ pub struct AppState {
     pub job_runner: Arc<crate::jobs::JobRunner>,
     pub terminal_hub: Arc<crate::terminal::TerminalHub>,
     pub analytics_storage: Arc<tokio::sync::RwLock<Option<Arc<panel_analytics::AnalyticsStorage>>>>,
+    pub analytics_db_path: std::path::PathBuf,
+    pub collector_status: Arc<tokio::sync::RwLock<crate::telemetry::CollectorStatus>>,
 }
 
 impl AppState {
@@ -405,6 +413,12 @@ impl AppState {
             job_runner,
             terminal_hub,
             analytics_storage,
+            analytics_db_path: std::env::var_os("PANEL_ANALYTICS_DB_PATH")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| "/var/lib/panel/analytics.db".into()),
+            collector_status: Arc::new(tokio::sync::RwLock::new(
+                crate::telemetry::CollectorStatus::default(),
+            )),
         }
     }
 
@@ -431,15 +445,13 @@ impl AppState {
             return Ok(Arc::clone(s));
         }
 
-        let db_path =
-            std::env::var("PANEL_ANALYTICS_DB_PATH").unwrap_or_else(|_| "analytics.db".to_string());
-        let storage = panel_analytics::AnalyticsStorage::connect(&db_path)
+        let storage = panel_analytics::AnalyticsStorage::connect(&self.analytics_db_path)
             .await
             .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Gagal menghubungkan database analitik: {e}"),
-                )
+                (StatusCode::INTERNAL_SERVER_ERROR, {
+                    tracing::error!(error=%e, "Analytics database initialization failed");
+                    "Gagal menghubungkan database analitik.".to_owned()
+                })
             })?;
         let arc_s = Arc::new(storage);
         *lock = Some(Arc::clone(&arc_s));

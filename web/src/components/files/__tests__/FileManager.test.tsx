@@ -3,6 +3,8 @@ import { renderToString } from 'react-dom/server';
 import { FileManager } from '../FileManager';
 import { FileManagerPage } from '../../../pages/FileManagerPage';
 
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({user:{id:42,role:'user'},isLoading:false}) }));
+
 // Mock client api calls to avoid actual fetch during test
 vi.mock('../../../api/client', () => ({
   fetchFileList: vi.fn().mockResolvedValue({

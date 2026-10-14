@@ -13,6 +13,10 @@ pub struct WebAssets;
 
 pub async fn static_handler(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
+    // Unknown service/asset routes must keep their 404 semantics.
+    if path == "api" || path.starts_with("api/") || path == "ws" || path.starts_with("ws/") {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
 
     // If path is empty, serve index.html
     let asset_path = if path.is_empty() { "index.html" } else { path };
@@ -33,7 +37,7 @@ pub async fn static_handler(uri: Uri) -> impl IntoResponse {
     }
 
     // SPA fallback: If file not found and doesn't look like a direct asset file, serve index.html
-    if !path.contains('.') {
+    if !path.contains('.') && !path.starts_with("assets/") && !path.starts_with("fonts/") {
         return match WebAssets::get("index.html") {
             Some(file) => Response::builder()
                 .status(StatusCode::OK)

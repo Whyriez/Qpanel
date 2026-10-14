@@ -185,7 +185,7 @@
       "staticTitle": "Situs Statis (HTML/CSS/JS)",
       "staticDesc": "Cocok untuk HTML murni, static site generator (Astro, Hugo), atau SPA (React, Vue)",
       "phpTitle": "PHP (Multi-Versi)",
-      "phpDesc": "Akan tersedia pada Fase 4 dengan PHP-FPM terisolasi",
+      "phpDesc": "Situs PHP dengan versi dan preset yang sesuai kebutuhan Anda",
       "nodeTitle": "Node.js Application",
       "nodeDesc": "Aplikasi Node.js mandiri dengan systemd unit terisolasi, port lokal, dan reverse proxy otomatis",
       "pythonTitle": "Aplikasi Python (uv + venv)",

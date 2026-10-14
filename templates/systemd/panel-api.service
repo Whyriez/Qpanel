@@ -9,6 +9,7 @@ Type=simple
 User=panel-api
 Group=panel
 Environment=PANEL_DB_PATH=/var/lib/panel/panel.db
+Environment=PANEL_ANALYTICS_DB_PATH=/var/lib/panel/analytics.db
 Environment=PANEL_LISTEN_ADDR=127.0.0.1:7700
 Environment=PANEL_ENVIRONMENT=production
 Environment=PANEL_PUBLIC_SCHEME=http

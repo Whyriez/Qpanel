@@ -1,3 +1,4 @@
+import { navigate, useBrowserRoute } from '../lib/router';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft,
@@ -47,7 +48,10 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
   const [resources, setResources] = useState<TenantResourceUsage | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'resources' | 'plan' | 'danger'>('overview');
+  const route = useBrowserRoute();
+  const activeTab = route.pathname.split('/')[3] || 'overview';
+  const setActiveTab = (tab: string) => navigate(`/tenants/${tenantId}/${tab}`);
+
 
   const [shellPolicyData, setShellPolicyData] = useState<TenantShellPolicyResponse | null>(null);
   const [selectedShellPolicy, setSelectedShellPolicy] = useState<string>('inherit');

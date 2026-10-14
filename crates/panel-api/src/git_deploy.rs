@@ -415,9 +415,15 @@ pub async fn generate_deploy_key_handler(
         }
     };
 
+    let (linux_username, _linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
+        }
+    };
     let req = SiteDeployKeyGenerateRequest {
         site_id: site.id.to_string(),
-        username: user.username.clone(),
+        username: linux_username.clone(),
         key_dir: None,
     };
 
@@ -596,10 +602,16 @@ pub async fn trigger_deploy_handler(
     };
 
     let deploy_key_path = format!("/etc/panel/keys/site_{}_deploy_key", site.id);
+    let (linux_username, linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
+        }
+    };
     let agent_deploy_req = SiteGitDeployRequest {
         site_id: site.id.to_string(),
-        username: user.username.clone(),
-        uid: user.id as u32,
+        username: linux_username.clone(),
+        uid: linux_uid,
         repo_url: config.repo_url.clone(),
         branch: branch.clone(),
         commit_hash: commit_hash_req,
@@ -749,10 +761,16 @@ pub async fn rollback_deploy_handler(
     }
 
     let base_dir = derive_site_base_dir(&site.docroot);
+    let (linux_username, linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
+        }
+    };
     let agent_req = SiteGitRollbackRequest {
         site_id: site.id.to_string(),
-        username: user.username.clone(),
-        uid: user.id as u32,
+        username: linux_username.clone(),
+        uid: linux_uid,
         base_dir: base_dir.clone(),
         target_release_id: target_release.to_string(),
     };
@@ -1069,10 +1087,16 @@ pub async fn webhook_deploy_handler(
 
     // Execute deploy
     let deploy_key_path = format!("/etc/panel/keys/site_{}_deploy_key", site.id);
+    let (linux_username, linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
+        }
+    };
     let agent_deploy_req = SiteGitDeployRequest {
         site_id: site.id.to_string(),
-        username: user.username.clone(),
-        uid: user.id as u32,
+        username: linux_username.clone(),
+        uid: linux_uid,
         repo_url: config.repo_url.clone(),
         branch: config.branch.clone(),
         commit_hash: None,

@@ -6,6 +6,7 @@ import { TerminalInstance } from './TerminalInstance';
 import { toast } from 'sonner';
 
 interface TerminalDrawerProps {
+  tenant?: string;
   isOpen: boolean;
   onClose: () => void;
   initialCwd?: string;
@@ -16,7 +17,23 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
   isOpen,
   onClose,
   initialCwd,
+  tenant,
 }) => {
+  const initialized = React.useRef(false);
+  const open = React.useRef(isOpen);
+  open.current = isOpen;
+  const liveSessions = React.useRef(new Set<string>());
+  const mounted = React.useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    const sessions = liveSessions.current;
+    return () => {
+      mounted.current = false;
+      sessions.forEach(id => { void closeTerminalSession(id).catch(() => {}); });
+      sessions.clear();
+    };
+  }, []);
+
   const [tabs, setTabs] = useState<TerminalTabItem[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isMaximized, setIsMaximized] = useState(false);
@@ -46,11 +63,14 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
 
       try {
         const session: TerminalSession = await createTerminalSession({
+          tenant,
           cwd: targetCwd || undefined,
           cols: 80,
           rows: 24,
         });
 
+        if (!mounted.current || !open.current) { await closeTerminalSession(session.session_id); return; }
+        liveSessions.current.add(session.session_id);
         setTabs((prev) =>
           prev.map((t) =>
             t.id === tempId
@@ -72,12 +92,19 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
         setIsSpawning(false);
       }
     },
-    [initialCwd, isSpawning, tabs.length]
+    [initialCwd, isSpawning, tabs.length, tenant]
   );
 
   // Spawn initial tab when drawer opens with no tabs
   useEffect(() => {
-    if (isOpen && tabs.length === 0 && !isSpawning) {
+    if (!isOpen) {
+      initialized.current = false;
+      liveSessions.current.forEach(id => { void closeTerminalSession(id).catch(() => {}); });
+      liveSessions.current.clear();
+      setTabs(previous => previous.length ? [] : previous);
+    }
+    if (isOpen && !initialized.current && tabs.length === 0 && !isSpawning) {
+      initialized.current = true;
       spawnTab(initialCwd);
     }
   }, [isOpen, tabs.length, initialCwd, spawnTab, isSpawning]);
@@ -87,6 +114,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
     if (tabToClose?.session) {
       try {
         await closeTerminalSession(tabToClose.session.session_id);
+        liveSessions.current.delete(tabToClose.session.session_id);
       } catch {
         // ignore close error
       }

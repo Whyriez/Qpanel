@@ -308,6 +308,12 @@ export interface Site {
 }
 
 export interface CreateSiteRequest {
+  node_version?: string;
+  python_version?: string;
+  entrypoint_value?: string;
+  php_version?: string;
+  preset?: 'generic' | 'wordpress' | 'laravel' | 'custom';
+  custom_entry_file?: string;
   domain: string;
   user_id?: number;
   spa_fallback?: boolean;

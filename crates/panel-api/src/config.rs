@@ -22,6 +22,20 @@ pub struct PanelConfig {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub analytics: AnalyticsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyticsConfig {
+    pub path: PathBuf,
+}
+impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self {
+            path: "/var/lib/panel/analytics.db".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +93,7 @@ impl Default for PanelConfig {
             },
             database: DatabaseConfig::default(),
             auth: AuthConfig::default(),
+            analytics: AnalyticsConfig::default(),
         }
     }
 }
@@ -119,6 +134,9 @@ impl PanelConfig {
         if let Ok(environment) = std::env::var("PANEL_ENVIRONMENT") {
             self.server.environment = environment;
         }
+        if let Some(path) = std::env::var_os("PANEL_ANALYTICS_DB_PATH") {
+            self.analytics.path = path.into();
+        }
         if let Ok(scheme) = std::env::var("PANEL_PUBLIC_SCHEME") {
             self.apply_public_scheme(&scheme)?;
         }
@@ -145,6 +163,13 @@ impl PanelConfig {
 
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.server.environment == "production" {
+            if !self.analytics.path.is_absolute()
+                && !self.analytics.path.to_string_lossy().starts_with('/')
+            {
+                return Err(ConfigError::Invalid(
+                    "production analytics database path must be absolute".to_owned(),
+                ));
+            }
             if self.server.listen_addr != "127.0.0.1:7700" {
                 return Err(ConfigError::Invalid(
                     "production API must listen on 127.0.0.1:7700".to_string(),

@@ -72,6 +72,34 @@ impl AnalyticsStorage {
         self.db_path.as_deref()
     }
 
+    /// Latest raw sample: available immediately, without waiting for minute rollups.
+    pub async fn latest_server_point(&self) -> Result<Option<ServerMetricsPoint>, AnalyticsError> {
+        let row = sqlx::query("SELECT * FROM metrics_server_raw ORDER BY timestamp DESC LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(AnalyticsError::Database)?;
+        Ok(row.map(|r| ServerMetricsPoint {
+            timestamp: r.get("timestamp"),
+            cpu_percent: r.get("cpu_percent"),
+            cpu_cores: r.get::<i64, _>("cpu_cores") as u32,
+            memory_used_bytes: r.get::<i64, _>("memory_used_bytes") as u64,
+            memory_total_bytes: r.get::<i64, _>("memory_total_bytes") as u64,
+            swap_used_bytes: r.get::<i64, _>("swap_used_bytes") as u64,
+            swap_total_bytes: r.get::<i64, _>("swap_total_bytes") as u64,
+            load1: r.get("load1"),
+            load5: r.get("load5"),
+            load15: r.get("load15"),
+            disk_used_bytes: r.get::<i64, _>("disk_used_bytes") as u64,
+            disk_total_bytes: r.get::<i64, _>("disk_total_bytes") as u64,
+            inodes_used: r.get::<i64, _>("inodes_used") as u64,
+            inodes_total: r.get::<i64, _>("inodes_total") as u64,
+            net_rx_bytes_sec: r.get("net_rx_bytes_sec"),
+            net_tx_bytes_sec: r.get("net_tx_bytes_sec"),
+            io_read_bytes_sec: r.get("io_read_bytes_sec"),
+            io_write_bytes_sec: r.get("io_write_bytes_sec"),
+        }))
+    }
+
     /// Initialize database schema.
     pub async fn init_schema(&self) -> Result<(), AnalyticsError> {
         let schema = r#"

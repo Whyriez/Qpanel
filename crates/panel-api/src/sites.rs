@@ -324,30 +324,23 @@ pub async fn fetch_and_authorize_site(
 }
 
 async fn resolve_target_user(
-    user_repo: &SqliteUserRepository,
+    state: &AppState,
     auth_user: &AuthenticatedUser,
     requested_user_id: Option<i64>,
-) -> Result<User, (StatusCode, &'static str)> {
-    let target_user_id = if auth_user.is_admin() {
-        requested_user_id.unwrap_or(auth_user.id)
-    } else {
-        auth_user.id
-    };
-
-    let user = user_repo
-        .find_by_id(target_user_id)
+) -> Result<User, (StatusCode, String)> {
+    let target = requested_user_id.map(|id| id.to_string());
+    crate::tenant_context::resolve_tenant_context(state, auth_user, target.as_deref(), None)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Database error"))?
-        .ok_or((StatusCode::NOT_FOUND, "Tenant user not found"))?;
-
-    if user.status != "active" {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Cannot create site for suspended or inactive tenant",
-        ));
-    }
-
-    Ok(user)
+        .map(|c| c.user)
+        .map_err(|(status, body)| {
+            (
+                status,
+                body.0["error"]
+                    .as_str()
+                    .unwrap_or("Tenant context invalid")
+                    .to_owned(),
+            )
+        })
 }
 
 fn build_domain_redirects_and_aliases(
@@ -569,10 +562,9 @@ pub async fn recompile_and_apply_site_vhost(
     let (alias_domains, redirects) =
         build_domain_redirects_and_aliases(domains, primary_domain, has_ssl, force_https);
 
-    let linux_uname = user
-        .linux_username
-        .as_deref()
-        .unwrap_or(user.username.as_str());
+    let (resolved_linux_name, resolved_linux_uid) =
+        crate::tenant_context::execution_identity(user)?;
+    let linux_uname = resolved_linux_name.as_str();
 
     let renderer = NginxTemplateRenderer::new();
     let is_php = site.kind == "php" || site.runtime.as_deref() == Some("php");
@@ -931,7 +923,7 @@ pub async fn recompile_and_apply_site_vhost(
         let node_apply_req = panel_proto::NodeSiteApplyRequest {
             site_id: format!("site_{}", site.id),
             username: linux_uname.to_string(),
-            uid: user.linux_uid.unwrap_or(user.id) as u32,
+            uid: resolved_linux_uid,
             node_version: node_ver,
             app_dir,
             port,
@@ -943,7 +935,16 @@ pub async fn recompile_and_apply_site_vhost(
             base_runtime_dir: None,
         };
 
-        let _ = state.agent_client.apply_node_site(node_apply_req).await;
+        state
+            .agent_client
+            .apply_node_site(node_apply_req)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Gagal menerapkan runtime Node.js: {e}"),
+                )
+            })?;
     }
 
     // If Python site is active, also ensure systemd unit and env file are applied on host
@@ -1039,7 +1040,7 @@ pub async fn recompile_and_apply_site_vhost(
         let py_apply_req = panel_proto::PythonSiteApplyRequest {
             site_id: format!("site_{}", site.id),
             username: linux_uname.to_string(),
-            uid: user.linux_uid.unwrap_or(user.id) as u32,
+            uid: resolved_linux_uid,
             python_version: py_ver,
             app_dir,
             venv_dir,
@@ -1055,7 +1056,16 @@ pub async fn recompile_and_apply_site_vhost(
             base_runtime_dir: None,
         };
 
-        let _ = state.agent_client.apply_python_site(py_apply_req).await;
+        state
+            .agent_client
+            .apply_python_site(py_apply_req)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    format!("Gagal menerapkan runtime Python: {e}"),
+                )
+            })?;
     }
 
     Ok(())
@@ -1087,7 +1097,44 @@ pub async fn apply_site_config(state: &AppState, site: &Site) -> Result<(), (Sta
     recompile_and_apply_site_vhost(state, site, &user, &domains).await
 }
 
-/// Creates a new static site with atomic Nginx vhost apply and docroot provisioning.
+fn log_site_cleanup_error(site_id: i64, operation: &str, error: impl std::fmt::Display) {
+    tracing::error!(site_id, operation, error=%error, "Provisioning rollback failed");
+}
+
+async fn rollback_created_site(
+    state: &AppState,
+    site: &Site,
+    username: &str,
+    php_version: Option<&str>,
+) {
+    if let Err(err) = state
+        .agent_client
+        .remove_site(SiteRemoveRequest {
+            site_id: format!("site_{}", site.id),
+            nginx_base_dir: None,
+            reload: true,
+        })
+        .await
+    {
+        log_site_cleanup_error(site.id, "remove vhost", err);
+    }
+    if let Some(version) = php_version
+        && let Err(err) = state
+            .agent_client
+            .remove_php_fpm_pool(username, version, format!("site_{}", site.id), true)
+            .await
+    {
+        log_site_cleanup_error(site.id, "remove FPM pool", err);
+    }
+    if let Err(err) = SqliteSiteRepository::new(state.pool.clone())
+        .delete(site.id)
+        .await
+    {
+        log_site_cleanup_error(site.id, "delete site", err);
+    }
+}
+
+/// Creates a site with runtime prerequisites, atomic Nginx apply, and failure cleanup.
 #[allow(clippy::cognitive_complexity)]
 pub async fn create_static_site_handler(
     State(state): State<AppState>,
@@ -1096,10 +1143,8 @@ pub async fn create_static_site_handler(
 ) -> impl IntoResponse {
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let domain_repo = SqliteDomainRepository::new(state.pool.clone());
-    let user_repo = SqliteUserRepository::new(state.pool.clone());
-
     // 1. Resolve target tenant
-    let target_user = match resolve_target_user(&user_repo, &auth_user, payload.user_id).await {
+    let target_user = match resolve_target_user(&state, &auth_user, payload.user_id).await {
         Ok(u) => u,
         Err((status, msg)) => {
             return (status, Json(serde_json::json!({ "error": msg }))).into_response();
@@ -1140,19 +1185,32 @@ pub async fn create_static_site_handler(
     }
 
     // 4. Resolve docroot & settings
-    let linux_uname = target_user
-        .linux_username
-        .as_deref()
-        .unwrap_or(target_user.username.as_str());
+    let (linux_identity, tenant_uid) = match crate::tenant_context::execution_identity(&target_user)
+    {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error":message}))).into_response();
+        }
+    };
+    let linux_uname = linux_identity.as_str();
     let is_php = payload.kind.as_deref() == Some("php");
     let is_nodejs = payload.kind.as_deref() == Some("nodejs");
     let is_python = payload.kind.as_deref() == Some("python");
     let is_proxy = payload.kind.as_deref() == Some("proxy");
     let preset_str = payload.preset.as_deref().unwrap_or("generic");
-    let preset = PhpPreset::parse(preset_str).unwrap_or(PhpPreset::Generic);
+    let preset = match PhpPreset::parse(preset_str) {
+        Some(preset) => preset,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error":"Preset PHP tidak valid."})),
+            )
+                .into_response();
+        }
+    };
 
     let docroot = payload.docroot.unwrap_or_else(|| {
-        if is_nodejs || is_python {
+        if is_nodejs || is_python || (is_php && preset == PhpPreset::Laravel) {
             format!("/home/{linux_uname}/sites/{ascii_domain}/app")
         } else {
             format!("/home/{linux_uname}/sites/{ascii_domain}/public")
@@ -1161,6 +1219,20 @@ pub async fn create_static_site_handler(
     let spa_fallback = payload.spa_fallback.unwrap_or(false);
     let force_https = payload.force_https.unwrap_or(false);
     let php_version = payload.php_version.unwrap_or_else(|| "8.3".to_string());
+    if is_php {
+        if panel_runtime::php::PhpVersion::parse(&php_version).is_err() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error":"Versi PHP tidak valid."})),
+            )
+                .into_response();
+        }
+        match state.agent_client.list_php_runtimes().await {
+            Ok(runtimes) if runtimes.versions.iter().any(|v| v.version == php_version && v.installed && v.fpm_binary_exists) => {},
+            Ok(_) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"Runtime PHP belum terpasang. Buka Runtime Manager terlebih dahulu."}))).into_response(),
+            Err(err) => { tracing::error!(error=%err,"PHP runtime prerequisite lookup failed"); return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error":"Gagal memeriksa runtime PHP. Periksa layanan agent."}))).into_response(); }
+        }
+    }
     let upload_max_size = payload.upload_max_size.unwrap_or_else(|| "64M".to_string());
     let fastcgi_cache = payload.fastcgi_cache.unwrap_or(false);
 
@@ -1460,25 +1532,39 @@ pub async fn create_static_site_handler(
     let prov_req = SiteProvisionRequest {
         site_id: created_site.id,
         username: linux_uname.to_string(),
-        uid: target_user.linux_uid.unwrap_or(1000) as u32,
+        uid: tenant_uid,
         home_dir: format!("/home/{linux_uname}"),
-        docroot: docroot.clone(),
+        docroot: if is_php && preset == PhpPreset::Laravel {
+            format!("{docroot}/public")
+        } else {
+            docroot.clone()
+        },
         web_user: Some("www-data".to_string()),
         index_content: Some(placeholder),
     };
     if let Err(e) = state.agent_client.provision_site(prov_req).await {
-        tracing::warn!("Agent docroot provision warning: {e}");
+        tracing::error!(error=%e, "Site docroot provisioning failed");
+        rollback_created_site(
+            &state,
+            &created_site,
+            linux_uname,
+            is_php.then_some(&php_version),
+        )
+        .await;
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Provisioning direktori situs gagal; pembuatan situs dibatalkan."}))).into_response();
     }
 
     // 7b. If PHP site, ensure PHP-FPM master and pool exist
     if is_php {
-        let uid = target_user.linux_uid.unwrap_or(1000) as u32;
+        let uid = tenant_uid;
         if let Err(e) = state
             .agent_client
             .ensure_php_fpm_master(linux_uname, uid, &php_version)
             .await
         {
-            tracing::warn!("Ensure PHP-FPM master warning: {e}");
+            tracing::error!(error=%e, "Ensure PHP-FPM master failed");
+            rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
+            return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Master PHP-FPM gagal disiapkan; pembuatan situs dibatalkan."}))).into_response();
         }
 
         let pool_req = panel_proto::PhpFpmPoolApplyRequest {
@@ -1498,7 +1584,9 @@ pub async fn create_static_site_handler(
             reload: true,
         };
         if let Err(e) = state.agent_client.apply_php_fpm_pool(pool_req).await {
-            tracing::warn!("Apply PHP-FPM pool warning: {e}");
+            tracing::error!(error=%e, "Apply PHP-FPM pool failed");
+            rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
+            return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Pool PHP-FPM gagal diterapkan; pembuatan situs dibatalkan."}))).into_response();
         }
     }
 
@@ -1507,7 +1595,21 @@ pub async fn create_static_site_handler(
     if let Err((status, msg)) =
         recompile_and_apply_site_vhost(&state, &created_site, &target_user, &domains).await
     {
+        rollback_created_site(
+            &state,
+            &created_site,
+            linux_uname,
+            is_php.then_some(&php_version),
+        )
+        .await;
         return (status, Json(serde_json::json!({ "error": msg }))).into_response();
+    }
+
+    if is_php
+        && !matches!(state.agent_client.check_php_fpm_health(linux_uname, &php_version, format!("site_{}",created_site.id)).await, Ok(health) if health.healthy && health.service_active && health.socket_exists && health.pool_exists)
+    {
+        rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Health check PHP-FPM gagal; pembuatan situs dibatalkan."}))).into_response();
     }
 
     // 9. Audit log
@@ -1884,6 +1986,14 @@ pub async fn get_site_overview_handler(
         pid,
     };
 
+    let (tenant_linux_name, tenant_linux_uid) =
+        match crate::tenant_context::execution_identity(&user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error": message}))).into_response();
+            }
+        };
+
     // 2. Resource Metrics
     let (cpu_usage_usec, memory_bytes, pids_current) = if let Some(uid) = user.linux_uid {
         match state.agent_client.read_slice_resources(uid as u32).await {
@@ -1981,8 +2091,8 @@ pub async fn get_site_overview_handler(
         }
         "php" => {
             let ver = site.version.as_deref().unwrap_or("8.3");
-            let uname = user.linux_username.as_deref().unwrap_or("www-data");
-            format!("/run/php/php{ver}-fpm-{uname}.sock")
+            let uname = &tenant_linux_name;
+            format!("/run/panel/php/{uname}-{ver}.sock")
         }
         "proxy" => settings
             .get("upstream_url")
@@ -2017,7 +2127,7 @@ pub async fn get_site_overview_handler(
         state
             .agent_client
             .get_quota(panel_proto::QuotaGetRequest {
-                uid: user.linux_uid.unwrap_or(0) as u32,
+                uid: tenant_linux_uid,
                 username: uname.clone(),
                 mount_point: None,
             })
@@ -2486,14 +2596,16 @@ pub async fn delete_site_handler(
     if site.kind == "php" || site.runtime.as_deref() == Some("php") {
         let user_repo = SqliteUserRepository::new(state.pool.clone());
         if let Ok(Some(owner)) = user_repo.find_by_id(site.user_id).await {
-            let uname = owner
-                .linux_username
-                .as_deref()
-                .unwrap_or(owner.username.as_str());
+            let (uname, _) = match crate::tenant_context::execution_identity(&owner) {
+                Ok(identity) => identity,
+                Err((status, message)) => {
+                    return (status, Json(serde_json::json!({"error":message}))).into_response();
+                }
+            };
             let ver = site.version.as_deref().unwrap_or("8.3");
             let _ = state
                 .agent_client
-                .remove_php_fpm_pool(uname, ver, format!("site_{id}"), true)
+                .remove_php_fpm_pool(&uname, ver, format!("site_{id}"), true)
                 .await;
         }
     }

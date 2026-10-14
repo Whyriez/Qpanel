@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { User, LoginResponse } from '../types/api';
-import { fetchMe, fetchCsrfToken, login as apiLogin, logout as apiLogout } from '../api/client';
+import { fetchMe, getCsrfToken, setCsrfToken, fetchCsrfToken, login as apiLogin, logout as apiLogout } from '../api/client';
 
 interface AuthContextType {
   user: User | null;
@@ -19,19 +19,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [csrfToken, setCsrfTokenState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  useEffect(() => {
+    const clear = () => { setUser(null); setCsrfToken(null); setCsrfTokenState(null); };
+    window.addEventListener('panel:session-expired', clear);
+    return () => window.removeEventListener('panel:session-expired', clear);
+  }, []);
+
   const initAuth = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch CSRF token
-      const token = await fetchCsrfToken();
-      setCsrfTokenState(token);
-
-      // 2. Fetch authenticated user profile
       const currentUser = await fetchMe();
       setUser(currentUser);
+      setCsrfTokenState(getCsrfToken() || await fetchCsrfToken());
     } catch {
       // Not logged in or session expired
       setUser(null);
+      setCsrfToken(null);
+      setCsrfTokenState(null);
     } finally {
       setIsLoading(false);
     }
@@ -62,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setUser(null);
       setCsrfTokenState(null);
+      setCsrfToken(null);
     }
   };
 
@@ -69,9 +74,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const u = await fetchMe();
       setUser(u);
+      setCsrfTokenState(getCsrfToken() || await fetchCsrfToken());
       return u;
     } catch {
       setUser(null);
+      setCsrfToken(null);
+      setCsrfTokenState(null);
       return null;
     }
   };

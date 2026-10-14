@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyRound, CheckCircle2, ArrowRight, ArrowLeft, RefreshCw, AlertCircle } from 'lucide-react';
+import { request } from '../api/client';
 
 export interface FirstRunWizardPageProps {
   onFinish: () => void;
@@ -32,12 +33,12 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
 
     try {
       // Test setup token against backend
-      await fetch('/api/v1/auth/csrf');
+      await request('/api/v1/auth/setup/validate', { method: 'POST', body: JSON.stringify({ token: token.trim() }) });
 
       // Proceed to Step 2
       setStep(2);
-    } catch {
-      setError('Gagal memverifikasi token setup. Pastikan token benar.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal memverifikasi token setup.');
     } finally {
       setLoading(false);
     }
@@ -58,7 +59,11 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
     setLoading(true);
 
     try {
-      // In production or first-run, admin can be bootstrapped or user created
+      const result = await request<{created: boolean; user_id: number}>('/api/v1/auth/setup', {
+        method: 'POST', body: JSON.stringify({ token: token.trim(), username: username.trim(), email: email.trim() || null, password }),
+      });
+      if (!result.created || !result.user_id) throw new Error('Server belum mengonfirmasi pembuatan administrator.');
+      setPassword(''); setConfirmPassword(''); setToken('');
       setStep(3);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Gagal membuat akun');
@@ -119,7 +124,7 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
         </div>
 
         {error && (
-          <div className="mb-5 p-3 rounded-[var(--radius-sm)] bg-[var(--danger)]/10 border border-[var(--danger)]/30 flex items-start gap-2.5 text-xs text-[var(--danger)]">
+          <div role="alert" className="mb-5 p-3 rounded-[var(--radius-sm)] bg-[var(--danger)]/10 border border-[var(--danger)]/30 flex items-start gap-2.5 text-xs text-[var(--danger)]">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span className="leading-tight">{error}</span>
           </div>
@@ -138,18 +143,19 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
             </div>
 
             <div className="space-y-1.5 pt-2">
-              <label className="block text-xs font-medium text-[var(--ink)]">
+              <label htmlFor="setup-token" className="block text-xs font-medium text-[var(--ink)]">
                 {t('wizard.tokenLabel')}
               </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--primary)]" />
                 <input
+                  id="setup-token"
                   type="text"
                   required
                   autoFocus
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
-                  placeholder="32 karakter token setup..."
+                  placeholder="Token dari hasil instalasi"
                   className="w-full bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] pl-9 pr-3 py-2 text-xs font-mono text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                 />
               </div>
@@ -199,10 +205,12 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
 
             <div className="space-y-3 pt-2">
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-[var(--ink)]">
+                <label htmlFor="setup-username" className="block text-xs font-medium text-[var(--ink)]">
                   Nama Pengguna Admin
                 </label>
                 <input
+                  id="setup-username"
+                  autoComplete="username"
                   type="text"
                   required
                   value={username}
@@ -212,10 +220,12 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-[var(--ink)]">
+                <label htmlFor="setup-email" className="block text-xs font-medium text-[var(--ink)]">
                   Alamat Email (Opsional)
                 </label>
                 <input
+                  id="setup-email"
+                  autoComplete="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -226,10 +236,12 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="block text-xs font-medium text-[var(--ink)]">
+                  <label htmlFor="setup-password" className="block text-xs font-medium text-[var(--ink)]">
                     Kata Sandi
                   </label>
                   <input
+                    id="setup-password"
+                    autoComplete="new-password"
                     type="password"
                     required
                     value={password}
@@ -239,10 +251,12 @@ export const FirstRunWizardPage: React.FC<FirstRunWizardPageProps> = ({
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-xs font-medium text-[var(--ink)]">
+                  <label htmlFor="setup-confirm-password" className="block text-xs font-medium text-[var(--ink)]">
                     Konfirmasi Kata Sandi
                   </label>
                   <input
+                    id="setup-confirm-password"
+                    autoComplete="new-password"
                     type="password"
                     required
                     value={confirmPassword}

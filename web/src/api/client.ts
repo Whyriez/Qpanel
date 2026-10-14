@@ -129,7 +129,17 @@ export function getCsrfToken(): string | null {
   return cachedCsrfToken;
 }
 
-async function request<T>(
+export function errorMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === 'object') {
+    const payload = body as Record<string, unknown>;
+    for (const key of ['detail', 'message', 'error', 'title']) {
+      if (typeof payload[key] === 'string' && payload[key].trim()) return payload[key];
+    }
+  }
+  return fallback;
+}
+
+export async function request<T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -152,21 +162,17 @@ async function request<T>(
   });
 
   if (!res.ok) {
-    let errorMessage = `Request failed: ${res.statusText}`;
-    try {
-      const errJson = await res.json();
-      if (errJson && errJson.message) {
-        errorMessage = errJson.message;
-      }
-    } catch {
-      try {
-        const text = await res.text();
-        if (text) errorMessage = text;
-      } catch {
-        // use default message
-      }
+    if (res.status === 401) {
+      setCsrfToken(null);
+      if (typeof window !== 'undefined' && !url.startsWith('/api/v1/auth/setup') && url !== '/api/v1/auth/login') window.dispatchEvent(new Event('panel:session-expired'));
     }
-    const err = new Error(errorMessage);
+    let message = res.statusText || 'Request failed';
+    try {
+      const text = await res.text();
+      try { message = errorMessage(JSON.parse(text), message); }
+      catch { if (text && !text.trimStart().startsWith('<')) message = text; }
+    } catch { /* Keep the HTTP fallback if reading the response fails. */ }
+    const err = new Error(message);
     (err as unknown as { status: number }).status = res.status;
     throw err;
   }
@@ -187,6 +193,13 @@ export async function fetchHealth(): Promise<HealthResponse> {
 export async function fetchSystemInfo(): Promise<SystemInfoResponse> {
   return request<SystemInfoResponse>('/api/v1/system/info');
 }
+export interface HostMetricsResponse {
+  state: 'waiting' | 'ready' | 'failed' | 'stale';
+  error: string | null;
+  sampling_interval_secs: number;
+  sample: {timestamp:number;cpu_percent:number;cpu_cores:number;memory_used_bytes:number;memory_total_bytes:number;disk_used_bytes:number;disk_total_bytes:number;net_rx_bytes_sec:number;net_tx_bytes_sec:number;load1:number} | null;
+}
+export function fetchSystemMetrics(): Promise<HostMetricsResponse> { return request('/api/v1/system/metrics'); }
 
 // Authentication & Session
 export async function fetchCsrfToken(): Promise<string> {
@@ -198,6 +211,7 @@ export async function fetchCsrfToken(): Promise<string> {
 export async function fetchMe(): Promise<User> {
   const res = await request<LoginResponse | User>('/api/v1/auth/me');
   if ('user' in res && res.user) {
+    if ('csrf_token' in res && res.csrf_token) setCsrfToken(res.csrf_token);
     return res.user;
   }
   return res as User;
@@ -210,7 +224,7 @@ export async function login(
 ): Promise<LoginResponse> {
   const body: Record<string, string> = { username, password };
   if (twoFactorCode) {
-    body.two_factor_code = twoFactorCode;
+    body.code = twoFactorCode;
   }
 
   const res = await request<LoginResponse>('/api/v1/auth/login', {

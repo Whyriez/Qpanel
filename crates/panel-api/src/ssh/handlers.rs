@@ -492,85 +492,20 @@ pub async fn get_ssh_connection_info_handler(
     req_headers: HeaderMap,
     Query(query): Query<SshConnectionInfoQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    let user_repo = SqliteUserRepository::new(state.pool.clone());
     let plan_repo = SqlitePlanRepository::new(state.pool.clone());
     let ssh_repo = SqliteSshKeyRepository::new(state.pool.clone());
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let domain_repo = SqliteDomainRepository::new(state.pool.clone());
 
-    // 1. Resolve target tenant user
-    let target_user = if auth_user.is_admin() {
-        if let Some(ref tenant_slug) = query.tenant {
-            let found = if tenant_slug.starts_with("p_") {
-                user_repo.find_by_linux_username(tenant_slug).await
-            } else {
-                user_repo.find_by_username(tenant_slug).await
-            }
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-            })?;
-
-            match found {
-                Some(u) => u,
-                None => {
-                    return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(serde_json::json!({ "error": "Tenant tidak ditemukan" })),
-                    ));
-                }
-            }
-        } else {
-            user_repo
-                .find_by_id(auth_user.id)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({ "error": e.to_string() })),
-                    )
-                })?
-                .ok_or((
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({ "error": "User tidak ditemukan" })),
-                ))?
-        }
-    } else {
-        if let Some(ref tenant_slug) = query.tenant
-            && tenant_slug != &auth_user.username
-        {
-            return Err((
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "Akses ditolak ke detail tenant lain" })),
-            ));
-        }
-        user_repo
-            .find_by_id(auth_user.id)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-            })?
-            .ok_or((
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "User tidak ditemukan" })),
-            ))?
-    };
-
-    let linux_username = target_user
-        .linux_username
-        .filter(|u| !u.is_empty())
-        .unwrap_or_else(|| {
-            if target_user.username.starts_with("p_") {
-                target_user.username.clone()
-            } else {
-                format!("p_{}", target_user.username)
-            }
-        });
+    let context = crate::tenant_context::resolve_tenant_context(
+        &state,
+        &auth_user,
+        query.tenant.as_deref(),
+        query.site_id,
+    )
+    .await?;
+    let target_user = context.user;
+    let linux_username = context.linux_username;
 
     let home_dir = format!("/home/{}", linux_username);
 
@@ -633,7 +568,13 @@ pub async fn get_ssh_connection_info_handler(
 
     // 4. Resolve effective shell policy
     let plan = if let Some(plan_id) = target_user.plan_id {
-        plan_repo.find_by_id(plan_id).await.ok().flatten()
+        plan_repo.find_by_id(plan_id).await.map_err(|err| {
+            tracing::error!(error=%err,"SSH tenant plan lookup failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":"Gagal memuat kebijakan akses tenant."})),
+            )
+        })?
     } else {
         None
     };
@@ -642,9 +583,9 @@ pub async fn get_ssh_connection_info_handler(
         .shell_policy
         .as_deref()
         .or_else(|| plan.as_ref().map(|p| p.shell_policy.as_str()))
-        .unwrap_or("full");
+        .unwrap_or("none");
 
-    let shell_policy = ShellPolicy::parse(policy_str).unwrap_or(ShellPolicy::Full);
+    let shell_policy = ShellPolicy::parse(policy_str).unwrap_or(ShellPolicy::None);
 
     // 5. Check registered SSH public keys
     let keys = ssh_repo

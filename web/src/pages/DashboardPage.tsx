@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   RefreshCw,
@@ -16,6 +16,8 @@ import {
   fetchSystemInfo,
   fetchSites,
   fetchSystemAnalyticsTimeseries,
+  fetchSystemMetrics,
+  HostMetricsResponse,
 } from "../api/client";
 import {
   Site,
@@ -43,34 +45,43 @@ export function DashboardPage({
   const [info, setInfo] = useState<SystemInfoResponse | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
   const [metrics, setMetrics] = useState<SystemTimeseriesResponse | null>(null);
+  const [hostMetrics, setHostMetrics] = useState<HostMetricsResponse | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
+  const loaded = useRef(false);
   const [loading, setLoading] = useState(true);
   const [infoError, setInfoError] = useState(false);
   const [sitesError, setSitesError] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [updated, setUpdated] = useState<Date | null>(null);
   const loadData = useCallback(async () => {
-    setLoading(true);
-    const [system, website, host] = await Promise.allSettled([
+    setLoading(!loaded.current);
+    const [system, website, host, sample] = await Promise.allSettled([
       fetchSystemInfo(),
       fetchSites(),
       admin
         ? fetchSystemAnalyticsTimeseries({ interval: "1m" })
         : Promise.resolve(null),
+      admin ? fetchSystemMetrics() : Promise.resolve(null),
     ]);
     setInfo(system.status === "fulfilled" ? system.value : null);
     setInfoError(system.status === "rejected");
     setSites(website.status === "fulfilled" ? website.value : []);
     setSitesError(website.status === "rejected");
     setMetrics(host.status === "fulfilled" ? host.value : null);
+    setHostMetrics(sample.status === 'fulfilled' ? sample.value : null);
+    setMetricsError(sample.status === 'rejected' ? sample.reason?.message || 'Gagal memuat metrik server.' : null);
+    loaded.current = true;
     setUpdated(new Date());
     setLoading(false);
   }, [admin]);
   useEffect(() => {
     void loadData();
+    const refresh = window.setInterval(() => { void loadData(); }, 10_000);
+    return () => window.clearInterval(refresh);
   }, [loadData]);
 
   const points = metrics?.points || [];
-  const latest = points.at(-1);
+  const latest = hostMetrics?.sample;
   const number = (value: number, digits = 1) =>
     new Intl.NumberFormat(i18n.language, {
       maximumFractionDigits: digits,
@@ -84,21 +95,21 @@ export function DashboardPage({
     {
       label: t("dashboard.quickStats.cpu"),
       icon: Cpu,
-      value: latest ? `${number(latest.cpu_avg)}%` : "—",
-      caption: t("design.averageUsage"),
+      value: latest ? `${number(latest.cpu_percent)}%` : "—",
+      caption: latest ? `${latest.cpu_cores} core` : t("design.averageUsage"),
       data: points.map((point) => point.cpu_avg),
     },
     {
       label: t("dashboard.quickStats.memory"),
       icon: MemoryStick,
-      value: latest ? bytes(latest.memory_used_avg_bytes) : "—",
+      value: latest ? `${bytes(latest.memory_used_bytes)} / ${bytes(latest.memory_total_bytes)}` : "—",
       caption: t("design.memoryUsed"),
       data: points.map((point) => point.memory_used_avg_bytes),
     },
     {
       label: t("dashboard.quickStats.disk"),
       icon: HardDrive,
-      value: latest ? bytes(latest.disk_used_avg_bytes) : "—",
+      value: latest ? `${bytes(latest.disk_used_bytes)} / ${bytes(latest.disk_total_bytes)}` : "—",
       caption: t("design.storageUsed"),
       data: points.map((point) => point.disk_used_avg_bytes),
     },
@@ -106,7 +117,7 @@ export function DashboardPage({
       label: t("dashboard.quickStats.network"),
       icon: Network,
       value: latest
-        ? `${number(((latest.net_rx_avg_bytes_sec + latest.net_tx_avg_bytes_sec) * 8) / 1_000_000)} Mb/s`
+        ? `${number(latest.net_rx_bytes_sec / 1024)} KB/s ↓ / ${number(latest.net_tx_bytes_sec / 1024)} KB/s ↑`
         : "—",
       caption: t("design.inboundOutbound"),
       data: points.map(
@@ -117,6 +128,7 @@ export function DashboardPage({
 
   return (
     <div className="hosting-dashboard">
+      {admin && !loading && (metricsError || hostMetrics?.state === 'failed' || hostMetrics?.state === 'stale') && <div role="alert" className="page-notice is-error">{metricsError || hostMetrics?.error || 'Data server sudah kedaluwarsa. Periksa collector metrik.'}</div>}
       <div className="page-heading">
         <div>
           <h1>{t("nav.dashboard")}</h1>
@@ -346,7 +358,7 @@ export function DashboardPage({
                 <>
                   <div className="chart-current">
                     <strong>
-                      {number(latest!.cpu_avg)}
+                      {number(latest!.cpu_percent)}
                       <span>%</span>
                     </strong>
                     <span>{t("design.cpuAverage")}</span>

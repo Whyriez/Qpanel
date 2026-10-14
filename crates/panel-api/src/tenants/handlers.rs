@@ -513,18 +513,12 @@ pub async fn get_tenant_resources_handler(
             .into_response();
     }
 
-    let uid = match user.linux_uid {
-        Some(u) => u as u32,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "User does not have an assigned Linux UID" })),
-            )
-                .into_response();
+    let (uname, uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
         }
     };
-
-    let uname = user.linux_username.unwrap_or(user.username);
 
     // 1. Read live cgroup v2 metrics
     let cgroup_metrics = state

@@ -29,6 +29,7 @@ import { JobTray } from "./JobTray";
 import { CommandPalette } from "../ui/CommandPalette";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NotificationBell } from "../notifications/NotificationBell";
+import { RouteLink, pagePath } from "../../lib/router";
 import { Brand } from "../ui/Brand";
 
 export interface ShellProps {
@@ -108,8 +109,8 @@ export const Shell: React.FC<ShellProps> = ({
     if (!mobileOpen) return;
     const controls = () =>
       Array.from(
-        sidebarRef.current?.querySelectorAll<HTMLButtonElement>(
-          "button:not(:disabled)",
+        sidebarRef.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), a[href]",
         ) || [],
       ).filter(
         (button) =>
@@ -193,9 +194,9 @@ export const Shell: React.FC<ShellProps> = ({
             <div className="nav-group" key={group.label}>
               <p className="nav-group-label">{group.label}</p>
               {group.items.map(({ id, icon: Icon }) => (
-                <button
+                <RouteLink
+                  href={pagePath(id)}
                   key={id}
-                  type="button"
                   className={`nav-link ${id === activeNav ? "is-active" : ""}`}
                   aria-current={id === activeNav ? "page" : undefined}
                   aria-label={t(`nav.${id}`)}
@@ -204,7 +205,7 @@ export const Shell: React.FC<ShellProps> = ({
                 >
                   <Icon size={18} strokeWidth={1.7} />
                   <span className="nav-label">{t(`nav.${id}`)}</span>
-                </button>
+                </RouteLink>
               ))}
             </div>
           ))}
@@ -326,7 +327,8 @@ export const Shell: React.FC<ShellProps> = ({
           {groups[0].items
             .filter((item) => item.id !== "terminal")
             .map(({ id, icon: Icon }) => (
-              <button
+              <RouteLink
+                href={pagePath(id)}
                 key={id}
                 className={activeNav === id ? "is-active" : ""}
                 aria-current={activeNav === id ? "page" : undefined}
@@ -334,7 +336,7 @@ export const Shell: React.FC<ShellProps> = ({
               >
                 <Icon size={19} />
                 <span>{t(`nav.${id}`)}</span>
-              </button>
+              </RouteLink>
             ))}
           <button
             onClick={() => setMobileOpen(true)}

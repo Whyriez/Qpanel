@@ -40,7 +40,7 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('ssh');
   const [info, setInfo] = useState<SshConnectionInfoResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Custom connection settings overrides
@@ -78,6 +78,7 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
 
     let isMounted = true;
     setIsLoading(true);
+    setInfo(null);
     setErrorMessage(null);
 
     const query: SshConnectionInfoQuery = {
@@ -100,31 +101,7 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
       .catch((err: Error) => {
         if (!isMounted) return;
         setErrorMessage(err.message || 'Gagal memuat detail koneksi SSH');
-        // Fallback local calculations
-        const uname = tenantUsername || 'p_user';
-        const defaultHost = siteDomain || (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-        const cleanPath = path ? (path.startsWith('/') ? `/home/${uname}${path}` : `/home/${uname}/${path}`) : `/home/${uname}`;
-        setCustomHost(defaultHost);
-        setCustomPort(22);
-        setInfo({
-          host: defaultHost,
-          port: 22,
-          username: uname,
-          user_id: 0,
-          home_dir: `/home/${uname}`,
-          active_path: cleanPath,
-          relative_path: path,
-          shell_policy: 'full',
-          can_shell: true,
-          can_sftp: true,
-          has_ssh_keys: false,
-          ssh_keys_count: 0,
-          ssh_command: `ssh -t ${uname}@${defaultHost} "cd '${cleanPath.replace(/'/g, "'\\''")}' && exec \\$SHELL -l"`,
-          sftp_command: `sftp ${uname}@${defaultHost}:'${cleanPath.replace(/'/g, "'\\''")}'`,
-          sftp_url: `sftp://${uname}@${defaultHost}${cleanPath}`,
-          ssh_config_snippet: `Host ${siteDomain || `${uname}-vps`}\n    HostName ${defaultHost}\n    User ${uname}\n    IdentityFile ~/.ssh/id_ed25519\n`,
-          site_domain: siteDomain || null,
-        });
+        setInfo(null);
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -141,29 +118,29 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
   // Dynamically recomputed commands if host/port overridden
   const effectiveHost = customHost.trim() || info?.host || '127.0.0.1';
   const effectivePort = customPort || 22;
-  const effectiveUser = info?.username || tenantUsername || 'p_user';
+  const effectiveUser = info?.username || '';
   const effectivePath = info?.active_path || `/home/${effectiveUser}`;
 
   const portFlagSsh = effectivePort === 22 ? '' : `-p ${effectivePort} `;
   const portFlagSftp = effectivePort === 22 ? '' : `-P ${effectivePort} `;
 
   const computedSshCommand = useMemo(() => {
-    if (info?.shell_policy === 'sftp' || info?.shell_policy === 'none') return null;
+    if (!effectiveUser || info?.shell_policy === 'sftp' || info?.shell_policy === 'none') return null;
     return `ssh ${portFlagSsh}-t ${effectiveUser}@${effectiveHost} "cd '${escapePath(effectivePath)}' && exec \\$SHELL -l"`;
   }, [info?.shell_policy, portFlagSsh, effectiveUser, effectiveHost, effectivePath]);
 
   const computedSshSimpleCommand = useMemo(() => {
-    if (info?.shell_policy === 'sftp' || info?.shell_policy === 'none') return null;
+    if (!effectiveUser || info?.shell_policy === 'sftp' || info?.shell_policy === 'none') return null;
     return `ssh ${portFlagSsh}${effectiveUser}@${effectiveHost}`;
   }, [info?.shell_policy, portFlagSsh, effectiveUser, effectiveHost]);
 
   const computedSftpCommand = useMemo(() => {
-    if (info?.shell_policy === 'none') return null;
+    if (!effectiveUser || info?.shell_policy === 'none') return null;
     return `sftp ${portFlagSftp}${effectiveUser}@${effectiveHost}:'${escapePath(effectivePath)}'`;
   }, [info?.shell_policy, portFlagSftp, effectiveUser, effectiveHost, effectivePath]);
 
   const computedSftpUrl = useMemo(() => {
-    if (info?.shell_policy === 'none') return null;
+    if (!effectiveUser || info?.shell_policy === 'none') return null;
     const portPart = effectivePort === 22 ? '' : `:${effectivePort}`;
     return `sftp://${effectiveUser}@${effectiveHost}${portPart}${effectivePath.startsWith('/') ? effectivePath : `/${effectivePath}`}`;
   }, [info?.shell_policy, effectivePort, effectiveUser, effectiveHost, effectivePath]);
@@ -276,11 +253,12 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
           )}
 
           {errorMessage && (
-            <div className="p-3 rounded-[var(--radius-md)] bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)]">
+            <div role="alert" className="p-3 rounded-[var(--radius-md)] bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)]">
               {errorMessage}
             </div>
           )}
 
+          {info && <>
           {/* Quick Copy Primary Action */}
           {computedSshCommand && (
             <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] space-y-2">
@@ -641,7 +619,7 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
                   </button>
                 ) : (
                   <a
-                    href="/security"
+                    href="/profile"
                     className="px-3 py-1.5 rounded-[var(--radius-sm)] bg-[var(--surface)] hover:bg-[var(--raised)] border border-[var(--line)] text-[var(--ink)] text-xs font-semibold shrink-0 transition-colors"
                   >
                     Profil Keamanan
@@ -650,13 +628,14 @@ export const SshConnectModal: React.FC<SshConnectModalProps> = ({
               </div>
             </div>
           )}
+          </>}
         </div>
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-[var(--line)] bg-[var(--raised)]">
           <div className="text-[11px] text-[var(--ink-muted)] flex items-center gap-1.5">
             <Radio className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Port 22 SSH Daemon aktif &bull; Drop-in /etc/ssh/sshd_config.d/50-panel.conf</span>
+            <span>Gunakan identitas dan kebijakan akses tenant yang dipilih.</span>
           </div>
           <button
             type="button"

@@ -17,6 +17,36 @@ use tracing::warn;
 
 pub type JobFuture<'a> = Pin<Box<dyn Future<Output = Result<Option<String>, String>> + Send + 'a>>;
 
+async fn validate_job_identity(
+    ctx: &JobContext,
+    job: &Job,
+    username: &str,
+    uid: Option<u32>,
+) -> Result<(), String> {
+    let repo = panel_db::repositories::SqliteUserRepository::new(ctx.pool.clone());
+    let tenant = repo
+        .find_by_linux_username(username)
+        .await
+        .map_err(|_| "Gagal memuat identitas pekerjaan".to_owned())?
+        .ok_or_else(|| "Identitas tenant pekerjaan tidak ditemukan".to_owned())?;
+    let (_, actual_uid) =
+        crate::tenant_context::execution_identity(&tenant).map_err(|(_, message)| message)?;
+    if uid.is_some_and(|provided| provided != actual_uid) {
+        return Err("UID pekerjaan tidak sesuai dengan tenant".to_owned());
+    }
+    if let Some(actor_id) = job.user_id {
+        let actor = repo
+            .find_by_id(actor_id)
+            .await
+            .map_err(|_| "Gagal memuat pemilik pekerjaan".to_owned())?
+            .ok_or_else(|| "Pemilik pekerjaan tidak ditemukan".to_owned())?;
+        if actor.status != "active" || (actor.role != "admin" && actor.id != tenant.id) {
+            return Err("Akses tenant pekerjaan ditolak".to_owned());
+        }
+    }
+    Ok(())
+}
+
 /// Execution context passed to each job handler.
 pub struct JobContext {
     pub job_id: String,
@@ -150,12 +180,18 @@ impl JobHandler for QuotaReportHandler {
     fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
         Box::pin(async move {
             let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
-            let uid = payload.get("uid").and_then(Value::as_u64).unwrap_or(10001) as u32;
+            let uid = payload
+                .get("uid")
+                .and_then(Value::as_u64)
+                .filter(|uid| (10000..=59999).contains(uid))
+                .ok_or_else(|| "UID tenant yang valid wajib disertakan".to_string())?
+                as u32;
             let username = payload
                 .get("username")
                 .and_then(Value::as_str)
-                .unwrap_or("p_tenant")
+                .ok_or_else(|| "Identitas Linux tenant wajib disertakan".to_string())?
                 .to_string();
+            validate_job_identity(ctx, job, &username, Some(uid)).await?;
 
             let _ = ctx
                 .report_progress(10, Some("Querying quota metrics from agent..."))
@@ -209,12 +245,18 @@ impl JobHandler for QuotaScanHandler {
     fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
         Box::pin(async move {
             let payload: Value = serde_json::from_str(&job.payload_json).unwrap_or(Value::Null);
-            let uid = payload.get("uid").and_then(Value::as_u64).unwrap_or(10001) as u32;
+            let uid = payload
+                .get("uid")
+                .and_then(Value::as_u64)
+                .filter(|uid| (10000..=59999).contains(uid))
+                .ok_or_else(|| "UID tenant yang valid wajib disertakan".to_string())?
+                as u32;
             let username = payload
                 .get("username")
                 .and_then(Value::as_str)
-                .unwrap_or("p_tenant")
+                .ok_or_else(|| "Identitas Linux tenant wajib disertakan".to_string())?
                 .to_string();
+            validate_job_identity(ctx, job, &username, Some(uid)).await?;
 
             let _ = ctx
                 .report_progress(15, Some("Scanning tenant filesystem tree..."))
@@ -587,6 +629,7 @@ impl JobHandler for FileArchiveCompressHandler {
                 .get("username")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "Field 'username' wajib disertakan dalam payload".to_string())?;
+            validate_job_identity(ctx, job, username, None).await?;
             let destination = payload
                 .get("destination")
                 .and_then(Value::as_str)
@@ -662,6 +705,7 @@ impl JobHandler for FileArchiveExtractHandler {
                 .get("username")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "Field 'username' wajib disertakan dalam payload".to_string())?;
+            validate_job_identity(ctx, job, username, None).await?;
             let archive_path = payload
                 .get("archive_path")
                 .and_then(Value::as_str)
@@ -731,6 +775,7 @@ impl JobHandler for FileSearchHandler {
                 .get("username")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "Field 'username' wajib disertakan dalam payload".to_string())?;
+            validate_job_identity(ctx, job, username, None).await?;
             let path = payload
                 .get("path")
                 .and_then(Value::as_str)
@@ -1017,7 +1062,10 @@ impl JobHandler for DatabaseExportHandler {
             let tenant_uid = payload
                 .get("tenant_uid")
                 .and_then(Value::as_u64)
-                .unwrap_or(10001) as u32;
+                .filter(|uid| (10000..=59999).contains(uid))
+                .ok_or_else(|| "UID tenant yang valid wajib disertakan".to_string())?
+                as u32;
+            validate_job_identity(ctx, job, &tenant_username, Some(tenant_uid)).await?;
 
             let _ = ctx
                 .report_progress(20, Some(&format!("Mengekspor basis data {name}...")))
@@ -1108,7 +1156,10 @@ impl JobHandler for DatabaseImportHandler {
             let tenant_uid = payload
                 .get("tenant_uid")
                 .and_then(Value::as_u64)
-                .unwrap_or(10001) as u32;
+                .filter(|uid| (10000..=59999).contains(uid))
+                .ok_or_else(|| "UID tenant yang valid wajib disertakan".to_string())?
+                as u32;
+            validate_job_identity(ctx, job, &tenant_username, Some(tenant_uid)).await?;
 
             let _ = ctx
                 .report_progress(
@@ -1195,7 +1246,10 @@ impl JobHandler for BackupCreateHandler {
             let tenant_uid = payload
                 .get("tenant_uid")
                 .and_then(Value::as_u64)
-                .unwrap_or(10001) as u32;
+                .filter(|uid| (10000..=59999).contains(uid))
+                .ok_or_else(|| "UID tenant yang valid wajib disertakan".to_string())?
+                as u32;
+            validate_job_identity(ctx, job, &tenant_username, Some(tenant_uid)).await?;
             let site_dir = payload
                 .get("site_dir")
                 .and_then(Value::as_str)
@@ -1364,7 +1418,10 @@ impl JobHandler for BackupRestoreHandler {
             let tenant_uid = payload
                 .get("tenant_uid")
                 .and_then(Value::as_u64)
-                .unwrap_or(10001) as u32;
+                .filter(|uid| (10000..=59999).contains(uid))
+                .ok_or_else(|| "UID tenant yang valid wajib disertakan".to_string())?
+                as u32;
+            validate_job_identity(ctx, job, &tenant_username, Some(tenant_uid)).await?;
             let backup_filepath = payload
                 .get("backup_filepath")
                 .and_then(Value::as_str)

@@ -464,13 +464,23 @@ pub async fn update_site_env_handler(
     }
 
     // Apply env file to host via agent
+    let (linux_username, _linux_uid) = match crate::tenant_context::execution_identity(&tenant_user)
+    {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
+        }
+    };
     let app_req = SiteEnvApplyRequest {
         site_id: format!("site_{}", site.id),
-        username: tenant_user.username.clone(),
+        username: linux_username.clone(),
         env_file_path: None,
         encrypted_vars: enc_res.encrypted_vars,
     };
-    let _ = state.agent_client.apply_site_env(app_req).await;
+    if let Err(err) = state.agent_client.apply_site_env(app_req).await {
+        tracing::error!(error=%err, "Apply tenant environment failed");
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Environment tersimpan, tetapi gagal diterapkan pada runtime. Coba terapkan kembali."}))).into_response();
+    }
 
     // Audit log (masked keys only, NO plaintext values)
     let keys_list: Vec<&String> = payload.variables.keys().collect();
@@ -619,13 +629,23 @@ pub async fn import_site_env_handler(
     }
 
     // Apply on host
+    let (linux_username, _linux_uid) = match crate::tenant_context::execution_identity(&tenant_user)
+    {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error": message}))).into_response();
+        }
+    };
     let app_req = SiteEnvApplyRequest {
         site_id: format!("site_{}", site.id),
-        username: tenant_user.username.clone(),
+        username: linux_username.clone(),
         env_file_path: None,
         encrypted_vars: enc_res.encrypted_vars,
     };
-    let _ = state.agent_client.apply_site_env(app_req).await;
+    if let Err(err) = state.agent_client.apply_site_env(app_req).await {
+        tracing::error!(error=%err, "Apply tenant environment failed");
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Environment tersimpan, tetapi gagal diterapkan pada runtime. Coba terapkan kembali."}))).into_response();
+    }
 
     // Audit log (count only, NO plaintext values)
     state.audit_writer.log_async(

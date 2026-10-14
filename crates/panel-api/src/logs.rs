@@ -156,11 +156,9 @@ pub async fn get_site_logs_handler(
     .to_string();
 
     let lines_limit = query.lines.unwrap_or(100).clamp(1, 1000);
-    let username = owner
-        .linux_username
-        .as_deref()
-        .unwrap_or(owner.username.as_str())
-        .to_string();
+    let (resolved_linux_name, _resolved_linux_uid) =
+        crate::tenant_context::execution_identity(&owner)?;
+    let username = resolved_linux_name;
 
     let req = SiteLogsReadRequest {
         username,
@@ -243,11 +241,10 @@ pub async fn site_logs_ws_handler(
     .to_string();
 
     let backlog_lines = query.lines.unwrap_or(50).clamp(1, 200);
-    let username = owner
-        .linux_username
-        .as_deref()
-        .unwrap_or(owner.username.as_str())
-        .to_string();
+    let (resolved_linux_name, _resolved_linux_uid) =
+        crate::tenant_context::execution_identity(&owner)
+            .map_err(|(status, _)| (status, "Identitas tenant tidak valid"))?;
+    let username = resolved_linux_name;
 
     Ok(ws.on_upgrade(move |socket| {
         handle_site_logs_ws(

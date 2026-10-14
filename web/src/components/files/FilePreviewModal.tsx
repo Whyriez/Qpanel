@@ -120,7 +120,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   );
 
   const previewType = detectPreviewType(fileName, mimeType);
-  const downloadUrl = `${apiBaseUrl}?path=${encodeURIComponent(filePath)}`;
+  const downloadUrl = `${apiBaseUrl}${apiBaseUrl.includes('?') ? '&' : '?'}path=${encodeURIComponent(filePath)}`;
 
   // Reset zoom & rotation when file changes
   useEffect(() => {

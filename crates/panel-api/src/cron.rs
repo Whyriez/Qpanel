@@ -192,6 +192,7 @@ async fn verify_site_access(
             )
         })?;
 
+    crate::tenant_context::execution_identity(&user)?;
     Ok((site, user))
 }
 
@@ -414,11 +415,12 @@ pub async fn create_site_cron_handler(
     };
 
     // 4. Apply systemd timer and service unit via agent
-    let linux_user = user
-        .linux_username
-        .clone()
-        .unwrap_or_else(|| format!("p_{}", user.username));
-    let linux_uid = user.linux_uid.unwrap_or(10001) as u32;
+    let (linux_user, linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error":message}))).into_response();
+        }
+    };
 
     let agent_req = CronJobApplyRequest {
         site_id: format!("site_{}", site.id),
@@ -587,11 +589,12 @@ pub async fn update_site_cron_handler(
     };
 
     // Update systemd timer via agent
-    let linux_user = user
-        .linux_username
-        .clone()
-        .unwrap_or_else(|| format!("p_{}", user.username));
-    let linux_uid = user.linux_uid.unwrap_or(10001) as u32;
+    let (linux_user, linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error":message}))).into_response();
+        }
+    };
 
     let agent_req = CronJobApplyRequest {
         site_id: format!("site_{}", site.id),
@@ -734,11 +737,12 @@ pub async fn run_site_cron_handler(
         }
     };
 
-    let linux_user = user
-        .linux_username
-        .clone()
-        .unwrap_or_else(|| format!("p_{}", user.username));
-    let linux_uid = user.linux_uid.unwrap_or(10001) as u32;
+    let (linux_user, linux_uid) = match crate::tenant_context::execution_identity(&user) {
+        Ok(identity) => identity,
+        Err((status, message)) => {
+            return (status, Json(serde_json::json!({"error":message}))).into_response();
+        }
+    };
 
     let now_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)

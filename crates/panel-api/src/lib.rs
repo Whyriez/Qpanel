@@ -28,12 +28,15 @@ pub mod routes;
 pub mod security_analytics;
 pub mod security_hardening;
 pub mod security_headers;
+pub mod setup;
 pub mod site_rules;
 pub mod sites;
 pub mod ssh;
 pub mod ssl;
 pub mod static_files;
 pub mod system_reliability;
+pub mod telemetry;
+pub mod tenant_context;
 pub mod tenants;
 pub mod terminal;
 
@@ -53,11 +56,14 @@ pub fn create_router(state: AppState) -> Router {
     let api_routes = Router::new()
         .route("/healthz", get(healthz_handler))
         .route("/api/v1/system/info", get(system_info_handler))
+        .route("/api/v1/system/metrics", get(telemetry::current_metrics))
         .route(
             "/api/v1/system/memory-profile",
             get(memory_profile::get_memory_profile_handler),
         )
         .route("/api/v1/auth/login", post(auth::login_handler))
+        .route("/api/v1/auth/setup/validate", post(setup::validate_token))
+        .route("/api/v1/auth/setup", post(setup::create_administrator))
         .route("/api/v1/auth/logout", post(auth::logout_handler))
         .route("/api/v1/auth/me", get(auth::me_handler))
         .route("/api/v1/auth/csrf", get(auth::csrf_handler))

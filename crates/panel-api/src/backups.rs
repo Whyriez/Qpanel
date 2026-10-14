@@ -237,10 +237,15 @@ pub async fn create_site_backup(
         }
     };
 
-    let tenant_username = tenant_user
-        .linux_username
-        .unwrap_or_else(|| tenant_user.username.clone());
-    let tenant_uid = tenant_user.linux_uid.unwrap_or(10001) as u32;
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&tenant_user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let tenant_username = resolved_linux_name;
+    let tenant_uid = resolved_linux_uid;
 
     let format_str = payload.format.as_deref().unwrap_or("tar.zst");
     let format = BackupFormat::from_str_loose(format_str);
@@ -418,7 +423,6 @@ pub async fn delete_site_backup(
     Path((site_id, backup_id)): Path<(i64, i64)>,
 ) -> impl IntoResponse {
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
-    let user_repo = SqliteUserRepository::new(state.pool.clone());
     let backup_repo = SqliteBackupRepository::new(state.pool.clone());
 
     let site = match site_repo.find_by_id(site_id).await {
@@ -465,10 +469,14 @@ pub async fn delete_site_backup(
         }
     };
 
-    let tenant_user = user_repo.find_by_id(site.user_id).await.unwrap_or(None);
-    let tenant_username = tenant_user
-        .map(|u| u.linux_username.unwrap_or(u.username))
-        .unwrap_or_else(|| "p_tenant".to_string());
+    let context =
+        match crate::tenant_context::resolve_tenant_context(&state, &user, None, Some(site_id))
+            .await
+        {
+            Ok(context) => context,
+            Err(err) => return err.into_response(),
+        };
+    let tenant_username = context.linux_username;
 
     // 1. Delete on host via agent
     let _ = state
@@ -562,10 +570,15 @@ pub async fn restore_site_backup(
         }
     };
 
-    let tenant_username = tenant_user
-        .linux_username
-        .unwrap_or_else(|| tenant_user.username.clone());
-    let tenant_uid = tenant_user.linux_uid.unwrap_or(10001) as u32;
+    let (resolved_linux_name, resolved_linux_uid) =
+        match crate::tenant_context::execution_identity(&tenant_user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error":message}))).into_response();
+            }
+        };
+    let tenant_username = resolved_linux_name;
+    let tenant_uid = resolved_linux_uid;
     let tenant_home = format!("/home/{}", tenant_username);
 
     // Determine target restore site dir

@@ -108,6 +108,10 @@ pub async fn create_job_handler(
     RequireCsrf(user): RequireCsrf,
     Json(payload): Json<CreateJobRequest>,
 ) -> Response {
+    // Host work must enter through the feature endpoint that validates tenant/site ownership.
+    if !user.is_admin() && !matches!(payload.name.as_str(), "test.sleep" | "system.echo") {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":"Gunakan endpoint fitur yang sesuai untuk membuat pekerjaan tenant."}))).into_response();
+    }
     if payload.name.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "Job name cannot be empty").into_response();
     }

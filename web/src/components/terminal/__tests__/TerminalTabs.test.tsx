@@ -6,6 +6,8 @@ import { TerminalPage } from '../../../pages/TerminalPage';
 import { TerminalTabItem } from '../../../types/terminal';
 import '../../../i18n';
 
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ user:{id:42,role:'user'},isLoading:false }) }));
+
 // Mock API client
 vi.mock('../../../api/client', () => ({
   createTerminalSession: vi.fn().mockResolvedValue({

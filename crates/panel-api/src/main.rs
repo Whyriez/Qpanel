@@ -56,13 +56,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let agent_client = Arc::new(AgentClient::new(config.agent.socket_path.clone()));
-    let state = AppState::new(
+    let mut state = AppState::new(
         agent_client,
         pool,
         config.server.environment.clone(),
         config.auth.clone(),
         lockout_manager,
     );
+    state.analytics_db_path = config.analytics.path.clone();
+    let (metrics_shutdown_tx, metrics_shutdown_rx) = tokio::sync::watch::channel(false);
+    let metrics_state = state.clone();
+    let metrics_handle = tokio::spawn(panel_api::telemetry::run_system_metrics_worker(
+        metrics_state,
+        metrics_shutdown_rx,
+    ));
 
     // Startup recovery: mark any interrupted running jobs as failed
     match state.job_runner.recover_interrupted().await {
@@ -113,8 +120,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Initiating shutdown: stopping background workers...");
     let _ = worker_shutdown_tx.send(true);
     let _ = retention_shutdown_tx.send(true);
+    let _ = metrics_shutdown_tx.send(true);
     let _ = worker_handle.await;
     let _ = retention_handle.await;
+    let _ = metrics_handle.await;
 
     info!("Panel API shutdown gracefully.");
     Ok(())
