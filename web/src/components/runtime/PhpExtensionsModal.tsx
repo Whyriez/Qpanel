@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -152,15 +153,14 @@ export const PhpExtensionsModal: React.FC<PhpExtensionsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div
-        className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="extensions-modal-title"
-      >
+    <ModalOverlay
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onDismiss={onClose}
+      aria-labelledby="extensions-modal-title"
+    >
+      <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden dialog-panel">
         {/* Header */}
-        <div className="p-5 border-b border-[var(--line)] flex items-center justify-between bg-[var(--bg)]/50">
+        <div className="p-5 border-b border-[var(--line)] flex items-center justify-between bg-[var(--bg)]/50 dialog-header">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-[var(--radius-md)] bg-[var(--primary)]/10 text-[var(--primary)] font-bold text-sm flex items-center justify-center">
               {version}
@@ -169,9 +169,7 @@ export const PhpExtensionsModal: React.FC<PhpExtensionsModalProps> = ({
               <h2 id="extensions-modal-title" className="text-base font-semibold text-[var(--ink)]">
                 {t('runtime.extensionsTitle', { version })}
               </h2>
-              <p className="text-xs text-[var(--ink-muted)]">
-                {t('runtime.extensionsSubtitle')}
-              </p>
+              <p className="text-xs text-[var(--ink-muted)]">{t('runtime.extensionsSubtitle')}</p>
             </div>
           </div>
 
@@ -251,7 +249,7 @@ export const PhpExtensionsModal: React.FC<PhpExtensionsModalProps> = ({
         </div>
 
         {/* Content list */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+        <div className="flex-1 overflow-y-auto p-4 space-y-2.5 dialog-body">
           {loading && extensions.length === 0 ? (
             <div className="p-12 text-center text-xs text-[var(--ink-muted)] flex flex-col items-center gap-2">
               <Loader2 className="w-5 h-5 animate-spin text-[var(--primary)]" />
@@ -307,13 +305,9 @@ export const PhpExtensionsModal: React.FC<PhpExtensionsModalProps> = ({
                       )}
                     </div>
 
-                    <p className="text-xs text-[var(--ink-muted)] line-clamp-1">
-                      {ext.description}
-                    </p>
+                    <p className="text-xs text-[var(--ink-muted)] line-clamp-1">{ext.description}</p>
 
-                    <div className="text-[10px] text-[var(--ink-muted)] font-mono">
-                      Paket: {ext.package_name}
-                    </div>
+                    <div className="text-[10px] text-[var(--ink-muted)] font-mono">Paket: {ext.package_name}</div>
                   </div>
 
                   {/* Right: Actions */}
@@ -375,7 +369,7 @@ export const PhpExtensionsModal: React.FC<PhpExtensionsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs text-[var(--ink-muted)]">
+        <div className="p-4 border-t border-[var(--line)] bg-[var(--bg)]/50 flex items-center justify-between text-xs text-[var(--ink-muted)] dialog-footer">
           <span className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-[var(--primary)]" />
             Preferensi ekstensi tingkat situs dapat disesuaikan pada pengaturan masing-masing situs.
@@ -388,7 +382,7 @@ export const PhpExtensionsModal: React.FC<PhpExtensionsModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };
 

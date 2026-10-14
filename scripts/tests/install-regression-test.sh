@@ -83,6 +83,18 @@ grep -qx 'Group=panel' "$agent"
 grep -qx 'RuntimeDirectory=panel' "$agent"
 grep -qx 'RuntimeDirectoryMode=0750' "$agent"
 pass 'agent alone owns boot-time runtime directory'
+grep -qx 'ProtectSystem=strict' "$agent"
+grep -qx 'ProtectHome=false' "$agent"
+grep -qx 'NoNewPrivileges=true' "$agent"
+grep -qx 'ReadWritePaths=/etc /home /opt /usr /var /run' "$agent"
+pass 'agent permits tenant lifecycle and runtime/package installation while keeping strict default protection'
+
+# Guard the production runtime layout as well as the unit directive. PHP uses the
+# host package manager, so allowing only /var/lib/panel cannot support installation.
+grep -q 'DEFAULT_NODE_BASE_DIR: &str = "/opt/panel/runtimes/node"' "$REPO/crates/panel-runtime/src/node.rs"
+grep -q 'DEFAULT_PYTHON_BASE_DIR: &str = "/opt/panel/runtimes/python"' "$REPO/crates/panel-runtime/src/python.rs"
+grep -q 'runner.run_command("apt-get", &install_args)' "$REPO/crates/panel-agent/src/php.rs"
+pass 'Node/Python runtime roots and PHP package installation match the agent write policy'
 grep -q 'DEFAULT_DATABASE_PATH.*"/var/lib/panel/panel.db"' "$REPO/crates/panel-core/src/production.rs"
 grep -q 'DEFAULT_DATABASE_PATH' "$REPO/crates/panel-api/src/config.rs"
 grep -q 'DEFAULT_DATABASE_PATH' "$REPO/crates/panel-cli/src/main.rs"

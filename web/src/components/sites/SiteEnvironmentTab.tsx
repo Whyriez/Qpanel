@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Key,
@@ -629,69 +630,72 @@ export const SiteEnvironmentTab: React.FC<SiteEnvironmentTabProps> = ({
 
       {/* Add / Edit Variable Modal */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 dark:border-slate-700/60 relative">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150"
+          onDismiss={() => setIsEditModalOpen(false)}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 dark:border-slate-700/60 relative dialog-panel">
             <button
               onClick={() => setIsEditModalOpen(false)}
-              className="absolute top-5 right-5 p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+              className="absolute top-5 right-5 p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 dialog-header"
             >
               <X className="w-5 h-5" />
             </button>
+            <form onSubmit={handleSaveVariable} className="dialog-form">
+              <div className="dialog-body space-y-4">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                    <Key className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                    {modalMode === 'add'
+                      ? t('env.modal_add_title', 'Tambah Variabel Lingkungan')
+                      : t('env.modal_edit_title', 'Edit Variabel Lingkungan')}
+                  </h3>
+                </div>
 
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                <Key className="w-5 h-5" />
+                {formError && (
+                  <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800/60 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>{formError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('env.form_key_label', 'Nama Variabel (Key)')}
+                  </label>
+                  <input
+                    type="text"
+                    value={formKey}
+                    onChange={(e) => setFormKey(e.target.value)}
+                    disabled={modalMode === 'edit'}
+                    placeholder="DATABASE_URL, API_KEY, PORT..."
+                    className="w-full px-3.5 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
+                    required
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {t(
+                      'env.form_key_hint',
+                      'Format POSIX: huruf besar/kecil, angka, atau underscore. Contoh: DB_HOST',
+                    )}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('env.form_val_label', 'Nilai (Value)')}
+                  </label>
+                  <textarea
+                    value={formValue}
+                    onChange={(e) => setFormValue(e.target.value)}
+                    placeholder="Isi nilai variabel..."
+                    rows={4}
+                    className="w-full px-3.5 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
               </div>
-              <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                {modalMode === 'add'
-                  ? t('env.modal_add_title', 'Tambah Variabel Lingkungan')
-                  : t('env.modal_edit_title', 'Edit Variabel Lingkungan')}
-              </h3>
-            </div>
-
-            {formError && (
-              <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800/60 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{formError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSaveVariable} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('env.form_key_label', 'Nama Variabel (Key)')}
-                </label>
-                <input
-                  type="text"
-                  value={formKey}
-                  onChange={(e) => setFormKey(e.target.value)}
-                  disabled={modalMode === 'edit'}
-                  placeholder="DATABASE_URL, API_KEY, PORT..."
-                  className="w-full px-3.5 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60"
-                  required
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {t(
-                    'env.form_key_hint',
-                    'Format POSIX: huruf besar/kecil, angka, atau underscore. Contoh: DB_HOST'
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('env.form_val_label', 'Nilai (Value)')}
-                </label>
-                <textarea
-                  value={formValue}
-                  onChange={(e) => setFormValue(e.target.value)}
-                  placeholder="Isi nilai variabel..."
-                  rows={4}
-                  className="w-full px-3.5 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3">
+              <div className="flex items-center justify-end gap-3 pt-3 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
@@ -710,97 +714,95 @@ export const SiteEnvironmentTab: React.FC<SiteEnvironmentTabProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Import .env Modal */}
       {isImportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 dark:border-slate-700/60 relative">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150"
+          onDismiss={() => setIsImportModalOpen(false)}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-xl border border-slate-200 dark:border-slate-700/60 relative dialog-panel">
             <button
               onClick={() => setIsImportModalOpen(false)}
-              className="absolute top-5 right-5 p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+              className="absolute top-5 right-5 p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 dialog-header"
             >
               <X className="w-5 h-5" />
             </button>
+            <form onSubmit={handleImportSubmit} className="dialog-form">
+              <div className="dialog-body space-y-4">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                      {t('env.import_modal_title', 'Import File .env')}
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {t('env.import_modal_subtitle', 'Tempel konten atau unggah file .env')}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                <Upload className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                  {t('env.import_modal_title', 'Import File .env')}
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {t('env.import_modal_subtitle', 'Tempel konten atau unggah file .env')}
-                </p>
-              </div>
-            </div>
+                {importError && (
+                  <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800/60 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>{importError}</span>
+                  </div>
+                )}
 
-            {importError && (
-              <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800/60 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{importError}</span>
-              </div>
-            )}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                      {t('env.import_content_label', 'Konten .env')}
+                    </label>
+                    <label className="cursor-pointer text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>{t('env.choose_file', 'Pilih File .env')}</span>
+                      <input type="file" accept=".env,text/plain" onChange={handleFileUpload} className="hidden" />
+                    </label>
+                  </div>
+                  <textarea
+                    value={importContent}
+                    onChange={(e) => setImportContent(e.target.value)}
+                    placeholder={`# Contoh:\nDATABASE_URL="postgres://..."\nPORT=3000\nexport API_KEY='xyz'`}
+                    rows={8}
+                    className="w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    required
+                  />
+                </div>
 
-            <form onSubmit={handleImportSubmit} className="space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    {t('env.import_content_label', 'Konten .env')}
-                  </label>
-                  <label className="cursor-pointer text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>{t('env.choose_file', 'Pilih File .env')}</span>
+                {/* Merge or Replace option */}
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/50 space-y-2">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
                     <input
-                      type="file"
-                      accept=".env,text/plain"
-                      onChange={handleFileUpload}
-                      className="hidden"
+                      type="radio"
+                      name="importMode"
+                      checked={importMerge}
+                      onChange={() => setImportMerge(true)}
+                      className="text-indigo-600 focus:ring-indigo-500"
                     />
+                    <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                      {t('env.merge_option', 'Gabungkan dengan variabel yang ada (Merge)')}
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="importMode"
+                      checked={!importMerge}
+                      onChange={() => setImportMerge(false)}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                      {t('env.replace_option', 'Ganti semua variabel yang ada (Replace All)')}
+                    </span>
                   </label>
                 </div>
-                <textarea
-                  value={importContent}
-                  onChange={(e) => setImportContent(e.target.value)}
-                  placeholder={`# Contoh:\nDATABASE_URL="postgres://..."\nPORT=3000\nexport API_KEY='xyz'`}
-                  rows={8}
-                  className="w-full px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  required
-                />
               </div>
-
-              {/* Merge or Replace option */}
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/50 space-y-2">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="importMode"
-                    checked={importMerge}
-                    onChange={() => setImportMerge(true)}
-                    className="text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    {t('env.merge_option', 'Gabungkan dengan variabel yang ada (Merge)')}
-                  </span>
-                </label>
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="importMode"
-                    checked={!importMerge}
-                    onChange={() => setImportMerge(false)}
-                    className="text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    {t('env.replace_option', 'Ganti semua variabel yang ada (Replace All)')}
-                  </span>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3">
+              <div className="flex items-center justify-end gap-3 pt-3 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsImportModalOpen(false)}
@@ -819,14 +821,17 @@ export const SiteEnvironmentTab: React.FC<SiteEnvironmentTabProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Delete Confirmation Modal */}
       {keyToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-200 dark:border-slate-700/60">
-            <div className="flex items-center gap-3 mb-4">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-150"
+          onDismiss={() => setKeyToDelete(null)}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-sm w-full p-6 shadow-xl border border-slate-200 dark:border-slate-700/60 dialog-panel">
+            <div className="flex items-center gap-3 mb-4 dialog-header">
               <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
                 <Trash2 className="w-5 h-5" />
               </div>
@@ -834,10 +839,14 @@ export const SiteEnvironmentTab: React.FC<SiteEnvironmentTabProps> = ({
                 {t('env.delete_modal_title', 'Hapus Variabel?')}
               </h3>
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-5">
-              {t('env.delete_confirm_desc', 'Apakah Anda yakin ingin menghapus variabel')} <span className="font-mono font-bold text-slate-900 dark:text-white">{keyToDelete}</span>? {t('env.restart_warning', 'Aplikasi akan memerlukan restart setelah variabel dihapus.')}
-            </p>
-            <div className="flex items-center justify-end gap-3">
+            <div className="dialog-body ">
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-5">
+                {t('env.delete_confirm_desc', 'Apakah Anda yakin ingin menghapus variabel')}{' '}
+                <span className="font-mono font-bold text-slate-900 dark:text-white">{keyToDelete}</span>?{' '}
+                {t('env.restart_warning', 'Aplikasi akan memerlukan restart setelah variabel dihapus.')}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 dialog-footer">
               <button
                 onClick={() => setKeyToDelete(null)}
                 className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200 text-xs font-medium"
@@ -854,7 +863,7 @@ export const SiteEnvironmentTab: React.FC<SiteEnvironmentTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

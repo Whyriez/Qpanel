@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   GitBranch,
@@ -837,16 +838,17 @@ export const SiteDeployTab: React.FC<SiteDeployTabProps> = ({
 
       {/* Log Modal */}
       {logModalDeployment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-3xl rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            <div className="p-4 border-b border-[var(--line)] bg-[var(--raised)] flex items-center justify-between">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onDismiss={() => setLogModalDeployment(null)}
+        >
+          <div className="w-full max-w-3xl rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] dialog-panel">
+            <div className="p-4 border-b border-[var(--line)] bg-[var(--raised)] flex items-center justify-between dialog-header">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-[var(--primary)]" />
                 <h3 className="text-sm font-semibold text-[var(--ink)]">
                   {t('git_deploy.logs_modal_title', 'Log Eksekusi Deployment')}:{' '}
-                  <span className="font-mono text-xs text-[var(--ink-muted)]">
-                    {logModalDeployment.release_id}
-                  </span>
+                  <span className="font-mono text-xs text-[var(--ink-muted)]">{logModalDeployment.release_id}</span>
                 </h3>
               </div>
               <button
@@ -858,28 +860,24 @@ export const SiteDeployTab: React.FC<SiteDeployTabProps> = ({
               </button>
             </div>
 
-            <div className="p-4 overflow-y-auto bg-neutral-950 text-neutral-100 font-mono text-xs grow min-h-[300px]">
+            <div className="p-4 overflow-y-auto bg-neutral-950 text-neutral-100 font-mono text-xs grow min-h-[300px] dialog-body">
               {isLoadingLog ? (
                 <div className="flex items-center justify-center h-48 gap-2 text-neutral-400">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span>Memuat log deployment...</span>
                 </div>
               ) : logModalDeployment.log ? (
-                <pre className="whitespace-pre-wrap leading-relaxed select-text">
-                  {logModalDeployment.log}
-                </pre>
+                <pre className="whitespace-pre-wrap leading-relaxed select-text">{logModalDeployment.log}</pre>
               ) : logModalDeployment.error_message ? (
                 <pre className="text-rose-400 whitespace-pre-wrap leading-relaxed">
                   {logModalDeployment.error_message}
                 </pre>
               ) : (
-                <div className="text-neutral-500 italic">
-                  Belum ada keluaran log yang dicatat untuk rilis ini.
-                </div>
+                <div className="text-neutral-500 italic">Belum ada keluaran log yang dicatat untuk rilis ini.</div>
               )}
             </div>
 
-            <div className="p-3 border-t border-[var(--line)] bg-[var(--surface)] flex justify-between items-center text-xs">
+            <div className="p-3 border-t border-[var(--line)] bg-[var(--surface)] flex justify-between items-center text-xs dialog-footer">
               <span className="text-[var(--ink-muted)]">
                 Status: <strong className="capitalize">{logModalDeployment.status}</strong>
               </span>
@@ -892,14 +890,18 @@ export const SiteDeployTab: React.FC<SiteDeployTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Rollback Confirmation Modal */}
       {rollbackTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-2xl p-5 space-y-4">
-            <div className="flex items-center gap-3 text-[var(--primary)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onDismiss={() => setRollbackTarget(null)}
+          dismissDisabled={isRollingBack}
+        >
+          <div className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] shadow-2xl p-5 space-y-4 dialog-panel">
+            <div className="flex items-center gap-3 text-[var(--primary)] dialog-header">
               <div className="p-2.5 rounded-full bg-[var(--primary)]/10">
                 <ArrowLeftRight className="w-5 h-5" />
               </div>
@@ -907,14 +909,16 @@ export const SiteDeployTab: React.FC<SiteDeployTabProps> = ({
                 {t('git_deploy.rollback_confirm_title', 'Konfirmasi Rollback')}
               </h3>
             </div>
-            <p className="text-xs text-[var(--ink-muted)] leading-relaxed">
-              {t(
-                'git_deploy.rollback_confirm_desc',
-                'Apakah Anda yakin ingin melakukan rollback ke rilis {{release_id}}? Symlink aktif akan langsung dialihkan ke versi tersebut.',
-                { release_id: rollbackTarget.release_id }
-              )}
-            </p>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="dialog-body space-y-4">
+              <p className="text-xs text-[var(--ink-muted)] leading-relaxed">
+                {t(
+                  'git_deploy.rollback_confirm_desc',
+                  'Apakah Anda yakin ingin melakukan rollback ke rilis {{release_id}}? Symlink aktif akan langsung dialihkan ke versi tersebut.',
+                  { release_id: rollbackTarget.release_id },
+                )}
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 pt-2 dialog-footer">
               <button
                 type="button"
                 onClick={() => setRollbackTarget(null)}
@@ -934,7 +938,7 @@ export const SiteDeployTab: React.FC<SiteDeployTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

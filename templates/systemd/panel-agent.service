@@ -14,10 +14,15 @@ RestartSec=3s
 KillMode=mixed
 LimitNOFILE=65535
 
-# Systemd Security Hardening (systemd-analyze security target: score < 2.0 OK)
+# Systemd security hardening; measure the score on the target host.
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=read-only
+# Account tools and PHP/APT need configuration, package databases, caches and logs.
+# Node/Python live in /opt; packages write /usr; lifecycle tools need /home and /run.
+# These are privileged agent permissions, never API or tenant service permissions.
+ReadWritePaths=/etc /home /opt /usr /var /run
+# A read-only /home mount would override the writable entry for that same path.
+ProtectHome=false
 PrivateTmp=true
 MemoryDenyWriteExecute=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

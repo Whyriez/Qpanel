@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Cpu,
@@ -633,21 +634,26 @@ export const ServerOptimizerCard: React.FC<ServerOptimizerCardProps> = ({
 
       {/* Confirmation Modal: Apply Profile */}
       {isApplyModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 max-w-md w-full space-y-4 shadow-xl">
-            <div className="flex items-center gap-3 text-amber-500">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onDismiss={() => setIsApplyModalOpen(false)}
+          dismissDisabled={actionInProgress}
+        >
+          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 max-w-md w-full space-y-4 shadow-xl dialog-panel">
+            <div className="flex items-center gap-3 text-amber-500 dialog-header">
               <AlertTriangle className="w-6 h-6" />
-              <h3 className="text-sm font-semibold text-[var(--ink)]">
-                Konfirmasi Terapkan Profil Tuning
-              </h3>
+              <h3 className="text-sm font-semibold text-[var(--ink)]">Konfirmasi Terapkan Profil Tuning</h3>
             </div>
-            <p className="text-xs text-[var(--ink-muted)] leading-relaxed">
-              Anda akan menerapkan profil <strong className="text-[var(--ink)]">{selectedProfileId}</strong>.
-              Sistem akan membuat cadangan konfigurasi saat ini, menulis file konfigurasi Nginx dan Kernel sysctl,
-              serta memvalidasi sintaks via <code className="bg-[var(--surface-sunken)] px-1 py-0.5 rounded font-mono">nginx -t</code>.
-              Jika validasi gagal, konfigurasi akan dibatalkan secara otomatis seketika.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line)]">
+            <div className="dialog-body space-y-4">
+              <p className="text-xs text-[var(--ink-muted)] leading-relaxed">
+                Anda akan menerapkan profil <strong className="text-[var(--ink)]">{selectedProfileId}</strong>. Sistem
+                akan membuat cadangan konfigurasi saat ini, menulis file konfigurasi Nginx dan Kernel sysctl, serta
+                memvalidasi sintaks via{' '}
+                <code className="bg-[var(--surface-sunken)] px-1 py-0.5 rounded font-mono">nginx -t</code>. Jika
+                validasi gagal, konfigurasi akan dibatalkan secara otomatis seketika.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line)] dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsApplyModalOpen(false)}
@@ -667,24 +673,28 @@ export const ServerOptimizerCard: React.FC<ServerOptimizerCardProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Confirmation Modal: Rollback */}
       {isRollbackModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 max-w-md w-full space-y-4 shadow-xl">
-            <div className="flex items-center gap-3 text-rose-500">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onDismiss={() => setIsRollbackModalOpen(false)}
+          dismissDisabled={actionInProgress}
+        >
+          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-6 max-w-md w-full space-y-4 shadow-xl dialog-panel">
+            <div className="flex items-center gap-3 text-rose-500 dialog-header">
               <RotateCcw className="w-6 h-6" />
-              <h3 className="text-sm font-semibold text-[var(--ink)]">
-                Konfirmasi Pulihkan Cadangan (Rollback)
-              </h3>
+              <h3 className="text-sm font-semibold text-[var(--ink)]">Konfirmasi Pulihkan Cadangan (Rollback)</h3>
             </div>
-            <p className="text-xs text-[var(--ink-muted)] leading-relaxed">
-              Konfigurasi Nginx dan Kernel sysctl akan dikembalikan ke snapshot cadangan sebelum tuning terakhir.
-              Layanan Nginx akan direload untuk mengaktifkan kembali konfigurasi sebelumnya.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line)]">
+            <div className="dialog-body space-y-4">
+              <p className="text-xs text-[var(--ink-muted)] leading-relaxed">
+                Konfigurasi Nginx dan Kernel sysctl akan dikembalikan ke snapshot cadangan sebelum tuning terakhir.
+                Layanan Nginx akan direload untuk mengaktifkan kembali konfigurasi sebelumnya.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line)] dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsRollbackModalOpen(false)}
@@ -704,7 +714,7 @@ export const ServerOptimizerCard: React.FC<ServerOptimizerCardProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

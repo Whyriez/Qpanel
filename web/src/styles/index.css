@@ -2,6 +2,7 @@
 @import "./tokens.css";
 @import "./fonts.css";
 @import "./console.css";
+@import "./motion.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

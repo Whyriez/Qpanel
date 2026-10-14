@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, {
   useState,
   useEffect,
@@ -1762,26 +1763,29 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
       {/* 7. Modal: Folder Baru */}
       {isNewFolderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          onDismiss={() => setIsNewFolderOpen(false)}
+        >
           <form
             onSubmit={handleCreateFolder}
-            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4"
+            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4 dialog-panel"
           >
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Buat Folder Baru</h3>
-            <div>
-              <label className="text-xs text-[var(--muted-foreground)] block mb-1">
-                Nama Folder
-              </label>
-              <input
-                type="text"
-                autoFocus
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="nama-folder"
-                className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+            <h3 className="text-sm font-semibold text-[var(--foreground)] dialog-header">Buat Folder Baru</h3>
+            <div className="dialog-body space-y-4">
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] block mb-1">Nama Folder</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="nama-folder"
+                  className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2 dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsNewFolderOpen(false)}
@@ -1797,31 +1801,34 @@ export const FileManager: React.FC<FileManagerProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* 8. Modal: Berkas Baru */}
       {isNewFileOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          onDismiss={() => setIsNewFileOpen(false)}
+        >
           <form
             onSubmit={handleCreateFile}
-            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4"
+            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4 dialog-panel"
           >
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Buat Berkas Baru</h3>
-            <div>
-              <label className="text-xs text-[var(--muted-foreground)] block mb-1">
-                Nama Berkas
-              </label>
-              <input
-                type="text"
-                autoFocus
-                value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
-                placeholder="script.php"
-                className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+            <h3 className="text-sm font-semibold text-[var(--foreground)] dialog-header">Buat Berkas Baru</h3>
+            <div className="dialog-body space-y-4">
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] block mb-1">Nama Berkas</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="script.php"
+                  className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2 dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsNewFileOpen(false)}
@@ -1837,28 +1844,33 @@ export const FileManager: React.FC<FileManagerProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* 9. Modal: Ganti Nama */}
       {isRenameOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          onDismiss={() => setIsRenameOpen(false)}
+        >
           <form
             onSubmit={handleRename}
-            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4"
+            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4 dialog-panel"
           >
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Ganti Nama Berkas</h3>
-            <div>
-              <label className="text-xs text-[var(--muted-foreground)] block mb-1">Nama Baru</label>
-              <input
-                type="text"
-                autoFocus
-                value={renameNewName}
-                onChange={(e) => setRenameNewName(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+            <h3 className="text-sm font-semibold text-[var(--foreground)] dialog-header">Ganti Nama Berkas</h3>
+            <div className="dialog-body space-y-4">
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] block mb-1">Nama Baru</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renameNewName}
+                  onChange={(e) => setRenameNewName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
             </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2 dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsRenameOpen(false)}
@@ -1874,38 +1886,43 @@ export const FileManager: React.FC<FileManagerProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* 10. Modal: Arsipkan / Kompresi */}
       {isCompressOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          onDismiss={() => setIsCompressOpen(false)}
+        >
           <form
             onSubmit={handleCompress}
-            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4"
+            className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4 dialog-panel"
           >
-            <h3 className="text-sm font-semibold text-[var(--foreground)]">Kompresi Menjadi Arsip</h3>
-            <div>
-              <label className="text-xs text-[var(--muted-foreground)] block mb-1">Nama Arsip</label>
-              <input
-                type="text"
-                value={compressName}
-                onChange={(e) => setCompressName(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none"
-              />
+            <h3 className="text-sm font-semibold text-[var(--foreground)] dialog-header">Kompresi Menjadi Arsip</h3>
+            <div className="dialog-body space-y-4">
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] block mb-1">Nama Arsip</label>
+                <input
+                  type="text"
+                  value={compressName}
+                  onChange={(e) => setCompressName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--muted-foreground)] block mb-1">Format</label>
+                <select
+                  value={compressFormat}
+                  onChange={(e) => setCompressFormat(e.target.value as 'zip' | 'tar_gz')}
+                  className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none"
+                >
+                  <option value="zip">ZIP (.zip)</option>
+                  <option value="tar_gz">TAR GZ (.tar.gz)</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-[var(--muted-foreground)] block mb-1">Format</label>
-              <select
-                value={compressFormat}
-                onChange={(e) => setCompressFormat(e.target.value as 'zip' | 'tar_gz')}
-                className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none"
-              >
-                <option value="zip">ZIP (.zip)</option>
-                <option value="tar_gz">TAR GZ (.tar.gz)</option>
-              </select>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-end gap-2 pt-2 dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsCompressOpen(false)}
@@ -1921,21 +1938,27 @@ export const FileManager: React.FC<FileManagerProps> = ({
               </button>
             </div>
           </form>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* 11. Modal: Konfirmasi Hapus ke Sampah */}
       {isDeleteConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4">
-            <h3 className="text-sm font-semibold text-red-500 flex items-center gap-2">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          onDismiss={() => setIsDeleteConfirmOpen(false)}
+        >
+          <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl space-y-4 dialog-panel">
+            <h3 className="text-sm font-semibold text-red-500 flex items-center gap-2 dialog-header">
               <Trash2 className="h-4 w-4" />
               <span>Pindahkan ke Tempat Sampah</span>
             </h3>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              Apakah Anda yakin ingin memindahkan {selectedPaths.size} berkas/folder terpilih ke tempat sampah? Berkas dapat dipulihkan kapan saja dari tempat sampah.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="dialog-body space-y-4">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Apakah Anda yakin ingin memindahkan {selectedPaths.size} berkas/folder terpilih ke tempat sampah?
+                Berkas dapat dipulihkan kapan saja dari tempat sampah.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 dialog-footer">
               <button
                 type="button"
                 onClick={() => setIsDeleteConfirmOpen(false)}
@@ -1952,14 +1975,18 @@ export const FileManager: React.FC<FileManagerProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* 12. Drawer: Tempat Sampah (.panel-trash) */}
       {isTrashOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-md h-full bg-[var(--surface)] border-l border-[var(--line)] flex flex-col shadow-2xl animate-in slide-in-from-right duration-200">
-            <div className="flex items-center justify-between p-4 border-b border-[var(--line)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs"
+          onDismiss={() => setIsTrashOpen(false)}
+          variant="sheet"
+        >
+          <div className="w-full max-w-md h-full bg-[var(--surface)] border-l border-[var(--line)] flex flex-col shadow-2xl animate-in slide-in-from-right duration-200 dialog-panel">
+            <div className="flex items-center justify-between p-4 border-b border-[var(--line)] dialog-header">
               <div className="flex items-center gap-2 font-semibold text-sm">
                 <Trash2 className="h-4 w-4 text-red-500" />
                 <span>Tempat Sampah (.panel-trash)</span>
@@ -1974,9 +2001,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
             </div>
 
             <div className="p-3 border-b border-[var(--line)] flex items-center justify-between text-xs bg-[var(--background)]">
-              <span className="text-[var(--muted-foreground)]">
-                {trashItems.length} berkas di tempat sampah
-              </span>
+              <span className="text-[var(--muted-foreground)]">{trashItems.length} berkas di tempat sampah</span>
               {trashItems.length > 0 && (
                 <button
                   type="button"
@@ -1993,7 +2018,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs">
+            <div className="flex-1 overflow-y-auto p-3 space-y-2 text-xs dialog-body">
               {trashItems.map((item) => (
                 <div
                   key={item.id}
@@ -2022,13 +2047,11 @@ export const FileManager: React.FC<FileManagerProps> = ({
                 </div>
               ))}
               {trashItems.length === 0 && !isLoadingTrash && (
-                <div className="text-center py-12 text-[var(--muted-foreground)]">
-                  Tempat sampah kosong.
-                </div>
+                <div className="text-center py-12 text-[var(--muted-foreground)]">Tempat sampah kosong.</div>
               )}
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* 13. Sub-Modals Integrations (P5-T6, P5-T7, P5-T8) */}

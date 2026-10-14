@@ -1,3 +1,4 @@
+import { ModalOverlay } from './ModalOverlay';
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 
@@ -51,15 +52,17 @@ export const ConfirmDangerDialog: React.FC<ConfirmDangerDialogProps> = ({
   const isConfirmed = inputText.trim() === confirmMatchText.trim();
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="danger-dialog-title"
+      onDismiss={onClose}
+      dismissDisabled={isLoading}
     >
-      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 dialog-panel">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="flex items-start justify-between gap-4 mb-4 dialog-header">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--danger)]/10 text-[var(--danger)] flex items-center justify-center shrink-0">
               <AlertTriangle className="w-5 h-5" />
@@ -80,46 +83,48 @@ export const ConfirmDangerDialog: React.FC<ConfirmDangerDialogProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
-
-        {/* Description */}
-        <div className="text-xs text-[var(--ink-muted)] leading-relaxed mb-4 bg-[var(--raised)] p-3 rounded-[var(--radius-sm)] border border-[var(--line)]">
-          {description}
-        </div>
-
-        {/* Input Confirmation */}
-        <div className="mb-4">
-          <label className="block text-xs font-medium text-[var(--ink)] mb-1.5">
-            Ketik <span className="font-mono font-bold text-[var(--danger)]">{confirmMatchText}</span> untuk mengonfirmasi:
-          </label>
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            disabled={isLoading}
-            placeholder={confirmMatchText}
-            autoFocus
-            className="w-full px-3 py-2 text-xs font-mono rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:outline-none focus:border-[var(--danger)]"
-          />
-        </div>
-
-        {/* Optional purge checkbox */}
-        {hasPurgeOption && (
-          <div className="mb-5">
-            <label className="flex items-start gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={purgeFiles}
-                onChange={(e) => setPurgeFiles(e.target.checked)}
-                disabled={isLoading}
-                className="mt-0.5 rounded border-[var(--line)] text-[var(--danger)] focus:ring-[var(--danger)]"
-              />
-              <span className="text-xs text-[var(--ink-muted)] leading-normal">{purgeOptionLabel}</span>
-            </label>
+        <div className="dialog-body ">
+          {/* Description */}
+          <div className="text-xs text-[var(--ink-muted)] leading-relaxed mb-4 bg-[var(--raised)] p-3 rounded-[var(--radius-sm)] border border-[var(--line)]">
+            {description}
           </div>
-        )}
 
-        {/* Actions */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line)]">
+          {/* Input Confirmation */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-[var(--ink)] mb-1.5">
+              Ketik <span className="font-mono font-bold text-[var(--danger)]">{confirmMatchText}</span> untuk
+              mengonfirmasi:
+            </label>
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              disabled={isLoading}
+              placeholder={confirmMatchText}
+              autoFocus
+              className="w-full px-3 py-2 text-xs font-mono rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] focus:outline-none focus:border-[var(--danger)]"
+            />
+          </div>
+
+          {/* Optional purge checkbox */}
+          {hasPurgeOption && (
+            <div className="mb-5">
+              <label className="flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={purgeFiles}
+                  onChange={(e) => setPurgeFiles(e.target.checked)}
+                  disabled={isLoading}
+                  className="mt-0.5 rounded border-[var(--line)] text-[var(--danger)] focus:ring-[var(--danger)]"
+                />
+                <span className="text-xs text-[var(--ink-muted)] leading-normal">{purgeOptionLabel}</span>
+              </label>
+            </div>
+          )}
+
+          {/* Actions */}
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--line)] dialog-footer">
           <button
             type="button"
             onClick={onClose}
@@ -142,6 +147,6 @@ export const ConfirmDangerDialog: React.FC<ConfirmDangerDialogProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

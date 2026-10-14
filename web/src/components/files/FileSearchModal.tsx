@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useId, useCallback, useRef } from 'react';
 import {
   Search,
@@ -178,15 +179,16 @@ export const FileSearchModal: React.FC<FileSearchModalProps> = ({
   };
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby={`${modalId}-title`}
+      onDismiss={onClose}
     >
-      <div className="flex flex-col w-full max-w-4xl h-[85vh] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 text-[var(--foreground)] overflow-hidden">
+      <div className="flex flex-col w-full max-w-4xl h-[85vh] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 text-[var(--foreground)] overflow-hidden dialog-panel">
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)] dialog-header">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] bg-blue-500/10 text-blue-500">
               <Search className="h-4 w-4" />
@@ -320,7 +322,7 @@ export const FileSearchModal: React.FC<FileSearchModalProps> = ({
         )}
 
         {/* Results Area */}
-        <div className="flex-1 overflow-auto p-4 bg-[var(--background)]">
+        <div className="flex-1 overflow-auto p-4 bg-[var(--background)] dialog-body">
           {isSearching && (
             <div className="flex flex-col items-center justify-center h-48 text-center text-xs text-[var(--muted-foreground)]">
               <div className="h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
@@ -374,7 +376,10 @@ export const FileSearchModal: React.FC<FileSearchModalProps> = ({
                           >
                             {fileName}
                           </button>
-                          <p className="text-[11px] text-[var(--muted-foreground)] font-mono truncate" title={item.path}>
+                          <p
+                            className="text-[11px] text-[var(--muted-foreground)] font-mono truncate"
+                            title={item.path}
+                          >
                             {item.path}
                           </p>
                         </div>
@@ -429,23 +434,17 @@ export const FileSearchModal: React.FC<FileSearchModalProps> = ({
         </div>
 
         {/* Footer Bar */}
-        <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--line)] bg-[var(--surface)] text-[11px] text-[var(--muted-foreground)]">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--line)] bg-[var(--surface)] text-[11px] text-[var(--muted-foreground)] dialog-footer">
           <div>
             {report ? (
-              <span>
-                {`Ditemukan: ${report.items.length} hasil • Dipindai: ${report.totalScanned} entri`}
-              </span>
+              <span>{`Ditemukan: ${report.items.length} hasil • Dipindai: ${report.totalScanned} entri`}</span>
             ) : (
               <span>Pencarian siap digunakan</span>
             )}
           </div>
-          <div>
-            {report && (
-              <span>{`Waktu: ${report.durationMs} ms`}</span>
-            )}
-          </div>
+          <div>{report && <span>{`Waktu: ${report.durationMs} ms`}</span>}</div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

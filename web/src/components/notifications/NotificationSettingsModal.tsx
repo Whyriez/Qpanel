@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -187,14 +188,15 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
   if (!isOpen) return null;
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
+      onDismiss={onClose}
     >
-      <div className="relative w-full max-w-2xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="relative w-full max-w-2xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden dialog-panel">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] dialog-header">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-[var(--radius-md)] bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
               <Mail className="w-5 h-5" />
@@ -203,9 +205,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
               <h2 className="text-sm font-semibold text-[var(--ink)]">
                 {t('notifications.settingsModal.title')}
               </h2>
-              <p className="text-xs text-[var(--ink-muted)]">
-                {t('notifications.settingsModal.desc')}
-              </p>
+              <p className="text-xs text-[var(--ink-muted)]">{t('notifications.settingsModal.desc')}</p>
             </div>
           </div>
           <button
@@ -245,7 +245,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
         </div>
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 dialog-body">
           {feedback && (
             <div
               className={`p-3 rounded-[var(--radius-md)] text-xs flex items-center gap-2 ${
@@ -571,7 +571,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t border-[var(--line)] bg-[var(--surface-sunken)]/40">
+        <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t border-[var(--line)] bg-[var(--surface-sunken)]/40 dialog-footer">
           <button
             type="button"
             onClick={onClose}
@@ -596,6 +596,6 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
           </button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

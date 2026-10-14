@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../components/ui/ModalOverlay';
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -225,15 +226,16 @@ export const AuditLogPage: React.FC = () => {
 
       {/* JSON Payload Inspector Modal */}
       {inspectLog && (
-        <div
+        <ModalOverlay
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
           onClick={() => setInspectLog(null)}
+          onDismiss={() => setInspectLog(null)}
         >
           <div
-            className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-5 space-y-3"
+            className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-5 space-y-3 dialog-panel"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-[var(--line)] pb-2.5">
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-2.5 dialog-header">
               <div className="flex items-center gap-2">
                 <FileCode className="w-4 h-4 text-[var(--primary)]" />
                 <h3 className="font-semibold text-xs text-[var(--ink)]">
@@ -247,28 +249,36 @@ export const AuditLogPage: React.FC = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
+            <div className="dialog-body space-y-3">
+              <div className="space-y-2 text-xs">
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--ink-muted)]">
+                  <div>
+                    Aktor: <span className="font-semibold text-[var(--ink)]">{inspectLog.actor_username}</span>
+                  </div>
+                  <div>
+                    Status: <span className="font-semibold text-[var(--ink)]">{inspectLog.status}</span>
+                  </div>
+                  <div>
+                    Target: <span className="font-semibold text-[var(--ink)]">{inspectLog.target_resource}</span>
+                  </div>
+                  <div>
+                    Waktu:{' '}
+                    <span className="font-mono text-[var(--ink)]">{formatTimestamp(inspectLog.created_at)}</span>
+                  </div>
+                </div>
 
-            <div className="space-y-2 text-xs">
-              <div className="grid grid-cols-2 gap-2 text-[11px] text-[var(--ink-muted)]">
-                <div>Aktor: <span className="font-semibold text-[var(--ink)]">{inspectLog.actor_username}</span></div>
-                <div>Status: <span className="font-semibold text-[var(--ink)]">{inspectLog.status}</span></div>
-                <div>Target: <span className="font-semibold text-[var(--ink)]">{inspectLog.target_resource}</span></div>
-                <div>Waktu: <span className="font-mono text-[var(--ink)]">{formatTimestamp(inspectLog.created_at)}</span></div>
-              </div>
-
-              <div>
-                <span className="block font-medium text-[var(--ink)] mb-1">
-                  {t('audit.details')}
-                </span>
-                <pre className="p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] overflow-x-auto max-h-60 whitespace-pre-wrap">
-                  {inspectLog.details_json
-                    ? JSON.stringify(JSON.parse(inspectLog.details_json), null, 2)
-                    : '// Tidak ada rincian metadata'}
-                </pre>
+                <div>
+                  <span className="block font-medium text-[var(--ink)] mb-1">{t('audit.details')}</span>
+                  <pre className="p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] overflow-x-auto max-h-60 whitespace-pre-wrap">
+                    {inspectLog.details_json
+                      ? JSON.stringify(JSON.parse(inspectLog.details_json), null, 2)
+                      : '// Tidak ada rincian metadata'}
+                  </pre>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../components/ui/ModalOverlay';
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -306,20 +307,19 @@ export const JobsPage: React.FC = () => {
 
       {/* SSE Live Streaming Modal */}
       {activeStreamJob && (
-        <div
+        <ModalOverlay
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
           onClick={() => setActiveStreamJob(null)}
+          onDismiss={() => setActiveStreamJob(null)}
         >
           <div
-            className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-5 space-y-4"
+            className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-5 space-y-4 dialog-panel"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-[var(--line)] pb-3">
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-3 dialog-header">
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-[var(--primary)] animate-pulse" />
-                <h3 className="font-semibold text-xs text-[var(--ink)]">
-                  Live Monitor: {activeStreamJob.name}
-                </h3>
+                <h3 className="font-semibold text-xs text-[var(--ink)]">Live Monitor: {activeStreamJob.name}</h3>
               </div>
               <button
                 onClick={() => setActiveStreamJob(null)}
@@ -328,62 +328,64 @@ export const JobsPage: React.FC = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-[var(--ink-muted)]">Status Terkini:</span>
-                <StatusPill
-                  label={activeStreamJob.status}
-                  variant={getStatusVariant(activeStreamJob.status)}
-                  pulse={activeStreamJob.status === 'running'}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-mono text-[var(--ink-muted)]">
-                  <span>Progres:</span>
-                  <span>{activeStreamJob.progress}%</span>
-                </div>
-                <div className="h-2 w-full bg-[var(--line)] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[var(--primary)] transition-all duration-300"
-                    style={{ width: `${activeStreamJob.progress}%` }}
+            <div className="dialog-body space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[var(--ink-muted)]">Status Terkini:</span>
+                  <StatusPill
+                    label={activeStreamJob.status}
+                    variant={getStatusVariant(activeStreamJob.status)}
+                    pulse={activeStreamJob.status === 'running'}
                   />
                 </div>
-              </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <span className="block text-[11px] font-medium text-[var(--ink-muted)]">
-                Log Event Progres (Server-Sent Events):
-              </span>
-              <div className="p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] overflow-y-auto max-h-48 space-y-1.5">
-                {streamEvents.map((ev, i) => (
-                  <div key={i} className="flex items-start gap-2 border-b border-[var(--line)]/30 pb-1 last:border-b-0">
-                    <span className="text-[var(--ink-muted)] text-[10px] shrink-0">
-                      [{new Date(ev.timestamp * 1000).toLocaleTimeString()}]
-                    </span>
-                    <span className="font-bold text-[var(--primary)] shrink-0">
-                      {ev.status}
-                    </span>
-                    <span className="truncate">{ev.message || `Progres ${ev.progress}%`}</span>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-mono text-[var(--ink-muted)]">
+                    <span>Progres:</span>
+                    <span>{activeStreamJob.progress}%</span>
                   </div>
-                ))}
+                  <div className="h-2 w-full bg-[var(--line)] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[var(--primary)] transition-all duration-300"
+                      style={{ width: `${activeStreamJob.progress}%` }}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {['queued', 'running'].includes(activeStreamJob.status) && (
-              <div className="pt-2 text-right">
-                <button
-                  onClick={() => handleCancel(activeStreamJob.id)}
-                  className="py-1 px-3 rounded bg-[var(--danger)] text-white text-xs font-semibold cursor-pointer"
-                >
-                  Batalkan Tugas
-                </button>
+              <div className="space-y-1.5">
+                <span className="block text-[11px] font-medium text-[var(--ink-muted)]">
+                  Log Event Progres (Server-Sent Events):
+                </span>
+                <div className="p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] overflow-y-auto max-h-48 space-y-1.5">
+                  {streamEvents.map((ev, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 border-b border-[var(--line)]/30 pb-1 last:border-b-0"
+                    >
+                      <span className="text-[var(--ink-muted)] text-[10px] shrink-0">
+                        [{new Date(ev.timestamp * 1000).toLocaleTimeString()}]
+                      </span>
+                      <span className="font-bold text-[var(--primary)] shrink-0">{ev.status}</span>
+                      <span className="truncate">{ev.message || `Progres ${ev.progress}%`}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
+
+              {['queued', 'running'].includes(activeStreamJob.status) && (
+                <div className="pt-2 text-right">
+                  <button
+                    onClick={() => handleCancel(activeStreamJob.id)}
+                    className="py-1 px-3 rounded bg-[var(--danger)] text-white text-xs font-semibold cursor-pointer"
+                  >
+                    Batalkan Tugas
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

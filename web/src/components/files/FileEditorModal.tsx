@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useId, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import {
@@ -132,15 +133,17 @@ export const FileEditorModal: React.FC<FileEditorModalProps> = ({
   const charCount = content.length;
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby={`${modalId}-title`}
+      onDismiss={onClose}
+      dismissDisabled={isSaving}
     >
-      <div className="flex flex-col w-full max-w-6xl h-[92vh] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 text-[var(--foreground)] overflow-hidden">
+      <div className="flex flex-col w-full max-w-6xl h-[92vh] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 text-[var(--foreground)] overflow-hidden dialog-panel">
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)] dialog-header">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-blue-500/10 text-blue-500">
               <FileText className="h-4 w-4" />
@@ -204,7 +207,8 @@ export const FileEditorModal: React.FC<FileEditorModalProps> = ({
           <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-500 text-xs">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>
-              Ukuran berkas melebihi batas 5 MB ({(sizeBytes / (1024 * 1024)).toFixed(2)} MB). Berkas dibuka dalam mode hanya-baca untuk kestabilan browser.
+              Ukuran berkas melebihi batas 5 MB ({(sizeBytes / (1024 * 1024)).toFixed(2)} MB). Berkas dibuka dalam
+              mode hanya-baca untuk kestabilan browser.
             </span>
           </div>
         )}
@@ -242,7 +246,7 @@ export const FileEditorModal: React.FC<FileEditorModalProps> = ({
         )}
 
         {/* CodeMirror 6 Editor Area */}
-        <div className="flex-1 overflow-auto relative bg-[var(--background)]">
+        <div className="flex-1 overflow-auto relative bg-[var(--background)] dialog-body">
           {isLoading ? (
             <div className="flex items-center justify-center h-full text-xs text-[var(--muted-foreground)]">
               Memuat isi berkas...
@@ -286,7 +290,7 @@ export const FileEditorModal: React.FC<FileEditorModalProps> = ({
         </div>
 
         {/* Status Bar */}
-        <div className="flex items-center justify-between px-4 py-1.5 border-t border-[var(--line)] bg-[var(--surface)] text-[11px] text-[var(--muted-foreground)]">
+        <div className="flex items-center justify-between px-4 py-1.5 border-t border-[var(--line)] bg-[var(--surface)] text-[11px] text-[var(--muted-foreground)] dialog-footer">
           <div className="flex items-center gap-3">
             <span>Baris: {lineCount}</span>
             <span>Karakter: {charCount}</span>
@@ -298,6 +302,6 @@ export const FileEditorModal: React.FC<FileEditorModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

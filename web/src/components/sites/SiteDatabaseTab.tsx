@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Database,
@@ -695,9 +696,12 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
       {/* 1. Modal: Buat Basis Data                                 */}
       {/* ========================================================= */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setIsCreateModalOpen(false)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 dialog-header">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
                   <Database className="w-5 h-5" />
@@ -714,149 +718,145 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateDatabase} className="space-y-4">
-              {/* Engine Choice */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Mesin Database
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setCreateEngine('mariadb')}
-                    className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition text-left ${
-                      createEngine === 'mariadb'
-                        ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                    }`}
-                  >
-                    <Server className="w-4 h-4" />
-                    <div>
-                      <div className="font-semibold">MariaDB</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Port 3306 (MySQL)
-                      </div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCreateEngine('postgresql')}
-                    className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition text-left ${
-                      createEngine === 'postgresql'
-                        ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                        : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                    }`}
-                  >
-                    <Server className="w-4 h-4" />
-                    <div>
-                      <div className="font-semibold">PostgreSQL</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Port 5432 (PgSQL)
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              {/* Database Name */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Basis Data
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={createDbName}
-                  onChange={(e) => setCreateDbName(e.target.value)}
-                  placeholder="contoh: wordpress"
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono transition"
-                />
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Prefix tenant akan ditambahkan secara otomatis demi keamanan isolasi.
-                </p>
-              </div>
-
-              {/* Database User */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Pengguna DB (Opsional)
-                </label>
-                <input
-                  type="text"
-                  value={createDbUser}
-                  onChange={(e) => setCreateDbUser(e.target.value)}
-                  placeholder="Kosongkan untuk sama dengan nama database"
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono transition"
-                />
-              </div>
-
-              {/* Password generation */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Kata Sandi
+            <form onSubmit={handleCreateDatabase} className="dialog-form">
+              <div className="dialog-body space-y-4">
+                {/* Engine Choice */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Mesin Database
                   </label>
-                  <label className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={autoGeneratePassword}
-                      onChange={(e) => setAutoGeneratePassword(e.target.checked)}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span>Acak kata sandi kuat otomatis</span>
-                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCreateEngine('mariadb')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition text-left ${
+                        createEngine === 'mariadb'
+                          ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                      }`}
+                    >
+                      <Server className="w-4 h-4" />
+                      <div>
+                        <div className="font-semibold">MariaDB</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Port 3306 (MySQL)</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCreateEngine('postgresql')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition text-left ${
+                        createEngine === 'postgresql'
+                          ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                      }`}
+                    >
+                      <Server className="w-4 h-4" />
+                      <div>
+                        <div className="font-semibold">PostgreSQL</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Port 5432 (PgSQL)</div>
+                      </div>
+                    </button>
+                  </div>
                 </div>
 
-                {!autoGeneratePassword && (
+                {/* Database Name */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama Basis Data
+                  </label>
                   <input
-                    type="password"
+                    type="text"
                     required
-                    value={createPassword}
-                    onChange={(e) => setCreatePassword(e.target.value)}
-                    placeholder="Minimal 12 karakter aman..."
+                    value={createDbName}
+                    onChange={(e) => setCreateDbName(e.target.value)}
+                    placeholder="contoh: wordpress"
                     className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono transition"
                   />
-                )}
-              </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    Prefix tenant akan ditambahkan secara otomatis demi keamanan isolasi.
+                  </p>
+                </div>
 
-              {/* Remote Access Toggle */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <div>
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Izinkan Akses Jarak Jauh (Remote Access)
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      Secara default hanya localhost yang diizinkan demi keamanan.
-                    </div>
-                  </div>
+                {/* Database User */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Nama Pengguna DB (Opsional)
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={createRemoteAccess}
-                    onChange={(e) => setCreateRemoteAccess(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    type="text"
+                    value={createDbUser}
+                    onChange={(e) => setCreateDbUser(e.target.value)}
+                    placeholder="Kosongkan untuk sama dengan nama database"
+                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono transition"
                   />
-                </label>
+                </div>
 
-                {createRemoteAccess && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                      Host atau IP yang Diizinkan
+                {/* Password generation */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Kata Sandi</label>
+                    <label className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoGeneratePassword}
+                        onChange={(e) => setAutoGeneratePassword(e.target.checked)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Acak kata sandi kuat otomatis</span>
                     </label>
-                    <input
-                      type="text"
-                      value={createAllowedHosts}
-                      onChange={(e) => setCreateAllowedHosts(e.target.value)}
-                      placeholder="contoh: % atau 192.168.1.50 atau 10.0.0.0/24"
-                      className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                    />
                   </div>
-                )}
-              </div>
 
-              {/* Action Buttons */}
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+                  {!autoGeneratePassword && (
+                    <input
+                      type="password"
+                      required
+                      value={createPassword}
+                      onChange={(e) => setCreatePassword(e.target.value)}
+                      placeholder="Minimal 12 karakter aman..."
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-mono transition"
+                    />
+                  )}
+                </div>
+
+                {/* Remote Access Toggle */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Izinkan Akses Jarak Jauh (Remote Access)
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        Secara default hanya localhost yang diizinkan demi keamanan.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={createRemoteAccess}
+                      onChange={(e) => setCreateRemoteAccess(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                  </label>
+
+                  {createRemoteAccess && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        Host atau IP yang Diizinkan
+                      </label>
+                      <input
+                        type="text"
+                        value={createAllowedHosts}
+                        onChange={(e) => setCreateAllowedHosts(e.target.value)}
+                        placeholder="contoh: % atau 192.168.1.50 atau 10.0.0.0/24"
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+              </div>
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
@@ -869,70 +869,62 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                   disabled={isCreating}
                   className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-sm transition disabled:opacity-50"
                 >
-                  {isCreating ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Plus className="w-4 h-4" />
-                  )}
+                  {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                   <span>Buat Basis Data</span>
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ========================================================= */}
       {/* 2. Modal: Kata Sandi Dibuat (One-Time Display)            */}
       {/* ========================================================= */}
       {showCreatedPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
+        <ModalOverlay className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 dialog-panel">
+            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 dialog-header">
               <CheckCircle2 className="w-6 h-6 flex-shrink-0" />
-              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                Basis Data Berhasil Dibuat
-              </h3>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Basis Data Berhasil Dibuat</h3>
             </div>
+            <div className="dialog-body space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Simpan kata sandi ini sekarang. Demi keamanan, kata sandi tidak disimpan dalam bentuk teks biasa.
+              </p>
 
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Simpan kata sandi ini sekarang. Demi keamanan, kata sandi tidak disimpan dalam bentuk teks biasa.
-            </p>
-
-            <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 p-3.5 rounded-xl space-y-2 text-xs">
-              <div>
-                <span className="text-slate-500 dark:text-slate-400">Database: </span>
-                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                  {showCreatedPasswordModal.dbName}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-500 dark:text-slate-400">Pengguna: </span>
-                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                  {showCreatedPasswordModal.dbUser}
-                </span>
-              </div>
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                <span className="font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400 select-all">
-                  {showCreatedPasswordModal.password}
-                </span>
-                <button
-                  onClick={() =>
-                    handleCopy(showCreatedPasswordModal.password, 'created-pass')
-                  }
-                  className="p-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-200 hover:bg-slate-50 transition"
-                  title="Salin Kata Sandi"
-                >
-                  {copiedKey === 'created-pass' ? (
-                    <Check className="w-4 h-4 text-emerald-500" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </button>
+              <div className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 p-3.5 rounded-xl space-y-2 text-xs">
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Database: </span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                    {showCreatedPasswordModal.dbName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 dark:text-slate-400">Pengguna: </span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                    {showCreatedPasswordModal.dbUser}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <span className="font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400 select-all">
+                    {showCreatedPasswordModal.password}
+                  </span>
+                  <button
+                    onClick={() => handleCopy(showCreatedPasswordModal.password, 'created-pass')}
+                    className="p-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-600 dark:text-slate-200 hover:bg-slate-50 transition"
+                    title="Salin Kata Sandi"
+                  >
+                    {copiedKey === 'created-pass' ? (
+                      <Check className="w-4 h-4 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
-
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex justify-end dialog-footer">
               <button
                 onClick={() => setShowCreatedPasswordModal(null)}
                 className="px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm"
@@ -941,23 +933,24 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ========================================================= */}
       {/* 3. Modal: Rotasi Kata Sandi                               */}
       {/* ========================================================= */}
       {rotatingDb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setRotatingDb(null)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 dialog-header">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
                   <KeyRound className="w-5 h-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  Rotasi Kata Sandi
-                </h3>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Rotasi Kata Sandi</h3>
               </div>
               <button
                 onClick={() => setRotatingDb(null)}
@@ -966,112 +959,109 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="dialog-body space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Ubah kata sandi untuk akun pengguna{' '}
+                <strong className="font-mono text-slate-900 dark:text-slate-100">{rotatingDb.db_user}</strong> pada
+                basis data <strong className="font-mono text-slate-900 dark:text-slate-100">{rotatingDb.name}</strong>
+                .
+              </p>
 
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Ubah kata sandi untuk akun pengguna{' '}
-              <strong className="font-mono text-slate-900 dark:text-slate-100">
-                {rotatingDb.db_user}
-              </strong>{' '}
-              pada basis data{' '}
-              <strong className="font-mono text-slate-900 dark:text-slate-100">
-                {rotatingDb.name}
-              </strong>
-              .
-            </p>
-
-            {rotatedPasswordResult ? (
-              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2">
-                <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                  Kata sandi baru berhasil dibuat:
-                </div>
-                <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                  <span className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100 select-all">
-                    {rotatedPasswordResult}
-                  </span>
-                  <button
-                    onClick={() => handleCopy(rotatedPasswordResult, 'rotated-pass')}
-                    className="p-1 hover:text-slate-900 dark:hover:text-slate-100"
-                    title="Salin Kata Sandi"
-                  >
-                    {copiedKey === 'rotated-pass' ? (
-                      <Check className="w-4 h-4 text-emerald-500" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-                <div className="pt-2 flex justify-end">
-                  <button
-                    onClick={() => setRotatingDb(null)}
-                    className="px-4 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition"
-                  >
-                    Selesai
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoRotatePassword}
-                    onChange={(e) => setAutoRotatePassword(e.target.checked)}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span>Acak kata sandi kuat secara otomatis (Rekomendasi)</span>
-                </label>
-
-                {!autoRotatePassword && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Kata Sandi Baru
-                    </label>
-                    <input
-                      type="password"
-                      value={rotateNewPassword}
-                      onChange={(e) => setRotateNewPassword(e.target.value)}
-                      placeholder="Minimal 12 karakter aman..."
-                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                    />
+              {rotatedPasswordResult ? (
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2">
+                  <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                    Kata sandi baru berhasil dibuat:
                   </div>
-                )}
-
-                <div className="pt-3 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    onClick={() => setRotatingDb(null)}
-                    className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    onClick={handleRotatePassword}
-                    disabled={isRotating}
-                    className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition disabled:opacity-50"
-                  >
-                    {isRotating && <Loader2 className="w-4 h-4 animate-spin" />}
-                    <span>Terapkan Kata Sandi</span>
-                  </button>
+                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                    <span className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100 select-all">
+                      {rotatedPasswordResult}
+                    </span>
+                    <button
+                      onClick={() => handleCopy(rotatedPasswordResult, 'rotated-pass')}
+                      className="p-1 hover:text-slate-900 dark:hover:text-slate-100"
+                      title="Salin Kata Sandi"
+                    >
+                      {copiedKey === 'rotated-pass' ? (
+                        <Check className="w-4 h-4 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      onClick={() => setRotatingDb(null)}
+                      className="px-4 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition"
+                    >
+                      Selesai
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="space-y-4">
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoRotatePassword}
+                      onChange={(e) => setAutoRotatePassword(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>Acak kata sandi kuat secara otomatis (Rekomendasi)</span>
+                  </label>
+
+                  {!autoRotatePassword && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Kata Sandi Baru
+                      </label>
+                      <input
+                        type="password"
+                        value={rotateNewPassword}
+                        onChange={(e) => setRotateNewPassword(e.target.value)}
+                        placeholder="Minimal 12 karakter aman..."
+                        className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                    </div>
+                  )}
+
+                  <div className="pt-3 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      onClick={() => setRotatingDb(null)}
+                      className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      onClick={handleRotatePassword}
+                      disabled={isRotating}
+                      className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition disabled:opacity-50"
+                    >
+                      {isRotating && <Loader2 className="w-4 h-4 animate-spin" />}
+                      <span>Terapkan Kata Sandi</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ========================================================= */}
       {/* 4. Modal: Akses Jarak Jauh                                */}
       {/* ========================================================= */}
       {remoteDb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setRemoteDb(null)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 dialog-header">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
                   <Globe className="w-5 h-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  Konfigurasi Akses Jarak Jauh
-                </h3>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Konfigurasi Akses Jarak Jauh</h3>
               </div>
               <button
                 onClick={() => setRemoteDb(null)}
@@ -1080,16 +1070,13 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Atur hak akses jaringan untuk basis data{' '}
-              <strong className="font-mono text-slate-900 dark:text-slate-100">
-                {remoteDb.name}
-              </strong>
-              .
-            </p>
-
-            <div className="space-y-4">
+            <div className="dialog-body space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Atur hak akses jaringan untuk basis data{' '}
+                <strong className="font-mono text-slate-900 dark:text-slate-100">{remoteDb.name}</strong>.
+              </p>
+            </div>
+            <div className="space-y-4 dialog-footer">
               <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer">
                 <div>
                   <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1120,7 +1107,8 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                     className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                   <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    Gunakan <code className="font-mono">%</code> untuk mengizinkan semua IP, atau pisahkan dengan tanda koma untuk beberapa IP/subnet.
+                    Gunakan <code className="font-mono">%</code> untuk mengizinkan semua IP, atau pisahkan dengan
+                    tanda koma untuk beberapa IP/subnet.
                   </p>
                 </div>
               )}
@@ -1143,23 +1131,24 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               </div>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ========================================================= */}
       {/* 5. Modal: Ekspor Dump SQL                                 */}
       {/* ========================================================= */}
       {exportDb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setExportDb(null)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 dialog-header">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
                   <Download className="w-5 h-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  Ekspor Basis Data
-                </h3>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Ekspor Basis Data</h3>
               </div>
               <button
                 onClick={() => setExportDb(null)}
@@ -1168,24 +1157,24 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="dialog-body space-y-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Proses ekspor akan dijalankan di latar belakang melalui Job Runner dan menghasilkan salinan dump SQL.
+              </p>
 
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Proses ekspor akan dijalankan di latar belakang melalui Job Runner dan menghasilkan salinan dump SQL.
-            </p>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Lokasi Berkas Ekspor (.sql)
-              </label>
-              <input
-                type="text"
-                value={exportPath}
-                onChange={(e) => setExportPath(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Lokasi Berkas Ekspor (.sql)
+                </label>
+                <input
+                  type="text"
+                  value={exportPath}
+                  onChange={(e) => setExportPath(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
             </div>
-
-            <div className="pt-3 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="pt-3 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800 dialog-footer">
               <button
                 onClick={() => setExportDb(null)}
                 className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
@@ -1202,23 +1191,24 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ========================================================= */}
       {/* 6. Modal: Impor Berkas SQL                                */}
       {/* ========================================================= */}
       {importDb && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setImportDb(null)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 dialog-header">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
                   <Upload className="w-5 h-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                  Impor Berkas SQL
-                </h3>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">Impor Berkas SQL</h3>
               </div>
               <button
                 onClick={() => setImportDb(null)}
@@ -1227,30 +1217,31 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="dialog-body space-y-4">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  Peringatan: Impor dump SQL akan menimpa dan memodifikasi tabel pada basis data{' '}
+                  <strong className="font-mono">{importDb.name}</strong>. Pastikan Anda telah membuat cadangan
+                  terlebih dahulu.
+                </span>
+              </div>
 
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>
-                Peringatan: Impor dump SQL akan menimpa dan memodifikasi tabel pada basis data{' '}
-                <strong className="font-mono">{importDb.name}</strong>. Pastikan Anda telah membuat cadangan terlebih dahulu.
-              </span>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Jalur Berkas SQL di Direktori Anda
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={importPath}
+                  onChange={(e) => setImportPath(e.target.value)}
+                  placeholder="/home/username/backups/dump.sql"
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
             </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Jalur Berkas SQL di Direktori Anda
-              </label>
-              <input
-                type="text"
-                required
-                value={importPath}
-                onChange={(e) => setImportPath(e.target.value)}
-                placeholder="/home/username/backups/dump.sql"
-                className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              />
-            </div>
-
-            <div className="pt-3 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="pt-3 flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800 dialog-footer">
               <button
                 onClick={() => setImportDb(null)}
                 className="px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition"
@@ -1267,7 +1258,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ========================================================= */}

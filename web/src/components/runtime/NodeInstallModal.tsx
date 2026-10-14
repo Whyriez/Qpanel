@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState } from 'react';
 import { Download, Loader2, X, Settings2, ShieldCheck, Check } from 'lucide-react';
 import { NodeVersionItem, NodeRuntimeInstallRequest } from '../../types/api';
@@ -52,15 +53,17 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
   };
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-150"
       role="dialog"
       aria-modal="true"
       aria-labelledby="node-install-title"
+      onDismiss={onClose}
+      dismissDisabled={submitting}
     >
-      <div className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] dialog-panel">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--line)]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--line)] dialog-header">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-[var(--radius-md)] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
               <Download className="w-4 h-4" />
@@ -85,158 +88,153 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto">
-          {/* Version Selection */}
-          <div className="space-y-2">
-            <label className="block text-xs font-medium text-[var(--ink)]">
-              Versi Node.js
-            </label>
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto dialog-form">
+          <div className="dialog-body space-y-4">
+            {/* Version Selection */}
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-[var(--ink)]">Versi Node.js</label>
 
-            {!isCustom ? (
-              <div className="space-y-2">
-                <select
-                  value={selectedVersion}
-                  onChange={(e) => setSelectedVersion(e.target.value)}
-                  disabled={submitting}
-                  className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-                >
-                  {availableVersions.map((v) => {
-                    const label = `v${v.version}${v.is_lts ? ` (LTS ${v.lts_codename || ''})` : ''}${v.is_installed ? ' — Sudah Terpasang' : ''}`;
-                    return (
-                      <option key={v.version} value={v.version}>
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={() => setIsCustom(true)}
-                  className="text-[11px] text-[var(--primary)] hover:underline"
-                >
-                  Gunakan nomor versi kustom lainnya
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  placeholder="Contoh: 22.14.0 atau 20.18.3"
-                  value={customVersion}
-                  onChange={(e) => setCustomVersion(e.target.value)}
-                  disabled={submitting}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setIsCustom(false)}
-                  className="text-[11px] text-[var(--primary)] hover:underline"
-                >
-                  Pilih dari daftar rilis katalog
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Corepack Option */}
-          <div className="p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)]/40 space-y-1.5">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enableCorepack}
-                onChange={(e) => setEnableCorepack(e.target.checked)}
-                disabled={submitting}
-                className="mt-0.5 rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-              />
-              <div className="text-xs">
-                <span className="font-medium text-[var(--ink)]">
-                  Aktifkan Corepack (pnpm & yarn shims)
-                </span>
-                <p className="text-[11px] text-[var(--ink-muted)] mt-0.5 leading-relaxed">
-                  Menyediakan binary wrapper otomatis untuk package manager modern pnpm dan yarn di dalam direktori bin runtime.
-                </p>
-              </div>
-            </label>
-          </div>
-
-          {/* Advanced Mirror / Offline Options */}
-          <div className="border border-[var(--line)] rounded-[var(--radius-md)] overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full px-3.5 py-2.5 text-xs font-medium text-[var(--ink)] bg-[var(--surface)] hover:bg-[var(--line)]/40 flex items-center justify-between transition-colors"
-            >
-              <span className="flex items-center gap-2">
-                <Settings2 className="w-3.5 h-3.5 text-[var(--ink-muted)]" />
-                Pengaturan Lanjutan & Mirror
-              </span>
-              <span className="text-[10px] text-[var(--ink-muted)]">
-                {showAdvanced ? 'Tutup' : 'Buka'}
-              </span>
-            </button>
-
-            {showAdvanced && (
-              <div className="p-3.5 space-y-3 bg-[var(--bg)]/50 border-t border-[var(--line)] text-xs">
-                <div>
-                  <label className="block text-[11px] font-medium text-[var(--ink)] mb-1">
-                    URL Mirror Node.js
-                  </label>
-                  <input
-                    type="url"
-                    placeholder="https://nodejs.org/dist"
-                    value={mirrorUrl}
-                    onChange={(e) => setMirrorUrl(e.target.value)}
+              {!isCustom ? (
+                <div className="space-y-2">
+                  <select
+                    value={selectedVersion}
+                    onChange={(e) => setSelectedVersion(e.target.value)}
                     disabled={submitting}
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  >
+                    {availableVersions.map((v) => {
+                      const label = `v${v.version}${v.is_lts ? ` (LTS ${v.lts_codename || ''})` : ''}${v.is_installed ? ' — Sudah Terpasang' : ''}`;
+                      return (
+                        <option key={v.version} value={v.version}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCustom(true)}
+                    className="text-[11px] text-[var(--primary)] hover:underline"
+                  >
+                    Gunakan nomor versi kustom lainnya
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Contoh: 22.14.0 atau 20.18.3"
+                    value={customVersion}
+                    onChange={(e) => setCustomVersion(e.target.value)}
+                    disabled={submitting}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    required
                   />
-                  <p className="text-[10px] text-[var(--ink-muted)] mt-1">
-                    Biarkan kosong untuk menggunakan mirror default resmi (nodejs.org).
+                  <button
+                    type="button"
+                    onClick={() => setIsCustom(false)}
+                    className="text-[11px] text-[var(--primary)] hover:underline"
+                  >
+                    Pilih dari daftar rilis katalog
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Corepack Option */}
+            <div className="p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)]/40 space-y-1.5">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={enableCorepack}
+                  onChange={(e) => setEnableCorepack(e.target.checked)}
+                  disabled={submitting}
+                  className="mt-0.5 rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                />
+                <div className="text-xs">
+                  <span className="font-medium text-[var(--ink)]">Aktifkan Corepack (pnpm & yarn shims)</span>
+                  <p className="text-[11px] text-[var(--ink-muted)] mt-0.5 leading-relaxed">
+                    Menyediakan binary wrapper otomatis untuk package manager modern pnpm dan yarn di dalam
+                    direktori bin runtime.
                   </p>
                 </div>
+              </label>
+            </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-[var(--ink)] mb-1">
-                    Path Arsip Tarball Offline (Opsional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="/tmp/node-v22.14.0-linux-x64.tar.gz"
-                    value={offlinePath}
-                    onChange={(e) => setOfflinePath(e.target.value)}
-                    disabled={submitting}
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-                  />
+            {/* Advanced Mirror / Offline Options */}
+            <div className="border border-[var(--line)] rounded-[var(--radius-md)] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="w-full px-3.5 py-2.5 text-xs font-medium text-[var(--ink)] bg-[var(--surface)] hover:bg-[var(--line)]/40 flex items-center justify-between transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Settings2 className="w-3.5 h-3.5 text-[var(--ink-muted)]" />
+                  Pengaturan Lanjutan & Mirror
+                </span>
+                <span className="text-[10px] text-[var(--ink-muted)]">{showAdvanced ? 'Tutup' : 'Buka'}</span>
+              </button>
+
+              {showAdvanced && (
+                <div className="p-3.5 space-y-3 bg-[var(--bg)]/50 border-t border-[var(--line)] text-xs">
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--ink)] mb-1">
+                      URL Mirror Node.js
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://nodejs.org/dist"
+                      value={mirrorUrl}
+                      onChange={(e) => setMirrorUrl(e.target.value)}
+                      disabled={submitting}
+                      className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    />
+                    <p className="text-[10px] text-[var(--ink-muted)] mt-1">
+                      Biarkan kosong untuk menggunakan mirror default resmi (nodejs.org).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--ink)] mb-1">
+                      Path Arsip Tarball Offline (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="/tmp/node-v22.14.0-linux-x64.tar.gz"
+                      value={offlinePath}
+                      onChange={(e) => setOfflinePath(e.target.value)}
+                      disabled={submitting}
+                      className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--ink)] mb-1">
+                      Checksum SHA256 Arsip Offline (Opsional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="64 karakter hash hex SHA256"
+                      value={offlineChecksum}
+                      onChange={(e) => setOfflineChecksum(e.target.value)}
+                      disabled={submitting}
+                      className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                    />
+                  </div>
                 </div>
+              )}
+            </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-[var(--ink)] mb-1">
-                    Checksum SHA256 Arsip Offline (Opsional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="64 karakter hash hex SHA256"
-                    value={offlineChecksum}
-                    onChange={(e) => setOfflineChecksum(e.target.value)}
-                    disabled={submitting}
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-                  />
-                </div>
-              </div>
-            )}
+            {/* Security Note */}
+            <div className="flex items-center gap-2 text-[11px] text-[var(--ink-muted)]">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <span>Integritas berkas divalidasi terhadap manifest SHASUMS256 resmi sebelum diekstrak.</span>
+            </div>
+
+            {/* Footer Actions */}
           </div>
-
-          {/* Security Note */}
-          <div className="flex items-center gap-2 text-[11px] text-[var(--ink-muted)]">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-            <span>
-              Integritas berkas divalidasi terhadap manifest SHASUMS256 resmi sebelum diekstrak.
-            </span>
-          </div>
-
-          {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--line)]">
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[var(--line)] dialog-footer">
             <button
               type="button"
               onClick={onClose}
@@ -265,6 +263,6 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -255,21 +256,21 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <ModalOverlay
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+      onDismiss={onClose}
+    >
+      <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] dialog-panel">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)] dialog-header">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-[var(--radius-md)] bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center">
               <Globe className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-[var(--ink)]">
-                {t('sites.wizard.title')}
-              </h2>
+              <h2 className="text-base font-semibold text-[var(--ink)]">{t('sites.wizard.title')}</h2>
               <p className="text-xs text-[var(--ink-muted)]">
-                Langkah {step} dari 4 &bull;{' '}
-                {step === 1 && t('sites.wizard.step1Title')}
+                Langkah {step} dari 4 &bull; {step === 1 && t('sites.wizard.step1Title')}
                 {step === 2 && t('sites.wizard.step2Title')}
                 {step === 3 && t('sites.wizard.step3Title')}
                 {step === 4 && t('sites.wizard.step4Title')}
@@ -325,7 +326,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div key={step} className="p-6 overflow-y-auto flex-1 dialog-body dialog-step">
           {errorMessage && (
             <div className="mb-5 p-3 rounded-[var(--radius-md)] bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -336,9 +337,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           {/* STEP 1: Pilih Tipe Situs */}
           {step === 1 && (
             <div className="space-y-4">
-              <div className="text-xs text-[var(--ink-muted)] mb-3">
-                {t('sites.wizard.step1Desc')}
-              </div>
+              <div className="text-xs text-[var(--ink-muted)] mb-3">{t('sites.wizard.step1Desc')}</div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {/* Static Site (Active) */}
@@ -359,21 +358,22 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
                     {t('sites.wizard.staticTitle')}
                   </h3>
-                  <p className="text-xs text-[var(--ink-muted)]">
-                    {t('sites.wizard.staticDesc')}
-                  </p>
+                  <p className="text-xs text-[var(--ink-muted)]">{t('sites.wizard.staticDesc')}</p>
                 </div>
 
-                <button type="button" aria-pressed={siteType==='php'} onClick={()=>setSiteType('php')} className={`p-4 text-left rounded-[var(--radius-md)] border ${siteType==='php' ? 'border-[var(--primary)]' : 'border-[var(--line)]'} bg-[var(--raised)]`}>
+                <button
+                  type="button"
+                  aria-pressed={siteType === 'php'}
+                  onClick={() => setSiteType('php')}
+                  className={`p-4 text-left rounded-[var(--radius-md)] border ${siteType === 'php' ? 'border-[var(--primary)]' : 'border-[var(--line)]'} bg-[var(--raised)]`}
+                >
                   <div className="flex items-center justify-between mb-2">
                     <Server className="w-5 h-5 text-[var(--ink-muted)]" />
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink-muted)] font-semibold uppercase">
                       PHP-FPM
                     </span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
-                    {t('sites.wizard.phpTitle')}
-                  </h3>
+                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">{t('sites.wizard.phpTitle')}</h3>
                   <p className="text-xs text-[var(--ink-muted)]">
                     Generic, WordPress, Laravel, atau custom front-controller.
                   </p>
@@ -394,12 +394,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                       Tersedia
                     </span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
-                    {t('sites.wizard.nodeTitle')}
-                  </h3>
-                  <p className="text-xs text-[var(--ink-muted)]">
-                    {t('sites.wizard.nodeDesc')}
-                  </p>
+                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">{t('sites.wizard.nodeTitle')}</h3>
+                  <p className="text-xs text-[var(--ink-muted)]">{t('sites.wizard.nodeDesc')}</p>
                 </div>
 
                 {/* Python Application (Available in Phase 7 - P7-T3) */}
@@ -417,9 +413,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                       Tersedia
                     </span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
-                    Aplikasi Python (uv + venv)
-                  </h3>
+                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">Aplikasi Python (uv + venv)</h3>
                   <p className="text-xs text-[var(--ink-muted)]">
                     WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket &amp; isolasi tenant slice.
                   </p>
@@ -440,9 +434,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                       Tersedia
                     </span>
                   </div>
-                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
-                    Reverse Proxy (Nginx)
-                  </h3>
+                  <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">Reverse Proxy (Nginx)</h3>
                   <p className="text-xs text-[var(--ink-muted)]">
                     Proxy ke backend server (HTTP/HTTPS/Unix socket) dengan proteksi SSRF.
                   </p>
@@ -452,21 +444,77 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           )}
 
           {/* STEP 2: Domain & Routing */}
-          {siteType==='php' && step<=2 && <div role={phpError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
-            {phpLoading ? 'Memuat runtime PHP…' : phpError || (phpVersions.length ? `${phpVersions.length} versi PHP terpasang.` : 'Belum ada runtime PHP yang terpasang.')}
-            {!phpLoading && phpVersions.length===0 && <div className="mt-2">{user?.role==='admin' ? <RouteLink href="/runtime" onClick={onClose}>Buka Runtime Manager</RouteLink> : 'Hubungi administrator untuk memasang PHP.'}</div>}
-          </div>}
+          {siteType === 'php' && step <= 2 && (
+            <div role={phpError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
+              {phpLoading
+                ? 'Memuat runtime PHP…'
+                : phpError ||
+                  (phpVersions.length
+                    ? `${phpVersions.length} versi PHP terpasang.`
+                    : 'Belum ada runtime PHP yang terpasang.')}
+              {!phpLoading && phpVersions.length === 0 && (
+                <div className="mt-2">
+                  {user?.role === 'admin' ? (
+                    <RouteLink href="/runtime" onClick={onClose}>
+                      Buka Runtime Manager
+                    </RouteLink>
+                  ) : (
+                    'Hubungi administrator untuk memasang PHP.'
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {step === 2 && (
             <form id="step2-form" onSubmit={handleNextStep2} className="space-y-4">
-              {siteType === 'php' && <div className="grid gap-4 sm:grid-cols-2">
-                <label>Versi PHP<select aria-label="Versi PHP" value={phpVersion} onChange={e=>setPhpVersion(e.target.value)} className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]">{phpVersions.map(v=><option key={v} value={v}>PHP {v}</option>)}</select></label>
-                <label>Preset PHP<select aria-label="Preset PHP" value={phpPreset} onChange={e=>setPhpPreset(e.target.value as typeof phpPreset)} className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]"><option value="generic">Generic PHP</option><option value="wordpress">WordPress</option><option value="laravel">Laravel</option><option value="custom">Custom front-controller</option></select></label>
-                {phpPreset==='custom' && <label>Front-controller<input aria-label="Front-controller" value={phpEntry} onChange={e=>setPhpEntry(e.target.value)} required className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]" /></label>}
-              </div>}
+              {siteType === 'php' && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label>
+                    Versi PHP
+                    <select
+                      aria-label="Versi PHP"
+                      value={phpVersion}
+                      onChange={(e) => setPhpVersion(e.target.value)}
+                      className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]"
+                    >
+                      {phpVersions.map((v) => (
+                        <option key={v} value={v}>
+                          PHP {v}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Preset PHP
+                    <select
+                      aria-label="Preset PHP"
+                      value={phpPreset}
+                      onChange={(e) => setPhpPreset(e.target.value as typeof phpPreset)}
+                      className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]"
+                    >
+                      <option value="generic">Generic PHP</option>
+                      <option value="wordpress">WordPress</option>
+                      <option value="laravel">Laravel</option>
+                      <option value="custom">Custom front-controller</option>
+                    </select>
+                  </label>
+                  {phpPreset === 'custom' && (
+                    <label>
+                      Front-controller
+                      <input
+                        aria-label="Front-controller"
+                        value={phpEntry}
+                        onChange={(e) => setPhpEntry(e.target.value)}
+                        required
+                        className="block w-full p-2 border border-[var(--line)] bg-[var(--surface)]"
+                      />
+                    </label>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-[var(--ink)] mb-1.5">
-                  {t('sites.wizard.domainLabel')}{' '}
-                  <span className="text-[var(--danger)]">*</span>
+                  {t('sites.wizard.domainLabel')} <span className="text-[var(--danger)]">*</span>
                 </label>
                 <div className="relative">
                   <Globe className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)]" />
@@ -480,9 +528,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                     autoFocus
                   />
                 </div>
-                <p className="text-[11px] text-[var(--ink-muted)] mt-1.5">
-                  {t('sites.wizard.domainHelp')}
-                </p>
+                <p className="text-[11px] text-[var(--ink-muted)] mt-1.5">{t('sites.wizard.domainHelp')}</p>
               </div>
 
               {/* Node.js Specific Options */}
@@ -490,9 +536,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 <div className="pt-2 space-y-3 border-t border-[var(--line)]">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                        Versi Node.js
-                      </label>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">Versi Node.js</label>
                       <select
                         value={nodeVersion}
                         onChange={(e) => setNodeVersion(e.target.value)}
@@ -551,7 +595,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   )}
 
                   <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
-                    Port lokal akan dialokasikan otomatis secara unik dalam rentang 20000 - 29999 dan diproxy oleh Nginx.
+                    Port lokal akan dialokasikan otomatis secara unik dalam rentang 20000 - 29999 dan diproxy oleh
+                    Nginx.
                   </div>
                 </div>
               )}
@@ -595,9 +640,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                        Tipe Server
-                      </label>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">Tipe Server</label>
                       <select
                         value={pythonServer}
                         onChange={(e) => setPythonServer(e.target.value)}
@@ -610,9 +653,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                        Jumlah Worker
-                      </label>
+                      <label className="block text-xs font-semibold text-[var(--ink)] mb-1">Jumlah Worker</label>
                       <input
                         type="number"
                         min={1}
@@ -638,7 +679,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </div>
 
                   <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
-                    Situs akan terhubung ke backend via Unix domain socket di /run/panel/python/ dan diproxy oleh Nginx.
+                    Situs akan terhubung ke backend via Unix domain socket di /run/panel/python/ dan diproxy oleh
+                    Nginx.
                   </div>
                 </div>
               )}
@@ -686,7 +728,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </div>
 
                   <div className="p-2.5 rounded-[var(--radius-sm)] bg-[var(--info)]/10 text-[var(--info)] text-[11px]">
-                    Proteksi SSRF aktif: Hanya alamat loopback (127.0.0.1, ::1, localhost, unix:) yang diizinkan secara default. Akses IP LAN privat dan cloud metadata diblokir otomatis.
+                    Proteksi SSRF aktif: Hanya alamat loopback (127.0.0.1, ::1, localhost, unix:) yang diizinkan
+                    secara default. Akses IP LAN privat dan cloud metadata diblokir otomatis.
                   </div>
                 </div>
               )}
@@ -734,9 +777,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           {/* STEP 3: Pemilik Tenant */}
           {step === 3 && (
             <div className="space-y-4">
-              <div className="text-xs text-[var(--ink-muted)] mb-2">
-                {t('sites.wizard.step3Desc')}
-              </div>
+              <div className="text-xs text-[var(--ink-muted)] mb-2">{t('sites.wizard.step3Desc')}</div>
 
               {isLoadingTenants ? (
                 <div className="p-8 text-center text-xs text-[var(--ink-muted)] flex items-center justify-center gap-2">
@@ -774,18 +815,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                             {tItem.username.slice(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <div className="text-xs font-semibold text-[var(--ink)]">
-                              {tItem.username}
-                            </div>
+                            <div className="text-xs font-semibold text-[var(--ink)]">{tItem.username}</div>
                             <div className="text-[11px] font-mono text-[var(--ink-muted)]">
                               uid: {tItem.linux_uid || '-'} &bull; linux: {tItem.linux_username}
                             </div>
                           </div>
                         </div>
 
-                        {isSelected && (
-                          <CheckCircle2 className="w-4 h-4 text-[var(--primary)] shrink-0" />
-                        )}
+                        {isSelected && <CheckCircle2 className="w-4 h-4 text-[var(--primary)] shrink-0" />}
                       </button>
                     );
                   })}
@@ -797,9 +834,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           {/* STEP 4: Tinjau & Konfirmasi */}
           {step === 4 && (
             <div className="space-y-4">
-              <div className="text-xs text-[var(--ink-muted)] mb-3">
-                {t('sites.wizard.step4Desc')}
-              </div>
+              <div className="text-xs text-[var(--ink-muted)] mb-3">{t('sites.wizard.step4Desc')}</div>
 
               <div className="rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] divide-y divide-[var(--line)] text-xs">
                 <div className="flex items-center justify-between p-3">
@@ -812,20 +847,18 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                     {siteType === 'proxy'
                       ? 'Reverse Proxy (Nginx)'
                       : siteType === 'node'
-                      ? `Node.js (${nodeFramework.toUpperCase()} • v${nodeVersion})`
-                      : siteType === 'python'
-                      ? `Python Application (${pythonFramework.toUpperCase()} • v${pythonVersion})`
-                      : siteType === 'php'
-                      ? 'PHP (Multi-Versi)'
-                      : 'Situs Statis (HTML/CSS/JS)'}
+                        ? `Node.js (${nodeFramework.toUpperCase()} • v${nodeVersion})`
+                        : siteType === 'python'
+                          ? `Python Application (${pythonFramework.toUpperCase()} • v${pythonVersion})`
+                          : siteType === 'php'
+                            ? 'PHP (Multi-Versi)'
+                            : 'Situs Statis (HTML/CSS/JS)'}
                   </span>
                 </div>
                 {siteType === 'proxy' && (
                   <div className="flex items-center justify-between p-3">
                     <span className="text-[var(--ink-muted)]">Target Upstream:</span>
-                    <span className="font-mono font-semibold text-[var(--ink)]">
-                      {proxyUpstream}
-                    </span>
+                    <span className="font-mono font-semibold text-[var(--ink)]">{proxyUpstream}</span>
                   </div>
                 )}
                 {siteType === 'node' && (
@@ -853,9 +886,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </span>
                 </div>
                 <div className="p-3">
-                  <span className="text-[var(--ink-muted)] block mb-1">
-                    {t('sites.wizard.reviewDocroot')}
-                  </span>
+                  <span className="text-[var(--ink-muted)] block mb-1">{t('sites.wizard.reviewDocroot')}</span>
                   <span className="font-mono text-[11px] bg-[var(--bg)] px-2 py-1 rounded block text-[var(--ink)] overflow-x-auto">
                     {docrootPreview}
                   </span>
@@ -872,7 +903,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
               <div className="p-3 rounded-[var(--radius-md)] bg-[var(--info)]/10 border border-[var(--info)]/20 text-xs text-[var(--info)] flex items-start gap-2">
                 <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  Situs akan dibuat dengan vhost Nginx terisolasi, sertifikat self-signed otomatis sebagai fallback, dan izin POSIX ACL www-data yang aman.
+                  Situs akan dibuat dengan vhost Nginx terisolasi, sertifikat self-signed otomatis sebagai
+                  fallback, dan izin POSIX ACL www-data yang aman.
                 </span>
               </div>
             </div>
@@ -880,7 +912,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--line)] bg-[var(--raised)]">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--line)] bg-[var(--raised)] dialog-footer">
           {step > 1 ? (
             <button
               type="button"
@@ -950,6 +982,6 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

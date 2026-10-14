@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Clock,
@@ -648,9 +649,12 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
 
       {/* Modal: Create or Edit Cron Job */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setIsModalOpen(false)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] dialog-panel">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 dialog-header">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white">
                 {editingJob ? t('cron.modal_edit_title') : t('cron.modal_create_title')}
               </h3>
@@ -662,244 +666,242 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveJob} className="p-6 space-y-4 overflow-y-auto flex-1">
-              {/* Name */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('cron.form_name_label')} *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder={t('cron.form_name_placeholder')}
-                  className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
-              </div>
-
-              {/* Command */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('cron.form_command_label')} *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formCommand}
-                  onChange={(e) => setFormCommand(e.target.value)}
-                  placeholder={t('cron.form_command_placeholder')}
-                  className="w-full px-3.5 py-2 text-sm font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  {t('cron.form_command_hint')}
-                </p>
-              </div>
-
-              {/* Presets Selection */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('cron.preset_label')}
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {CRON_PRESETS.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handlePresetChange(p.id)}
-                      className={`px-2.5 py-1.5 text-xs rounded-xl font-medium border text-center transition-all ${
-                        selectedPreset === p.id
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-400 dark:text-indigo-300 font-semibold shadow-sm'
-                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 text-slate-600 dark:text-slate-300'
-                      }`}
-                    >
-                      {t(`cron.${p.labelKey}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 5-part cron builder inputs */}
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    {t('cron.schedule_builder_title')}
-                  </span>
-                  <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-md">
-                    {formSchedule}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-5 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      {t('cron.cron_minute')}
-                    </label>
-                    <input
-                      type="text"
-                      value={formMinute}
-                      onChange={(e) => {
-                        setFormMinute(e.target.value);
-                        setSelectedPreset('custom');
-                        updateScheduleFromParts(e.target.value, formHour, formDom, formMonth, formDow);
-                      }}
-                      className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      {t('cron.cron_hour')}
-                    </label>
-                    <input
-                      type="text"
-                      value={formHour}
-                      onChange={(e) => {
-                        setFormHour(e.target.value);
-                        setSelectedPreset('custom');
-                        updateScheduleFromParts(formMinute, e.target.value, formDom, formMonth, formDow);
-                      }}
-                      className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      {t('cron.cron_dom')}
-                    </label>
-                    <input
-                      type="text"
-                      value={formDom}
-                      onChange={(e) => {
-                        setFormDom(e.target.value);
-                        setSelectedPreset('custom');
-                        updateScheduleFromParts(formMinute, formHour, e.target.value, formMonth, formDow);
-                      }}
-                      className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      {t('cron.cron_month')}
-                    </label>
-                    <input
-                      type="text"
-                      value={formMonth}
-                      onChange={(e) => {
-                        setFormMonth(e.target.value);
-                        setSelectedPreset('custom');
-                        updateScheduleFromParts(formMinute, formHour, formDom, e.target.value, formDow);
-                      }}
-                      className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      {t('cron.cron_dow')}
-                    </label>
-                    <input
-                      type="text"
-                      value={formDow}
-                      onChange={(e) => {
-                        setFormDow(e.target.value);
-                        setSelectedPreset('custom');
-                        updateScheduleFromParts(formMinute, formHour, formDom, formMonth, e.target.value);
-                      }}
-                      className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    />
-                  </div>
-                </div>
-
-                {/* Human preview */}
-                <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-slate-500">
-                      {t('cron.human_preview_label')}
-                    </span>
-                    {validationError ? (
-                      <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        {validationError}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                        {humanTranslation || 'Setiap menit'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Working Directory & Timeout */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form onSubmit={handleSaveJob} className="p-6 overflow-y-auto flex-1 dialog-form">
+              <div className="dialog-body space-y-4">
+                {/* Name */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                    {t('cron.form_workdir_label')}
+                    {t('cron.form_name_label')} *
                   </label>
                   <input
                     type="text"
-                    value={formWorkDir}
-                    onChange={(e) => setFormWorkDir(e.target.value)}
-                    placeholder={t('cron.form_workdir_placeholder')}
-                    className="w-full px-3.5 py-2 text-sm font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                    {t('cron.form_timeout_label')}
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="86400"
-                    value={formTimeoutSecs}
-                    onChange={(e) => setFormTimeoutSecs(Number(e.target.value))}
+                    required
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder={t('cron.form_name_placeholder')}
                     className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
-              </div>
 
-              {/* Optional Description */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                  {t('cron.col_name')} (Keterangan)
-                </label>
-                <input
-                  type="text"
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  placeholder="Keterangan singkat fungsi tugas..."
-                  className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
-              </div>
-
-              {/* Enable Switch */}
-              <div className="flex items-center justify-between pt-2">
+                {/* Command */}
                 <div>
-                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                    {t('cron.form_enabled_label')}
-                  </span>
-                  <p className="text-xs text-slate-400">
-                    Timer systemd akan langsung diaktifkan di server setelah disimpan
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFormEnabled(!formEnabled)}
-                  role="switch"
-                  aria-checked={formEnabled}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    formEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                      formEnabled ? 'translate-x-5' : 'translate-x-0'
-                    }`}
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('cron.form_command_label')} *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formCommand}
+                    onChange={(e) => setFormCommand(e.target.value)}
+                    placeholder={t('cron.form_command_placeholder')}
+                    className="w-full px-3.5 py-2 text-sm font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
-                </button>
-              </div>
+                  <p className="text-[11px] text-slate-400 mt-1">{t('cron.form_command_hint')}</p>
+                </div>
 
-              {/* Footer Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                {/* Presets Selection */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('cron.preset_label')}
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {CRON_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => handlePresetChange(p.id)}
+                        className={`px-2.5 py-1.5 text-xs rounded-xl font-medium border text-center transition-all ${
+                          selectedPreset === p.id
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-400 dark:text-indigo-300 font-semibold shadow-sm'
+                            : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {t(`cron.${p.labelKey}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 5-part cron builder inputs */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      {t('cron.schedule_builder_title')}
+                    </span>
+                    <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded-md">
+                      {formSchedule}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        {t('cron.cron_minute')}
+                      </label>
+                      <input
+                        type="text"
+                        value={formMinute}
+                        onChange={(e) => {
+                          setFormMinute(e.target.value);
+                          setSelectedPreset('custom');
+                          updateScheduleFromParts(e.target.value, formHour, formDom, formMonth, formDow);
+                        }}
+                        className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        {t('cron.cron_hour')}
+                      </label>
+                      <input
+                        type="text"
+                        value={formHour}
+                        onChange={(e) => {
+                          setFormHour(e.target.value);
+                          setSelectedPreset('custom');
+                          updateScheduleFromParts(formMinute, e.target.value, formDom, formMonth, formDow);
+                        }}
+                        className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        {t('cron.cron_dom')}
+                      </label>
+                      <input
+                        type="text"
+                        value={formDom}
+                        onChange={(e) => {
+                          setFormDom(e.target.value);
+                          setSelectedPreset('custom');
+                          updateScheduleFromParts(formMinute, formHour, e.target.value, formMonth, formDow);
+                        }}
+                        className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        {t('cron.cron_month')}
+                      </label>
+                      <input
+                        type="text"
+                        value={formMonth}
+                        onChange={(e) => {
+                          setFormMonth(e.target.value);
+                          setSelectedPreset('custom');
+                          updateScheduleFromParts(formMinute, formHour, formDom, e.target.value, formDow);
+                        }}
+                        className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        {t('cron.cron_dow')}
+                      </label>
+                      <input
+                        type="text"
+                        value={formDow}
+                        onChange={(e) => {
+                          setFormDow(e.target.value);
+                          setSelectedPreset('custom');
+                          updateScheduleFromParts(formMinute, formHour, formDom, formMonth, e.target.value);
+                        }}
+                        className="w-full text-center px-2 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Human preview */}
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-500">{t('cron.human_preview_label')}</span>
+                      {validationError ? (
+                        <span className="text-xs font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          {validationError}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                          {humanTranslation || 'Setiap menit'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Working Directory & Timeout */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                      {t('cron.form_workdir_label')}
+                    </label>
+                    <input
+                      type="text"
+                      value={formWorkDir}
+                      onChange={(e) => setFormWorkDir(e.target.value)}
+                      placeholder={t('cron.form_workdir_placeholder')}
+                      className="w-full px-3.5 py-2 text-sm font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                      {t('cron.form_timeout_label')}
+                    </label>
+                    <input
+                      type="number"
+                      min="10"
+                      max="86400"
+                      value={formTimeoutSecs}
+                      onChange={(e) => setFormTimeoutSecs(Number(e.target.value))}
+                      className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Optional Description */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
+                    {t('cron.col_name')} (Keterangan)
+                  </label>
+                  <input
+                    type="text"
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="Keterangan singkat fungsi tugas..."
+                    className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Enable Switch */}
+                <div className="flex items-center justify-between pt-2">
+                  <div>
+                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                      {t('cron.form_enabled_label')}
+                    </span>
+                    <p className="text-xs text-slate-400">
+                      Timer systemd akan langsung diaktifkan di server setelah disimpan
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormEnabled(!formEnabled)}
+                    role="switch"
+                    aria-checked={formEnabled}
+                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      formEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                        formEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Footer Buttons */}
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -918,14 +920,17 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Modal: Execution History & Logs */}
       {historyJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setHistoryJob(null)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] dialog-panel">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 dialog-header">
               <div className="flex items-center gap-2">
                 <Terminal className="w-5 h-5 text-indigo-500" />
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">
@@ -964,7 +969,7 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-6 overflow-y-auto flex-1 dialog-body">
               {isLoadingHistory ? (
                 <div className="flex items-center justify-center py-12 text-slate-400">
                   <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mr-2" />
@@ -1007,7 +1012,10 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
                               </span>
                             </td>
                             <td className="py-2.5 px-3 font-mono">{r.exit_code !== null ? r.exit_code : '-'}</td>
-                            <td className="py-2.5 px-3 max-w-xs font-mono truncate" title={r.stdout || r.stderr || ''}>
+                            <td
+                              className="py-2.5 px-3 max-w-xs font-mono truncate"
+                              title={r.stdout || r.stderr || ''}
+                            >
                               {r.stdout || r.stderr || '-'}
                             </td>
                           </tr>
@@ -1038,29 +1046,29 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
               )}
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Modal: Delete Confirmation */}
       {deletingJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in"
+          onDismiss={() => setDeletingJob(null)}
+        >
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl dialog-panel">
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-3 dialog-header">
               <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60">
                 <Trash2 className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">
-                {t('cron.delete_confirm_title')}
-              </h3>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white">{t('cron.delete_confirm_title')}</h3>
             </div>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-              {t('cron.delete_confirm_desc')}{' '}
-              <strong className="text-slate-900 dark:text-white font-semibold">
-                {deletingJob.name}
-              </strong>
-              .
-            </p>
-            <div className="flex items-center justify-end gap-3">
+            <div className="dialog-body ">
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+                {t('cron.delete_confirm_desc')}{' '}
+                <strong className="text-slate-900 dark:text-white font-semibold">{deletingJob.name}</strong>.
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 dialog-footer">
               <button
                 type="button"
                 onClick={() => setDeletingJob(null)}
@@ -1079,7 +1087,7 @@ export const SiteCronTab: React.FC<SiteCronTabProps> = ({ siteId }) => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

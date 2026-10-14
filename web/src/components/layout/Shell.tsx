@@ -53,8 +53,24 @@ export const Shell: React.FC<ShellProps> = ({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const admin = user?.role === "admin";
+  useEffect(() => {
+    const page = pageRef.current;
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!page?.animate || preference.matches) return;
+    const animation = page.animate(
+      [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' },
+    );
+    const cancelForReducedMotion = () => { if (preference.matches) animation.cancel(); };
+    preference.addEventListener('change', cancelForReducedMotion);
+    return () => {
+      animation.cancel();
+      preference.removeEventListener('change', cancelForReducedMotion);
+    };
+  }, [activeNav]);
   const groups = [
     {
       label: t("design.hosting"),
@@ -318,7 +334,7 @@ export const Shell: React.FC<ShellProps> = ({
           </div>
         </header>
         <main className="panel-content" id="panel-main" tabIndex={-1}>
-          <div className="panel-page">{children}</div>
+          <div className="panel-page" ref={pageRef}>{children}</div>
         </main>
         <nav
           className="mobile-navigation"

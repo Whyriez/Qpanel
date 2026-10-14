@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -127,15 +128,17 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
   };
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby="wizard-title"
+      onDismiss={onClose}
+      dismissDisabled={isSubmitting}
     >
-      <div className="w-full max-w-xl rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-xl rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[90vh] dialog-panel">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+        <div className="flex items-center justify-between pb-3 border-b border-[var(--line)] dialog-header">
           <div>
             <h2 id="wizard-title" className="text-sm font-bold text-[var(--ink)]">
               Tambah Tenant Baru
@@ -155,21 +158,21 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
         </div>
 
         {/* Stepper Wizard Bar */}
-        <div className="flex items-center justify-between my-4 px-2">
+        <ol className="dialog-stepper">
           {[
             { num: 1, title: 'Identitas' },
             { num: 2, title: 'Paket Hosting' },
             { num: 3, title: 'Konfirmasi' },
-          ].map((item, idx) => (
-            <React.Fragment key={item.num}>
+          ].map((item) => (
+            <li key={item.num} aria-current={step === item.num ? 'step' : undefined}>
               <div className="flex items-center gap-2">
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
                     step === item.num
                       ? 'bg-[var(--primary)] text-white'
                       : step > item.num
-                      ? 'bg-[var(--success)] text-white'
-                      : 'bg-[var(--line)] text-[var(--ink-muted)]'
+                        ? 'bg-[var(--success)] text-white'
+                        : 'bg-[var(--line)] text-[var(--ink-muted)]'
                   }`}
                 >
                   {step > item.num ? <CheckCircle2 className="w-3.5 h-3.5" /> : item.num}
@@ -182,21 +185,20 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
                   {item.title}
                 </span>
               </div>
-              {idx < 2 && <div className="flex-1 h-0.5 mx-3 bg-[var(--line)]" />}
-            </React.Fragment>
+            </li>
           ))}
-        </div>
-
-        {/* Error notification banner */}
-        {errorMessage && (
-          <div className="mb-4 p-3 rounded-[var(--radius-sm)] bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
+        </ol>
 
         {/* Step Content */}
-        <div className="flex-1 overflow-y-auto pr-1 py-1">
+        <div key={step} className="flex-1 overflow-y-auto pr-1 py-1 dialog-body dialog-step">
+          {/* Error notification banner */}
+          {errorMessage && (
+            <div className="mb-4 p-3 rounded-[var(--radius-sm)] bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           {/* STEP 1: Identitas Tenant */}
           {step === 1 && (
             <form id="wizard-step-1" onSubmit={handleNextStep1} className="space-y-4">
@@ -215,7 +217,9 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
                 <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--ink-muted)] font-mono">
                   <span>Nama Linux:</span>
                   <span className="font-semibold text-[var(--primary)]">{linuxUsername}</span>
-                  <span className="text-[10px] text-[var(--ink-muted)] opacity-70">(UID rentang 10000–59999)</span>
+                  <span className="text-[10px] text-[var(--ink-muted)] opacity-70">
+                    (UID rentang 10000–59999)
+                  </span>
                 </div>
               </div>
 
@@ -351,19 +355,29 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
                 </h3>
                 <div className="grid grid-cols-2 gap-y-2 text-xs">
                   <span className="text-[var(--ink-muted)]">Cgroup CPU Quota:</span>
-                  <span className="font-semibold text-[var(--ink)] font-mono">{selectedPlan.cpu_quota_percent}% (per core)</span>
+                  <span className="font-semibold text-[var(--ink)] font-mono">
+                    {selectedPlan.cpu_quota_percent}% (per core)
+                  </span>
 
                   <span className="text-[var(--ink-muted)]">Cgroup Memory Limit:</span>
-                  <span className="font-semibold text-[var(--ink)] font-mono">{formatBytes(selectedPlan.memory_limit_bytes)}</span>
+                  <span className="font-semibold text-[var(--ink)] font-mono">
+                    {formatBytes(selectedPlan.memory_limit_bytes)}
+                  </span>
 
                   <span className="text-[var(--ink-muted)]">Maksimal Tasks (PIDs):</span>
-                  <span className="font-semibold text-[var(--ink)] font-mono">{selectedPlan.tasks_max} proses</span>
+                  <span className="font-semibold text-[var(--ink)] font-mono">
+                    {selectedPlan.tasks_max} proses
+                  </span>
 
                   <span className="text-[var(--ink-muted)]">Kuota Kuota Disk:</span>
-                  <span className="font-semibold text-[var(--ink)] font-mono">{formatBytes(selectedPlan.disk_limit_bytes)}</span>
+                  <span className="font-semibold text-[var(--ink)] font-mono">
+                    {formatBytes(selectedPlan.disk_limit_bytes)}
+                  </span>
 
                   <span className="text-[var(--ink-muted)]">Maksimal Inode:</span>
-                  <span className="font-semibold text-[var(--ink)] font-mono">{selectedPlan.inode_limit.toLocaleString()} files</span>
+                  <span className="font-semibold text-[var(--ink)] font-mono">
+                    {selectedPlan.inode_limit.toLocaleString()} files
+                  </span>
                 </div>
               </div>
             </div>
@@ -371,7 +385,7 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-4 mt-2 border-t border-[var(--line)]">
+        <div className="flex items-center justify-between pt-4 mt-2 border-t border-[var(--line)] dialog-footer">
           {step > 1 ? (
             <button
               type="button"
@@ -442,6 +456,6 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

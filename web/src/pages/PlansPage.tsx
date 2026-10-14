@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../components/ui/ModalOverlay';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Layers,
@@ -437,9 +438,15 @@ export const PlansPage: React.FC = () => {
 
       {/* Modal Dialog: Create / Edit Plan */}
       {(isCreateOpen || editingPlan) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
-          <div className="w-full max-w-2xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl p-6 text-left my-8">
-            <div className="flex items-center justify-between pb-4 border-b border-[var(--line)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto"
+          onDismiss={() => {
+            setIsCreateOpen(false);
+            setEditingPlan(null);
+          }}
+        >
+          <div className="w-full max-w-2xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl p-6 text-left my-8 dialog-panel">
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--line)] dialog-header">
               <div>
                 <h2 className="text-base font-bold text-[var(--ink)] flex items-center gap-2">
                   <Sliders className="w-5 h-5 text-[var(--primary)]" />
@@ -461,267 +468,250 @@ export const PlansPage: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {formError && (
-              <div className="mt-4 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/20 rounded-[var(--radius-sm)] flex items-center gap-2 text-xs text-[var(--danger)]">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{formError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleFormSubmit} className="space-y-5 mt-4">
-              {/* Seksi 1: Identitas Paket */}
-              <div>
-                <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2">
-                  1. Informasi Paket
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Nama Paket <span className="text-[var(--danger)]">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="e.g. starter, business, pro"
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                    />
+            <form onSubmit={handleFormSubmit} className="mt-4 dialog-form">
+              <div className="dialog-body space-y-5">
+                {formError && (
+                  <div className="mt-4 p-3 bg-[var(--danger)]/10 border border-[var(--danger)]/20 rounded-[var(--radius-sm)] flex items-center gap-2 text-xs text-[var(--danger)]">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{formError}</span>
                   </div>
+                )}
 
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Akses Shell (Terminal)
-                    </label>
-                    <select
-                      value={formData.shell_policy}
-                      onChange={(e) => setFormData({ ...formData, shell_policy: e.target.value })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                    >
-                      <option value="none">None (Tanpa Akses Shell)</option>
-                      <option value="sftp_only">SFTP Only (File Transfer Saja)</option>
-                      <option value="bash_chroot">Bash Chroot (Shell Terisolasi)</option>
-                    </select>
-                  </div>
+                {/* Seksi 1: Identitas Paket */}
+                <div>
+                  <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2">
+                    1. Informasi Paket
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">
+                        Nama Paket <span className="text-[var(--danger)]">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        placeholder="e.g. starter, business, pro"
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      />
+                    </div>
 
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Deskripsi
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      placeholder="Deskripsi singkat paket untuk administrator"
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                    />
-                  </div>
-                </div>
-              </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">
+                        Akses Shell (Terminal)
+                      </label>
+                      <select
+                        value={formData.shell_policy}
+                        onChange={(e) => setFormData({ ...formData, shell_policy: e.target.value })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      >
+                        <option value="none">None (Tanpa Akses Shell)</option>
+                        <option value="sftp_only">SFTP Only (File Transfer Saja)</option>
+                        <option value="bash_chroot">Bash Chroot (Shell Terisolasi)</option>
+                      </select>
+                    </div>
 
-              {/* Seksi 2: Cgroup v2 Resource Slice */}
-              <div>
-                <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5 text-[var(--primary)]" />
-                  2. Batasan Kernel & Resource Slice (cgroup v2)
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      CPU Quota (%)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="1600"
-                      step="10"
-                      value={formData.cpu_quota_percent}
-                      onChange={(e) => setFormData({ ...formData, cpu_quota_percent: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">100 = 1 core penuh. 0 = unmetered.</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Memory Max (MB) <span className="text-[var(--danger)]">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="64"
-                      required
-                      value={formData.memory_limit_mb}
-                      onChange={(e) => setFormData({ ...formData, memory_limit_mb: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">OOM killer aktif jika terlampaui.</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Memory High (MB)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.memory_high_mb}
-                      onChange={(e) => setFormData({ ...formData, memory_high_mb: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">Reclaim throttling watermark.</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Tasks Max (pids.max)
-                    </label>
-                    <input
-                      type="number"
-                      min="10"
-                      max="10000"
-                      value={formData.tasks_max}
-                      onChange={(e) => setFormData({ ...formData, tasks_max: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">Mencegah serangan fork-bomb.</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      IO Weight (1-10000)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="10000"
-                      value={formData.io_weight}
-                      onChange={(e) => setFormData({ ...formData, io_weight: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">Prioritas IO disk (default 100).</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Seksi 3: Kuota Disk Linux */}
-              <div>
-                <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <HardDrive className="w-3.5 h-3.5 text-amber-500" />
-                  3. Kuota Disk Linux (ext4 project/user quota)
-                </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Kapasitas Disk (MB) <span className="text-[var(--danger)]">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="100"
-                      required
-                      value={formData.disk_limit_mb}
-                      onChange={(e) => setFormData({ ...formData, disk_limit_mb: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">
-                      Contoh: 1024 (1 GB), 5120 (5 GB), 10240 (10 GB)
-                    </span>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Batas Inode (Jumlah File) <span className="text-[var(--danger)]">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="1000"
-                      required
-                      value={formData.inode_limit}
-                      onChange={(e) => setFormData({ ...formData, inode_limit: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                    <span className="text-[10px] text-[var(--ink-muted)]">
-                      Maksimal berkas file/folder yang boleh dibuat.
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Seksi 4: Batasan Aplikasi */}
-              <div>
-                <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2">
-                  4. Batasan Layanan & Fitur
-                </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Max Situs
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={formData.max_sites}
-                      onChange={(e) => setFormData({ ...formData, max_sites: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Max Domain
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={formData.max_domains}
-                      onChange={(e) => setFormData({ ...formData, max_domains: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Max Database
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.max_databases}
-                      onChange={(e) => setFormData({ ...formData, max_databases: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                      Max Cron Jobs
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={formData.max_cron_jobs}
-                      onChange={(e) => setFormData({ ...formData, max_cron_jobs: Number(e.target.value) })}
-                      className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
-                    />
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Deskripsi</label>
+                      <input
+                        type="text"
+                        value={formData.description}
+                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                        placeholder="Deskripsi singkat paket untuk administrator"
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="allow_external_upstream"
-                    checked={formData.allow_external_upstream}
-                    onChange={(e) => setFormData({ ...formData, allow_external_upstream: e.target.checked })}
-                    className="rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)] cursor-pointer"
-                  />
-                  <label htmlFor="allow_external_upstream" className="text-xs text-[var(--ink)] cursor-pointer">
-                    Izinkan Reverse Proxy ke Upstream Eksternal (IP luar server)
-                  </label>
-                </div>
-              </div>
+                {/* Seksi 2: Cgroup v2 Resource Slice */}
+                <div>
+                  <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-[var(--primary)]" />
+                    2. Batasan Kernel & Resource Slice (cgroup v2)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">CPU Quota (%)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1600"
+                        step="10"
+                        value={formData.cpu_quota_percent}
+                        onChange={(e) => setFormData({ ...formData, cpu_quota_percent: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">100 = 1 core penuh. 0 = unmetered.</span>
+                    </div>
 
-              {/* Form Buttons */}
-              <div className="pt-4 border-t border-[var(--line)] flex items-center justify-end gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">
+                        Memory Max (MB) <span className="text-[var(--danger)]">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="64"
+                        required
+                        value={formData.memory_limit_mb}
+                        onChange={(e) => setFormData({ ...formData, memory_limit_mb: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">OOM killer aktif jika terlampaui.</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Memory High (MB)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.memory_high_mb}
+                        onChange={(e) => setFormData({ ...formData, memory_high_mb: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">Reclaim throttling watermark.</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Tasks Max (pids.max)</label>
+                      <input
+                        type="number"
+                        min="10"
+                        max="10000"
+                        value={formData.tasks_max}
+                        onChange={(e) => setFormData({ ...formData, tasks_max: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">Mencegah serangan fork-bomb.</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">IO Weight (1-10000)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10000"
+                        value={formData.io_weight}
+                        onChange={(e) => setFormData({ ...formData, io_weight: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">Prioritas IO disk (default 100).</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seksi 3: Kuota Disk Linux */}
+                <div>
+                  <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-amber-500" />
+                    3. Kuota Disk Linux (ext4 project/user quota)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">
+                        Kapasitas Disk (MB) <span className="text-[var(--danger)]">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="100"
+                        required
+                        value={formData.disk_limit_mb}
+                        onChange={(e) => setFormData({ ...formData, disk_limit_mb: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">
+                        Contoh: 1024 (1 GB), 5120 (5 GB), 10240 (10 GB)
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">
+                        Batas Inode (Jumlah File) <span className="text-[var(--danger)]">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="1000"
+                        required
+                        value={formData.inode_limit}
+                        onChange={(e) => setFormData({ ...formData, inode_limit: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                      <span className="text-[10px] text-[var(--ink-muted)]">
+                        Maksimal berkas file/folder yang boleh dibuat.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seksi 4: Batasan Aplikasi */}
+                <div>
+                  <h3 className="text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider mb-2">
+                    4. Batasan Layanan & Fitur
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Max Situs</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={formData.max_sites}
+                        onChange={(e) => setFormData({ ...formData, max_sites: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Max Domain</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={formData.max_domains}
+                        onChange={(e) => setFormData({ ...formData, max_domains: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Max Database</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.max_databases}
+                        onChange={(e) => setFormData({ ...formData, max_databases: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">Max Cron Jobs</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={formData.max_cron_jobs}
+                        onChange={(e) => setFormData({ ...formData, max_cron_jobs: Number(e.target.value) })}
+                        className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)] font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="allow_external_upstream"
+                      checked={formData.allow_external_upstream}
+                      onChange={(e) => setFormData({ ...formData, allow_external_upstream: e.target.checked })}
+                      className="rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)] cursor-pointer"
+                    />
+                    <label htmlFor="allow_external_upstream" className="text-xs text-[var(--ink)] cursor-pointer">
+                      Izinkan Reverse Proxy ke Upstream Eksternal (IP luar server)
+                    </label>
+                  </div>
+                </div>
+
+                {/* Form Buttons */}
+              </div>
+              <div className="pt-4 border-t border-[var(--line)] flex items-center justify-end gap-2 dialog-footer">
                 <button
                   type="button"
                   onClick={() => {
@@ -743,7 +733,7 @@ export const PlansPage: React.FC = () => {
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Danger Confirm Dialog for Delete */}

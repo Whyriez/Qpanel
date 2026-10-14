@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useId, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import {
@@ -183,15 +184,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   };
 
   return (
-    <div
+    <ModalOverlay
       className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
       aria-labelledby={`${modalId}-title`}
+      onDismiss={onClose}
     >
-      <div className="flex flex-col w-full max-w-5xl h-[90vh] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 text-[var(--foreground)] overflow-hidden">
+      <div className="flex flex-col w-full max-w-5xl h-[90vh] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-floating)] animate-in fade-in zoom-in-95 duration-150 text-[var(--foreground)] overflow-hidden dialog-panel">
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)] bg-[var(--surface)] dialog-header">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-blue-500/10 text-blue-500">
               {getHeaderIcon()}
@@ -289,7 +291,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-auto relative bg-[var(--background)] flex items-center justify-center">
+        <div className="flex-1 overflow-auto relative bg-[var(--background)] flex items-center justify-center dialog-body">
           {/* 1. Image Preview */}
           {previewType === 'image' && (
             <div className="w-full h-full overflow-auto flex items-center justify-center p-4 checkerboard-pattern select-none">
@@ -401,11 +403,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-500/10 text-zinc-400 mb-4">
                 <AlertCircle className="h-8 w-8" />
               </div>
-              <h4 className="text-base font-semibold text-[var(--foreground)] mb-1">
-                Pratinjau Tidak Tersedia
-              </h4>
+              <h4 className="text-base font-semibold text-[var(--foreground)] mb-1">Pratinjau Tidak Tersedia</h4>
               <p className="text-xs text-[var(--muted-foreground)] mb-5">
-                Berkas ini berupa biner atau format yang tidak didukung untuk pratinjau langsung di dalam browser. Silakan unduh berkas untuk melihat isinya.
+                Berkas ini berupa biner atau format yang tidak didukung untuk pratinjau langsung di dalam browser.
+                Silakan unduh berkas untuk melihat isinya.
               </p>
               <a
                 href={downloadUrl}
@@ -420,7 +421,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
 
         {/* Footer info bar */}
-        <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--line)] bg-[var(--surface)] text-[11px] text-[var(--muted-foreground)]">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--line)] bg-[var(--surface)] text-[11px] text-[var(--muted-foreground)] dialog-footer">
           <div>
             Tipe: <span className="font-mono uppercase">{previewType.toUpperCase()}</span>
             {imageDimensions && (
@@ -432,6 +433,6 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           <div>{`Ukuran: ${formatSize(sizeBytes)}`}</div>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 };

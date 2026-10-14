@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Sliders,
@@ -1622,63 +1623,68 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
 
       {/* MODAL 1: ADD REDIRECT */}
       {showAddRedirectModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs">
-            <div className="flex items-center justify-between">
+        <ModalOverlay
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onDismiss={() => setShowAddRedirectModal(false)}
+        >
+          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs dialog-panel">
+            <div className="flex items-center justify-between dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)]">Tambah Aturan Redirect</h3>
               <button onClick={() => setShowAddRedirectModal(false)} className="hover:opacity-75">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleAddRedirect} className="space-y-3">
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Path Asal:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="/blog/old-post"
-                  value={redirSource}
-                  onChange={(e) => setRedirSource(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Tujuan (URL / Path):</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="https://example.com/new-post atau /new-post"
-                  value={redirTarget}
-                  onChange={(e) => setRedirTarget(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleAddRedirect} className="dialog-form">
+              <div className="dialog-body space-y-3">
                 <div>
-                  <label className="font-semibold text-[var(--ink)] block mb-1">Tipe Pencocokan:</label>
-                  <select
-                    value={redirType}
-                    onChange={(e) => setRedirType(e.target.value as RedirectMatchType)}
-                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
-                  >
-                    <option value="prefix">Prefix (Awalan path)</option>
-                    <option value="exact">Exact (Persis sama)</option>
-                    <option value="regex">Regex (Ekspresi reguler)</option>
-                  </select>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Path Asal:</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="/blog/old-post"
+                    value={redirSource}
+                    onChange={(e) => setRedirSource(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
                 </div>
                 <div>
-                  <label className="font-semibold text-[var(--ink)] block mb-1">Kode Status:</label>
-                  <select
-                    value={redirCode}
-                    onChange={(e) => setRedirCode(Number(e.target.value))}
-                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
-                  >
-                    <option value={301}>301 (Permanen)</option>
-                    <option value={302}>302 (Sementara)</option>
-                  </select>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Tujuan (URL / Path):</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="https://example.com/new-post atau /new-post"
+                    value={redirTarget}
+                    onChange={(e) => setRedirTarget(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-semibold text-[var(--ink)] block mb-1">Tipe Pencocokan:</label>
+                    <select
+                      value={redirType}
+                      onChange={(e) => setRedirType(e.target.value as RedirectMatchType)}
+                      className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
+                    >
+                      <option value="prefix">Prefix (Awalan path)</option>
+                      <option value="exact">Exact (Persis sama)</option>
+                      <option value="regex">Regex (Ekspresi reguler)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="font-semibold text-[var(--ink)] block mb-1">Kode Status:</label>
+                    <select
+                      value={redirCode}
+                      onChange={(e) => setRedirCode(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
+                    >
+                      <option value={301}>301 (Permanen)</option>
+                      <option value={302}>302 (Sementara)</option>
+                    </select>
+                  </div>
                 </div>
               </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setShowAddRedirectModal(false)}
@@ -1686,61 +1692,63 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 >
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold"
-                >
+                <button type="submit" className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold">
                   Tambahkan
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* MODAL 2: ADD HEADER */}
       {showAddHeaderModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs">
-            <div className="flex items-center justify-between">
+        <ModalOverlay
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onDismiss={() => setShowAddHeaderModal(false)}
+        >
+          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs dialog-panel">
+            <div className="flex items-center justify-between dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)]">Tambah Header Respons</h3>
               <button onClick={() => setShowAddHeaderModal(false)} className="hover:opacity-75">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleAddHeader} className="space-y-3">
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Nama Header:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="X-Custom-Header"
-                  value={hdrName}
-                  onChange={(e) => setHdrName(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
+            <form onSubmit={handleAddHeader} className="dialog-form">
+              <div className="dialog-body space-y-3">
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Nama Header:</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="X-Custom-Header"
+                    value={hdrName}
+                    onChange={(e) => setHdrName(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Nilai Header:</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="custom-value"
+                    value={hdrValue}
+                    onChange={(e) => setHdrValue(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer text-[var(--ink)] pt-1">
+                  <input
+                    type="checkbox"
+                    checked={hdrAlways}
+                    onChange={(e) => setHdrAlways(e.target.checked)}
+                    className="rounded text-[var(--primary)]"
+                  />
+                  Sertakan pada respon error juga (flag always)
+                </label>
               </div>
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Nilai Header:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="custom-value"
-                  value={hdrValue}
-                  onChange={(e) => setHdrValue(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer text-[var(--ink)] pt-1">
-                <input
-                  type="checkbox"
-                  checked={hdrAlways}
-                  onChange={(e) => setHdrAlways(e.target.checked)}
-                  className="rounded text-[var(--primary)]"
-                />
-                Sertakan pada respon error juga (flag always)
-              </label>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setShowAddHeaderModal(false)}
@@ -1748,55 +1756,57 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 >
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold"
-                >
+                <button type="submit" className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold">
                   Tambahkan
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* MODAL 3: ADD AUTH USER */}
       {showAddAuthUserModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs">
-            <div className="flex items-center justify-between">
+        <ModalOverlay
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onDismiss={() => setShowAddAuthUserModal(false)}
+        >
+          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs dialog-panel">
+            <div className="flex items-center justify-between dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)]">Tambah Pengguna Basic Auth</h3>
               <button onClick={() => setShowAddAuthUserModal(false)} className="hover:opacity-75">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleAddAuthUser} className="space-y-3">
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Nama Pengguna (Username):</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="admin"
-                  value={authUsername}
-                  onChange={(e) => setAuthUsername(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
+            <form onSubmit={handleAddAuthUser} className="dialog-form">
+              <div className="dialog-body space-y-3">
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Nama Pengguna (Username):</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="admin"
+                    value={authUsername}
+                    onChange={(e) => setAuthUsername(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Kata Sandi:</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••••••"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
+                  />
+                  <span className="text-[11px] text-[var(--ink-muted)] mt-1 block">
+                    Kata sandi akan otomatis dienkripsi dengan bcrypt sebelum disimpan ke berkas htpasswd.
+                  </span>
+                </div>
               </div>
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Kata Sandi:</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••••••"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
-                />
-                <span className="text-[11px] text-[var(--ink-muted)] mt-1 block">
-                  Kata sandi akan otomatis dienkripsi dengan bcrypt sebelum disimpan ke berkas htpasswd.
-                </span>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setShowAddAuthUserModal(false)}
@@ -1815,53 +1825,58 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* MODAL 4: ADD IP RULE */}
       {showAddIpRuleModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs">
-            <div className="flex items-center justify-between">
+        <ModalOverlay
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onDismiss={() => setShowAddIpRuleModal(false)}
+        >
+          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs dialog-panel">
+            <div className="flex items-center justify-between dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)]">Tambah Aturan IP</h3>
               <button onClick={() => setShowAddIpRuleModal(false)} className="hover:opacity-75">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleAddIpRule} className="space-y-3">
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Alamat IP atau Subnet CIDR:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="192.168.1.100 atau 10.0.0.0/24"
-                  value={ipCidr}
-                  onChange={(e) => setIpCidr(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
+            <form onSubmit={handleAddIpRule} className="dialog-form">
+              <div className="dialog-body space-y-3">
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Alamat IP atau Subnet CIDR:</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="192.168.1.100 atau 10.0.0.0/24"
+                    value={ipCidr}
+                    onChange={(e) => setIpCidr(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Tindakan:</label>
+                  <select
+                    value={ipAction}
+                    onChange={(e) => setIpAction(e.target.value as IpAction)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
+                  >
+                    <option value="allow">Izinkan (Allow)</option>
+                    <option value="deny">Tolak (Deny)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Keterangan (Opsional):</label>
+                  <input
+                    type="text"
+                    placeholder="Kantor pusat"
+                    value={ipDesc}
+                    onChange={(e) => setIpDesc(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Tindakan:</label>
-                <select
-                  value={ipAction}
-                  onChange={(e) => setIpAction(e.target.value as IpAction)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
-                >
-                  <option value="allow">Izinkan (Allow)</option>
-                  <option value="deny">Tolak (Deny)</option>
-                </select>
-              </div>
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Keterangan (Opsional):</label>
-                <input
-                  type="text"
-                  placeholder="Kantor pusat"
-                  value={ipDesc}
-                  onChange={(e) => setIpDesc(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setShowAddIpRuleModal(false)}
@@ -1869,58 +1884,60 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 >
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold"
-                >
+                <button type="submit" className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold">
                   Tambahkan
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* MODAL 5: ADD ERROR PAGE */}
       {showAddErrorPageModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs">
-            <div className="flex items-center justify-between">
+        <ModalOverlay
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onDismiss={() => setShowAddErrorPageModal(false)}
+        >
+          <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 max-w-md w-full shadow-lg space-y-4 text-xs dialog-panel">
+            <div className="flex items-center justify-between dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)]">Tambah Pemetaan Halaman Error</h3>
               <button onClick={() => setShowAddErrorPageModal(false)} className="hover:opacity-75">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <form onSubmit={handleAddErrorPage} className="space-y-3">
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Kode Status Error:</label>
-                <select
-                  value={errorCode}
-                  onChange={(e) => setErrorCode(Number(e.target.value))}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
-                >
-                  <option value={400}>400 Bad Request</option>
-                  <option value={401}>401 Unauthorized</option>
-                  <option value={403}>403 Forbidden</option>
-                  <option value={404}>404 Not Found</option>
-                  <option value={500}>500 Internal Server Error</option>
-                  <option value={502}>502 Bad Gateway</option>
-                  <option value={503}>503 Service Unavailable</option>
-                  <option value={504}>504 Gateway Timeout</option>
-                </select>
+            <form onSubmit={handleAddErrorPage} className="dialog-form">
+              <div className="dialog-body space-y-3">
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Kode Status Error:</label>
+                  <select
+                    value={errorCode}
+                    onChange={(e) => setErrorCode(Number(e.target.value))}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)]"
+                  >
+                    <option value={400}>400 Bad Request</option>
+                    <option value={401}>401 Unauthorized</option>
+                    <option value={403}>403 Forbidden</option>
+                    <option value={404}>404 Not Found</option>
+                    <option value={500}>500 Internal Server Error</option>
+                    <option value={502}>502 Bad Gateway</option>
+                    <option value={503}>503 Service Unavailable</option>
+                    <option value={504}>504 Gateway Timeout</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-[var(--ink)] block mb-1">Path Target HTML:</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="/custom_404.html"
+                    value={errorPath}
+                    onChange={(e) => setErrorPath(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="font-semibold text-[var(--ink)] block mb-1">Path Target HTML:</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="/custom_404.html"
-                  value={errorPath}
-                  onChange={(e) => setErrorPath(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 dialog-footer">
                 <button
                   type="button"
                   onClick={() => setShowAddErrorPageModal(false)}
@@ -1928,16 +1945,13 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 >
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold"
-                >
+                <button type="submit" className="px-3 py-1.5 rounded bg-[var(--primary)] text-white font-semibold">
                   Tambahkan
                 </button>
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Archive,
@@ -611,9 +612,12 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
       {/* MODAL 1: CREATE BACKUP                                                */}
       {/* ===================================================================== */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          onDismiss={() => setIsCreateModalOpen(false)}
+        >
+          <div className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)] dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
                 <Archive className="w-4 h-4 text-[var(--primary)]" />
                 Buat Cadangan Baru
@@ -627,107 +631,102 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateBackup} className="mt-4 space-y-4 text-xs">
-              <div>
-                <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                  Label Cadangan (Opsional)
-                </label>
-                <input
-                  type="text"
-                  value={createLabel}
-                  onChange={(e) => setCreateLabel(e.target.value)}
-                  placeholder="Misal: Sebelum update v2.0"
-                  maxLength={64}
-                  className="w-full px-3 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-hidden focus:border-[var(--primary)]"
-                />
-                <p className="text-[11px] text-[var(--ink-muted)] mt-1">
-                  Maksimal 64 karakter (huruf, angka, spasi, tanda minus, underscore).
-                </p>
-              </div>
+            <form onSubmit={handleCreateBackup} className="mt-4 text-xs dialog-form">
+              <div className="dialog-body space-y-4">
+                <div>
+                  <label className="block text-[var(--ink-muted)] font-medium mb-1">Label Cadangan (Opsional)</label>
+                  <input
+                    type="text"
+                    value={createLabel}
+                    onChange={(e) => setCreateLabel(e.target.value)}
+                    placeholder="Misal: Sebelum update v2.0"
+                    maxLength={64}
+                    className="w-full px-3 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-hidden focus:border-[var(--primary)]"
+                  />
+                  <p className="text-[11px] text-[var(--ink-muted)] mt-1">
+                    Maksimal 64 karakter (huruf, angka, spasi, tanda minus, underscore).
+                  </p>
+                </div>
 
-              <div>
-                <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                  Format Kompresi
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <label
-                    className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
-                      createFormat === 'tar.zst'
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
-                        : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
-                    }`}
-                  >
+                <div>
+                  <label className="block text-[var(--ink-muted)] font-medium mb-1">Format Kompresi</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label
+                      className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
+                        createFormat === 'tar.zst'
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
+                          : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="format"
+                        checked={createFormat === 'tar.zst'}
+                        onChange={() => setCreateFormat('tar.zst')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-semibold text-xs">tar.zst (Default)</div>
+                        <div className="text-[10px] mt-0.5">Zstandard super cepat & rasio kompresi tinggi</div>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
+                        createFormat === 'tar.gz'
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
+                          : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="format"
+                        checked={createFormat === 'tar.gz'}
+                        onChange={() => setCreateFormat('tar.gz')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-semibold text-xs">tar.gz</div>
+                        <div className="text-[10px] mt-0.5">Format standar Gzip untuk kompatibilitas umum</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-[var(--line)]">
+                  <label className="block text-[var(--ink-muted)] font-medium">Komponen Yang Dicadangkan</label>
+                  <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
                     <input
-                      type="radio"
-                      name="format"
-                      checked={createFormat === 'tar.zst'}
-                      onChange={() => setCreateFormat('tar.zst')}
-                      className="mt-0.5"
+                      type="checkbox"
+                      checked={createIncludeFiles}
+                      onChange={(e) => setCreateIncludeFiles(e.target.checked)}
+                      className="rounded text-[var(--primary)]"
                     />
-                    <div>
-                      <div className="font-semibold text-xs">tar.zst (Default)</div>
-                      <div className="text-[10px] mt-0.5">Zstandard super cepat & rasio kompresi tinggi</div>
-                    </div>
+                    <Folder className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="font-medium text-[var(--ink)]">Sertakan Berkas Situs (Docroot)</span>
                   </label>
 
-                  <label
-                    className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
-                      createFormat === 'tar.gz'
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
-                        : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
-                    }`}
-                  >
+                  <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
                     <input
-                      type="radio"
-                      name="format"
-                      checked={createFormat === 'tar.gz'}
-                      onChange={() => setCreateFormat('tar.gz')}
-                      className="mt-0.5"
+                      type="checkbox"
+                      checked={createIncludeDatabases}
+                      onChange={(e) => setCreateIncludeDatabases(e.target.checked)}
+                      className="rounded text-[var(--primary)]"
                     />
-                    <div>
-                      <div className="font-semibold text-xs">tar.gz</div>
-                      <div className="text-[10px] mt-0.5">Format standar Gzip untuk kompatibilitas umum</div>
-                    </div>
+                    <Database className="w-3.5 h-3.5 text-purple-500" />
+                    <span className="font-medium text-[var(--ink)]">Sertakan Basis Data Terkait</span>
                   </label>
                 </div>
+
+                <div className="p-3 rounded-[var(--radius-md)] bg-[var(--raised)] border border-[var(--line)] text-[11px] text-[var(--ink-muted)] flex items-start gap-2">
+                  <Clock className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                  <span>
+                    Cadangan diproses di latar belakang secara aman tanpa membebani web server. Ukuran arsip cadangan
+                    dihitung dalam kuota disk tenant.
+                  </span>
+                </div>
               </div>
-
-              <div className="space-y-2 pt-2 border-t border-[var(--line)]">
-                <label className="block text-[var(--ink-muted)] font-medium">
-                  Komponen Yang Dicadangkan
-                </label>
-                <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createIncludeFiles}
-                    onChange={(e) => setCreateIncludeFiles(e.target.checked)}
-                    className="rounded text-[var(--primary)]"
-                  />
-                  <Folder className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="font-medium text-[var(--ink)]">Sertakan Berkas Situs (Docroot)</span>
-                </label>
-
-                <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createIncludeDatabases}
-                    onChange={(e) => setCreateIncludeDatabases(e.target.checked)}
-                    className="rounded text-[var(--primary)]"
-                  />
-                  <Database className="w-3.5 h-3.5 text-purple-500" />
-                  <span className="font-medium text-[var(--ink)]">Sertakan Basis Data Terkait</span>
-                </label>
-              </div>
-
-              <div className="p-3 rounded-[var(--radius-md)] bg-[var(--raised)] border border-[var(--line)] text-[11px] text-[var(--ink-muted)] flex items-start gap-2">
-                <Clock className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-                <span>
-                  Cadangan diproses di latar belakang secara aman tanpa membebani web server.
-                  Ukuran arsip cadangan dihitung dalam kuota disk tenant.
-                </span>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
@@ -753,16 +752,19 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ===================================================================== */}
       {/* MODAL 2: RESTORE BACKUP                                               */}
       {/* ===================================================================== */}
       {isRestoreModalOpen && selectedBackupForRestore && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          onDismiss={() => setIsRestoreModalOpen(false)}
+        >
+          <div className="w-full max-w-md rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)] dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
                 <RotateCcw className="w-4 h-4 text-emerald-500" />
                 Pulihkan Cadangan Situs
@@ -776,110 +778,108 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleRestoreBackup} className="mt-4 space-y-4 text-xs">
-              <div className="p-3 rounded-[var(--radius-md)] bg-rose-500/10 border border-rose-500/20 text-rose-600 text-[11px] flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Perhatian:</strong> Memulihkan cadangan akan menimpa berkas situs dan skema database yang ada saat ini. Pastikan Anda telah membuat cadangan terbaru sebelum melanjutkan.
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                  Berkas Cadangan
-                </label>
-                <div className="px-3 py-2 rounded-[var(--radius-md)] bg-[var(--raised)] border border-[var(--line)] font-mono text-[11px] text-[var(--ink)]">
-                  {selectedBackupForRestore.filename} ({formatBytes(selectedBackupForRestore.size_bytes)})
+            <form onSubmit={handleRestoreBackup} className="mt-4 text-xs dialog-form">
+              <div className="dialog-body space-y-4">
+                <div className="p-3 rounded-[var(--radius-md)] bg-rose-500/10 border border-rose-500/20 text-rose-600 text-[11px] flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Perhatian:</strong> Memulihkan cadangan akan menimpa berkas situs dan skema database yang
+                    ada saat ini. Pastikan Anda telah membuat cadangan terbaru sebelum melanjutkan.
+                  </span>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                  Lokasi Pemulihan Berkas
-                </label>
-                <div className="space-y-2">
-                  <label
-                    className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
-                      restoreTargetType === 'inplace'
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
-                        : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
-                    }`}
-                  >
+                <div>
+                  <label className="block text-[var(--ink-muted)] font-medium mb-1">Berkas Cadangan</label>
+                  <div className="px-3 py-2 rounded-[var(--radius-md)] bg-[var(--raised)] border border-[var(--line)] font-mono text-[11px] text-[var(--ink)]">
+                    {selectedBackupForRestore.filename} ({formatBytes(selectedBackupForRestore.size_bytes)})
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[var(--ink-muted)] font-medium mb-1">Lokasi Pemulihan Berkas</label>
+                  <div className="space-y-2">
+                    <label
+                      className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
+                        restoreTargetType === 'inplace'
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
+                          : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="restoreTarget"
+                        checked={restoreTargetType === 'inplace'}
+                        onChange={() => setRestoreTargetType('inplace')}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="font-semibold text-xs">Situs Utama (In-place)</div>
+                        <div className="text-[10px] mt-0.5">Menimpa berkas situs langsung di folder aslinya</div>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
+                        restoreTargetType === 'custom'
+                          ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
+                          : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="restoreTarget"
+                        checked={restoreTargetType === 'custom'}
+                        onChange={() => setRestoreTargetType('custom')}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <div className="font-semibold text-xs">Folder Tujuan Kustom</div>
+                        <div className="text-[10px] mt-0.5">
+                          Ekstrak ke subfolder relatif (misal: staging atau test-restore)
+                        </div>
+                        {restoreTargetType === 'custom' && (
+                          <input
+                            type="text"
+                            value={restoreCustomPath}
+                            onChange={(e) => setRestoreCustomPath(e.target.value)}
+                            placeholder="staging/restored-site"
+                            required
+                            className="mt-2 w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono text-[11px]"
+                          />
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-[var(--line)]">
+                  <label className="block text-[var(--ink-muted)] font-medium">Komponen Yang Dipulihkan</label>
+                  <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
                     <input
-                      type="radio"
-                      name="restoreTarget"
-                      checked={restoreTargetType === 'inplace'}
-                      onChange={() => setRestoreTargetType('inplace')}
-                      className="mt-0.5"
+                      type="checkbox"
+                      checked={restoreFiles}
+                      onChange={(e) => setRestoreFiles(e.target.checked)}
+                      disabled={!selectedBackupForRestore.includes_files}
+                      className="rounded text-[var(--primary)]"
                     />
-                    <div>
-                      <div className="font-semibold text-xs">Situs Utama (In-place)</div>
-                      <div className="text-[10px] mt-0.5">Menimpa berkas situs langsung di folder aslinya</div>
-                    </div>
+                    <Folder className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="font-medium text-[var(--ink)]">Pulihkan Berkas Situs</span>
                   </label>
 
-                  <label
-                    className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
-                      restoreTargetType === 'custom'
-                        ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
-                        : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
-                    }`}
-                  >
+                  <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
                     <input
-                      type="radio"
-                      name="restoreTarget"
-                      checked={restoreTargetType === 'custom'}
-                      onChange={() => setRestoreTargetType('custom')}
-                      className="mt-0.5"
+                      type="checkbox"
+                      checked={restoreDatabases}
+                      onChange={(e) => setRestoreDatabases(e.target.checked)}
+                      disabled={!selectedBackupForRestore.includes_databases}
+                      className="rounded text-[var(--primary)]"
                     />
-                    <div className="flex-1">
-                      <div className="font-semibold text-xs">Folder Tujuan Kustom</div>
-                      <div className="text-[10px] mt-0.5">Ekstrak ke subfolder relatif (misal: staging atau test-restore)</div>
-                      {restoreTargetType === 'custom' && (
-                        <input
-                          type="text"
-                          value={restoreCustomPath}
-                          onChange={(e) => setRestoreCustomPath(e.target.value)}
-                          placeholder="staging/restored-site"
-                          required
-                          className="mt-2 w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono text-[11px]"
-                        />
-                      )}
-                    </div>
+                    <Database className="w-3.5 h-3.5 text-purple-500" />
+                    <span className="font-medium text-[var(--ink)]">Pulihkan Basis Data</span>
                   </label>
                 </div>
               </div>
-
-              <div className="space-y-2 pt-2 border-t border-[var(--line)]">
-                <label className="block text-[var(--ink-muted)] font-medium">
-                  Komponen Yang Dipulihkan
-                </label>
-                <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={restoreFiles}
-                    onChange={(e) => setRestoreFiles(e.target.checked)}
-                    disabled={!selectedBackupForRestore.includes_files}
-                    className="rounded text-[var(--primary)]"
-                  />
-                  <Folder className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="font-medium text-[var(--ink)]">Pulihkan Berkas Situs</span>
-                </label>
-
-                <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={restoreDatabases}
-                    onChange={(e) => setRestoreDatabases(e.target.checked)}
-                    disabled={!selectedBackupForRestore.includes_databases}
-                    className="rounded text-[var(--primary)]"
-                  />
-                  <Database className="w-3.5 h-3.5 text-purple-500" />
-                  <span className="font-medium text-[var(--ink)]">Pulihkan Basis Data</span>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsRestoreModalOpen(false)}
@@ -905,16 +905,19 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ===================================================================== */}
       {/* MODAL 3: SCHEDULE & RETENTION                                         */}
       {/* ===================================================================== */}
       {isScheduleModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          onDismiss={() => setIsScheduleModalOpen(false)}
+        >
+          <div className="w-full max-w-lg rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl max-h-[90vh] overflow-y-auto dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)] dialog-header">
               <h3 className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-indigo-500" />
                 Pengaturan Jadwal Cadangan & Retensi
@@ -928,262 +931,246 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveSchedule} className="mt-4 space-y-4 text-xs">
-              {/* Enable Toggle */}
-              <div className="flex items-center justify-between p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)]">
-                <div>
-                  <div className="font-semibold text-xs text-[var(--ink)]">
-                    Aktifkan Pencadangan Otomatis
-                  </div>
-                  <div className="text-[11px] text-[var(--ink-muted)] mt-0.5">
-                    Jalankan pencadangan berkala di latar belakang sesuai frekuensi
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={scheduleEnabled}
-                  onChange={(e) => setScheduleEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded text-[var(--primary)] cursor-pointer"
-                />
-              </div>
-
-              {scheduleEnabled && (
-                <>
-                  {/* Frequency & Time */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                        Frekuensi Cadangan
-                      </label>
-                      <select
-                        value={scheduleFrequency}
-                        onChange={(e) => setScheduleFrequency(e.target.value as BackupScheduleFrequency)}
-                        className="w-full px-3 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-hidden focus:border-[var(--primary)]"
-                      >
-                        <option value="daily">Harian (Setiap Hari)</option>
-                        <option value="weekly">Mingguan (Setiap Minggu)</option>
-                        <option value="monthly">Bulanan (Setiap Bulan)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                        Waktu Eksekusi (Jam : Menit)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          max={23}
-                          value={scheduleHour}
-                          onChange={(e) => setScheduleHour(Number(e.target.value))}
-                          className="w-16 px-2 py-1.5 text-center rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
-                          title="Jam (0-23)"
-                        />
-                        <span className="font-bold">:</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={59}
-                          value={scheduleMinute}
-                          onChange={(e) => setScheduleMinute(Number(e.target.value))}
-                          className="w-16 px-2 py-1.5 text-center rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
-                          title="Menit (0-59)"
-                        />
-                        <span className="text-[11px] text-[var(--ink-muted)]">WIB / Waktu Server</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Retention Count */}
+            <form onSubmit={handleSaveSchedule} className="mt-4 text-xs dialog-form">
+              <div className="dialog-body space-y-4">
+                {/* Enable Toggle */}
+                <div className="flex items-center justify-between p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)]">
                   <div>
-                    <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                      Batas Retensi Cadangan
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={scheduleRetention}
-                      onChange={(e) => setScheduleRetention(Number(e.target.value))}
-                      className="w-24 px-3 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
-                    />
-                    <p className="text-[11px] text-[var(--ink-muted)] mt-1">
-                      Jumlah arsip terbaru yang disimpan. Arsip tertua akan dipruning otomatis ketika batas tercapai.
-                    </p>
-                  </div>
-
-                  {/* Content options */}
-                  <div className="space-y-2 pt-2 border-t border-[var(--line)]">
-                    <label className="block text-[var(--ink-muted)] font-medium">
-                      Komponen Cadangan Otomatis
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={scheduleIncludeFiles}
-                          onChange={(e) => setScheduleIncludeFiles(e.target.checked)}
-                          className="rounded text-[var(--primary)]"
-                        />
-                        <Folder className="w-3.5 h-3.5 text-emerald-500" />
-                        <span className="text-[11px] font-medium text-[var(--ink)]">Berkas Situs</span>
-                      </label>
-
-                      <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={scheduleIncludeDatabases}
-                          onChange={(e) => setScheduleIncludeDatabases(e.target.checked)}
-                          className="rounded text-[var(--primary)]"
-                        />
-                        <Database className="w-3.5 h-3.5 text-purple-500" />
-                        <span className="text-[11px] font-medium text-[var(--ink)]">Basis Data</span>
-                      </label>
+                    <div className="font-semibold text-xs text-[var(--ink)]">Aktifkan Pencadangan Otomatis</div>
+                    <div className="text-[11px] text-[var(--ink-muted)] mt-0.5">
+                      Jalankan pencadangan berkala di latar belakang sesuai frekuensi
                     </div>
                   </div>
+                  <input
+                    type="checkbox"
+                    checked={scheduleEnabled}
+                    onChange={(e) => setScheduleEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded text-[var(--primary)] cursor-pointer"
+                  />
+                </div>
 
-                  {/* Storage destination */}
-                  <div className="pt-2 border-t border-[var(--line)]">
-                    <label className="block text-[var(--ink-muted)] font-medium mb-1.5">
-                      Tujuan Penyimpanan Arsip
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label
-                        className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
-                          scheduleStorageType === 'local'
-                            ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
-                            : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="storageType"
-                          checked={scheduleStorageType === 'local'}
-                          onChange={() => setScheduleStorageType('local')}
-                          className="mt-0.5"
-                        />
-                        <div>
-                          <div className="font-semibold text-xs">Penyimpanan Lokal</div>
-                          <div className="text-[10px] mt-0.5">Tersimpan di direktori ~/backups host VM</div>
-                        </div>
-                      </label>
+                {scheduleEnabled && (
+                  <>
+                    {/* Frequency & Time */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[var(--ink-muted)] font-medium mb-1">Frekuensi Cadangan</label>
+                        <select
+                          value={scheduleFrequency}
+                          onChange={(e) => setScheduleFrequency(e.target.value as BackupScheduleFrequency)}
+                          className="w-full px-3 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-hidden focus:border-[var(--primary)]"
+                        >
+                          <option value="daily">Harian (Setiap Hari)</option>
+                          <option value="weekly">Mingguan (Setiap Minggu)</option>
+                          <option value="monthly">Bulanan (Setiap Bulan)</option>
+                        </select>
+                      </div>
 
-                      <label
-                        className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
-                          scheduleStorageType === 's3'
-                            ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
-                            : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="storageType"
-                          checked={scheduleStorageType === 's3'}
-                          onChange={() => setScheduleStorageType('s3')}
-                          className="mt-0.5"
-                        />
-                        <div>
-                          <div className="font-semibold text-xs">S3 Remote Storage</div>
-                          <div className="text-[10px] mt-0.5">Kirim ke AWS S3, Cloudflare R2, MinIO</div>
-                        </div>
-                      </label>
-                    </div>
-
-                    {/* S3 configuration fields */}
-                    {scheduleStorageType === 's3' && (
-                      <div className="mt-3 p-3 rounded-[var(--radius-md)] bg-[var(--raised)] border border-[var(--line)] space-y-2.5">
-                        <div>
-                          <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                            S3 Endpoint URL
-                          </label>
+                      <div>
+                        <label className="block text-[var(--ink-muted)] font-medium mb-1">
+                          Waktu Eksekusi (Jam : Menit)
+                        </label>
+                        <div className="flex items-center gap-2">
                           <input
-                            type="text"
-                            value={s3Endpoint}
-                            onChange={(e) => setS3Endpoint(e.target.value)}
-                            placeholder="https://s3.ap-southeast-1.amazonaws.com"
-                            required={scheduleStorageType === 's3'}
-                            className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                            type="number"
+                            min={0}
+                            max={23}
+                            value={scheduleHour}
+                            onChange={(e) => setScheduleHour(Number(e.target.value))}
+                            className="w-16 px-2 py-1.5 text-center rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
+                            title="Jam (0-23)"
                           />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                              Bucket
-                            </label>
-                            <input
-                              type="text"
-                              value={s3Bucket}
-                              onChange={(e) => setS3Bucket(e.target.value)}
-                              placeholder="my-backup-bucket"
-                              required={scheduleStorageType === 's3'}
-                              className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                              Region
-                            </label>
-                            <input
-                              type="text"
-                              value={s3Region}
-                              onChange={(e) => setS3Region(e.target.value)}
-                              placeholder="us-east-1"
-                              className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                              Access Key
-                            </label>
-                            <input
-                              type="text"
-                              value={s3AccessKey}
-                              onChange={(e) => setS3AccessKey(e.target.value)}
-                              placeholder="AKIA..."
-                              required={scheduleStorageType === 's3'}
-                              className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                              Secret Key
-                            </label>
-                            <input
-                              type="password"
-                              value={s3SecretKey}
-                              onChange={(e) => setS3SecretKey(e.target.value)}
-                              placeholder="Kunci rahasia S3"
-                              className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-[var(--ink-muted)] font-medium mb-1">
-                            Prefix Folder (Opsional)
-                          </label>
+                          <span className="font-bold">:</span>
                           <input
-                            type="text"
-                            value={s3Prefix}
-                            onChange={(e) => setS3Prefix(e.target.value)}
-                            placeholder="vpanel/backups"
-                            className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                            type="number"
+                            min={0}
+                            max={59}
+                            value={scheduleMinute}
+                            onChange={(e) => setScheduleMinute(Number(e.target.value))}
+                            className="w-16 px-2 py-1.5 text-center rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
+                            title="Menit (0-59)"
                           />
+                          <span className="text-[11px] text-[var(--ink-muted)]">WIB / Waktu Server</span>
                         </div>
                       </div>
-                    )}
-                  </div>
-                </>
-              )}
+                    </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+                    {/* Retention Count */}
+                    <div>
+                      <label className="block text-[var(--ink-muted)] font-medium mb-1">Batas Retensi Cadangan</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={scheduleRetention}
+                        onChange={(e) => setScheduleRetention(Number(e.target.value))}
+                        className="w-24 px-3 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
+                      />
+                      <p className="text-[11px] text-[var(--ink-muted)] mt-1">
+                        Jumlah arsip terbaru yang disimpan. Arsip tertua akan dipruning otomatis ketika batas
+                        tercapai.
+                      </p>
+                    </div>
+
+                    {/* Content options */}
+                    <div className="space-y-2 pt-2 border-t border-[var(--line)]">
+                      <label className="block text-[var(--ink-muted)] font-medium">Komponen Cadangan Otomatis</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={scheduleIncludeFiles}
+                            onChange={(e) => setScheduleIncludeFiles(e.target.checked)}
+                            className="rounded text-[var(--primary)]"
+                          />
+                          <Folder className="w-3.5 h-3.5 text-emerald-500" />
+                          <span className="text-[11px] font-medium text-[var(--ink)]">Berkas Situs</span>
+                        </label>
+
+                        <label className="flex items-center gap-2 p-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={scheduleIncludeDatabases}
+                            onChange={(e) => setScheduleIncludeDatabases(e.target.checked)}
+                            className="rounded text-[var(--primary)]"
+                          />
+                          <Database className="w-3.5 h-3.5 text-purple-500" />
+                          <span className="text-[11px] font-medium text-[var(--ink)]">Basis Data</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Storage destination */}
+                    <div className="pt-2 border-t border-[var(--line)]">
+                      <label className="block text-[var(--ink-muted)] font-medium mb-1.5">
+                        Tujuan Penyimpanan Arsip
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label
+                          className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
+                            scheduleStorageType === 'local'
+                              ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
+                              : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="storageType"
+                            checked={scheduleStorageType === 'local'}
+                            onChange={() => setScheduleStorageType('local')}
+                            className="mt-0.5"
+                          />
+                          <div>
+                            <div className="font-semibold text-xs">Penyimpanan Lokal</div>
+                            <div className="text-[10px] mt-0.5">Tersimpan di direktori ~/backups host VM</div>
+                          </div>
+                        </label>
+
+                        <label
+                          className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-md)] border cursor-pointer ${
+                            scheduleStorageType === 's3'
+                              ? 'border-[var(--primary)] bg-[var(--primary)]/5 text-[var(--ink)]'
+                              : 'border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)]'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="storageType"
+                            checked={scheduleStorageType === 's3'}
+                            onChange={() => setScheduleStorageType('s3')}
+                            className="mt-0.5"
+                          />
+                          <div>
+                            <div className="font-semibold text-xs">S3 Remote Storage</div>
+                            <div className="text-[10px] mt-0.5">Kirim ke AWS S3, Cloudflare R2, MinIO</div>
+                          </div>
+                        </label>
+                      </div>
+
+                      {/* S3 configuration fields */}
+                      {scheduleStorageType === 's3' && (
+                        <div className="mt-3 p-3 rounded-[var(--radius-md)] bg-[var(--raised)] border border-[var(--line)] space-y-2.5">
+                          <div>
+                            <label className="block text-[var(--ink-muted)] font-medium mb-1">S3 Endpoint URL</label>
+                            <input
+                              type="text"
+                              value={s3Endpoint}
+                              onChange={(e) => setS3Endpoint(e.target.value)}
+                              placeholder="https://s3.ap-southeast-1.amazonaws.com"
+                              required={scheduleStorageType === 's3'}
+                              className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[var(--ink-muted)] font-medium mb-1">Bucket</label>
+                              <input
+                                type="text"
+                                value={s3Bucket}
+                                onChange={(e) => setS3Bucket(e.target.value)}
+                                placeholder="my-backup-bucket"
+                                required={scheduleStorageType === 's3'}
+                                className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[var(--ink-muted)] font-medium mb-1">Region</label>
+                              <input
+                                type="text"
+                                value={s3Region}
+                                onChange={(e) => setS3Region(e.target.value)}
+                                placeholder="us-east-1"
+                                className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[var(--ink-muted)] font-medium mb-1">Access Key</label>
+                              <input
+                                type="text"
+                                value={s3AccessKey}
+                                onChange={(e) => setS3AccessKey(e.target.value)}
+                                placeholder="AKIA..."
+                                required={scheduleStorageType === 's3'}
+                                className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[var(--ink-muted)] font-medium mb-1">Secret Key</label>
+                              <input
+                                type="password"
+                                value={s3SecretKey}
+                                onChange={(e) => setS3SecretKey(e.target.value)}
+                                placeholder="Kunci rahasia S3"
+                                className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] font-mono"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[var(--ink-muted)] font-medium mb-1">
+                              Prefix Folder (Opsional)
+                            </label>
+                            <input
+                              type="text"
+                              value={s3Prefix}
+                              onChange={(e) => setS3Prefix(e.target.value)}
+                              placeholder="vpanel/backups"
+                              className="w-full px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsScheduleModalOpen(false)}
@@ -1209,7 +1196,7 @@ export const SiteBackupsTab: React.FC<SiteBackupsTabProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* ===================================================================== */}

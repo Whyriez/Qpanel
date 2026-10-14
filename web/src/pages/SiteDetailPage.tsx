@@ -1,3 +1,4 @@
+import { ModalOverlay } from '../components/ui/ModalOverlay';
 import { navigate, RouteLink, useBrowserRoute } from '../lib/router';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -1529,12 +1530,13 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
 
       {/* Add Domain Modal */}
       {isAddDomainModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)]">
-              <h3 className="text-sm font-semibold text-[var(--ink)]">
-                {t('sites.detail.addDomain')}
-              </h3>
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+          onDismiss={() => setIsAddDomainModalOpen(false)}
+        >
+          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-md overflow-hidden dialog-panel">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)] dialog-header">
+              <h3 className="text-sm font-semibold text-[var(--ink)]">{t('sites.detail.addDomain')}</h3>
               <button
                 onClick={() => setIsAddDomainModalOpen(false)}
                 className="text-[var(--ink-muted)] hover:text-[var(--ink)]"
@@ -1542,54 +1544,55 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 &times;
               </button>
             </div>
-            <form onSubmit={handleAddDomain} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                  Nama Domain Alias <span className="text-[var(--danger)]">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="alias.domain.com atau www.situs.com"
-                  value={newDomainName}
-                  onChange={(e) => setNewDomainName(e.target.value.toLowerCase())}
-                  className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                  Mode Pengalihan (Redirect)
-                </label>
-                <select
-                  value={newDomainRedirectMode}
-                  onChange={(e) => setNewDomainRedirectMode(e.target.value as RedirectMode)}
-                  className="w-full px-3 py-1.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                >
-                  <option value="none">Tanpa Pengalihan (Melayani konten langsung)</option>
-                  <option value="www_to_non_www">Alihkan www ke non-www</option>
-                  <option value="non_www_to_www">Alihkan non-www ke www</option>
-                  <option value="custom_url">Alihkan ke URL Kustom</option>
-                </select>
-              </div>
-
-              {newDomainRedirectMode === 'custom_url' && (
+            <form onSubmit={handleAddDomain} className="p-6 dialog-form">
+              <div className="dialog-body space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                    Target URL Pengalihan <span className="text-[var(--danger)]">*</span>
+                    Nama Domain Alias <span className="text-[var(--danger)]">*</span>
                   </label>
                   <input
-                    type="url"
+                    type="text"
                     required
-                    placeholder="https://tujuan-pengalihan.com"
-                    value={newDomainRedirectTarget}
-                    onChange={(e) => setNewDomainRedirectTarget(e.target.value)}
+                    placeholder="alias.domain.com atau www.situs.com"
+                    value={newDomainName}
+                    onChange={(e) => setNewDomainName(e.target.value.toLowerCase())}
                     className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                   />
                 </div>
-              )}
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                    Mode Pengalihan (Redirect)
+                  </label>
+                  <select
+                    value={newDomainRedirectMode}
+                    onChange={(e) => setNewDomainRedirectMode(e.target.value as RedirectMode)}
+                    className="w-full px-3 py-1.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                  >
+                    <option value="none">Tanpa Pengalihan (Melayani konten langsung)</option>
+                    <option value="www_to_non_www">Alihkan www ke non-www</option>
+                    <option value="non_www_to_www">Alihkan non-www ke www</option>
+                    <option value="custom_url">Alihkan ke URL Kustom</option>
+                  </select>
+                </div>
+
+                {newDomainRedirectMode === 'custom_url' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                      Target URL Pengalihan <span className="text-[var(--danger)]">*</span>
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      placeholder="https://tujuan-pengalihan.com"
+                      value={newDomainRedirectTarget}
+                      onChange={(e) => setNewDomainRedirectTarget(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsAddDomainModalOpen(false)}
@@ -1607,17 +1610,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Issue Let's Encrypt Modal */}
       {isIssueModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)]">
-              <h3 className="text-sm font-semibold text-[var(--ink)]">
-                {t('sites.detail.issueLetsEncrypt')}
-              </h3>
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+          onDismiss={() => setIsIssueModalOpen(false)}
+        >
+          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-md overflow-hidden dialog-panel">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)] dialog-header">
+              <h3 className="text-sm font-semibold text-[var(--ink)]">{t('sites.detail.issueLetsEncrypt')}</h3>
               <button
                 onClick={() => setIsIssueModalOpen(false)}
                 className="text-[var(--ink-muted)] hover:text-[var(--ink)]"
@@ -1625,55 +1629,56 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 &times;
               </button>
             </div>
-            <form onSubmit={handleIssueLetsEncrypt} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                  Email Kontak Let's Encrypt (Opsional)
+            <form onSubmit={handleIssueLetsEncrypt} className="p-6 dialog-form">
+              <div className="dialog-body space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                    Email Kontak Let's Encrypt (Opsional)
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="admin@perusahaan.com"
+                    value={issueEmail}
+                    onChange={(e) => setIssueEmail(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                  />
+                </div>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={issueStaging}
+                    onChange={(e) => setIssueStaging(e.target.checked)}
+                    className="mt-0.5 rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--ink)] block">
+                      Gunakan Let's Encrypt Staging
+                    </span>
+                    <span className="text-[11px] text-[var(--ink-muted)] block mt-0.5">
+                      Uji coba tantangan HTTP-01 tanpa menghabiskan kuota rate limit produksi.
+                    </span>
+                  </div>
                 </label>
-                <input
-                  type="email"
-                  placeholder="admin@perusahaan.com"
-                  value={issueEmail}
-                  onChange={(e) => setIssueEmail(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                />
+
+                <label className="flex items-start gap-2.5 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={issueFallbackSelfSigned}
+                    onChange={(e) => setIssueFallbackSelfSigned(e.target.checked)}
+                    className="mt-0.5 rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--ink)] block">
+                      Fallback Self-Signed Otomatis
+                    </span>
+                    <span className="text-[11px] text-[var(--ink-muted)] block mt-0.5">
+                      Bila validasi DNS gagal, buat sertifikat self-signed agar HTTPS tetap dapat dibuka.
+                    </span>
+                  </div>
+                </label>
               </div>
-
-              <label className="flex items-start gap-2.5 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={issueStaging}
-                  onChange={(e) => setIssueStaging(e.target.checked)}
-                  className="mt-0.5 rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-                />
-                <div>
-                  <span className="text-xs font-semibold text-[var(--ink)] block">
-                    Gunakan Let's Encrypt Staging
-                  </span>
-                  <span className="text-[11px] text-[var(--ink-muted)] block mt-0.5">
-                    Uji coba tantangan HTTP-01 tanpa menghabiskan kuota rate limit produksi.
-                  </span>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-2.5 p-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={issueFallbackSelfSigned}
-                  onChange={(e) => setIssueFallbackSelfSigned(e.target.checked)}
-                  className="mt-0.5 rounded-[var(--radius-sm)] border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-                />
-                <div>
-                  <span className="text-xs font-semibold text-[var(--ink)] block">
-                    Fallback Self-Signed Otomatis
-                  </span>
-                  <span className="text-[11px] text-[var(--ink-muted)] block mt-0.5">
-                    Bila validasi DNS gagal, buat sertifikat self-signed agar HTTPS tetap dapat dibuka.
-                  </span>
-                </div>
-              </label>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsIssueModalOpen(false)}
@@ -1692,17 +1697,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Upload Custom SSL Modal */}
       {isCustomModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-lg overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)]">
-              <h3 className="text-sm font-semibold text-[var(--ink)]">
-                {t('sites.detail.uploadCustom')}
-              </h3>
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+          onDismiss={() => setIsCustomModalOpen(false)}
+        >
+          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] w-full max-w-lg overflow-hidden dialog-panel">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--line)] bg-[var(--raised)] dialog-header">
+              <h3 className="text-sm font-semibold text-[var(--ink)]">{t('sites.detail.uploadCustom')}</h3>
               <button
                 onClick={() => setIsCustomModalOpen(false)}
                 className="text-[var(--ink-muted)] hover:text-[var(--ink)]"
@@ -1710,46 +1716,47 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 &times;
               </button>
             </div>
-            <form onSubmit={handleUploadCustomSsl} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                  Certificate Chain (PEM) <span className="text-[var(--danger)]">*</span>
+            <form onSubmit={handleUploadCustomSsl} className="p-6 dialog-form">
+              <div className="dialog-body space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                    Certificate Chain (PEM) <span className="text-[var(--danger)]">*</span>
+                  </label>
+                  <textarea
+                    required
+                    rows={4}
+                    placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                    value={customFullchain}
+                    onChange={(e) => setCustomFullchain(e.target.value)}
+                    className="w-full p-2.5 text-[11px] font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
+                    Private Key (PEM) <span className="text-[var(--danger)]">*</span>
+                  </label>
+                  <textarea
+                    required
+                    rows={4}
+                    placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                    value={customPrivkey}
+                    onChange={(e) => setCustomPrivkey(e.target.value)}
+                    className="w-full p-2.5 text-[11px] font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-xs text-[var(--ink)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={customAutoRenew}
+                    onChange={(e) => setCustomAutoRenew(e.target.checked)}
+                    className="rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                  />
+                  <span>Tandai untuk pembaruan otomatis bila memungkinkan</span>
                 </label>
-                <textarea
-                  required
-                  rows={4}
-                  placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                  value={customFullchain}
-                  onChange={(e) => setCustomFullchain(e.target.value)}
-                  className="w-full p-2.5 text-[11px] font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                />
               </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ink)] mb-1">
-                  Private Key (PEM) <span className="text-[var(--danger)]">*</span>
-                </label>
-                <textarea
-                  required
-                  rows={4}
-                  placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-                  value={customPrivkey}
-                  onChange={(e) => setCustomPrivkey(e.target.value)}
-                  className="w-full p-2.5 text-[11px] font-mono rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 text-xs text-[var(--ink)] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={customAutoRenew}
-                  onChange={(e) => setCustomAutoRenew(e.target.checked)}
-                  className="rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-                />
-                <span>Tandai untuk pembaruan otomatis bila memungkinkan</span>
-              </label>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsCustomModalOpen(false)}
@@ -1768,7 +1775,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* Confirm Delete Site Dialog */}
@@ -1800,9 +1807,12 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
 
       {/* Modal Ganti Versi PHP */}
       {isSwitchPhpModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)]">
+        <ModalOverlay
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          onDismiss={() => setIsSwitchPhpModalOpen(false)}
+        >
+          <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-xl space-y-4 dialog-panel">
+            <div className="flex items-center justify-between pb-3 border-b border-[var(--line)] dialog-header">
               <h3 className="font-bold text-sm text-[var(--ink)] flex items-center gap-2">
                 <Code2 className="w-4 h-4 text-[var(--primary)]" />
                 Ganti Versi PHP Situs
@@ -1814,49 +1824,47 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 &times;
               </button>
             </div>
-
-            <div className="text-xs text-[var(--ink-muted)] leading-relaxed space-y-2">
-              <p>
-                Versi saat ini:{' '}
-                <strong className="text-[var(--ink)] font-mono">
-                  PHP {site.version || '8.3'}
-                </strong>
-              </p>
-              <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--primary)]/10 border border-[var(--primary)]/20 text-[var(--ink)] text-[11px] leading-relaxed">
-                <strong>Zero-Downtime & Automatic Rollback:</strong> Master pool target disiapkan dan diverifikasi kesehatannya terlebih dahulu sebelum socket Nginx dialihkan. Jika pemeriksaan gagal, konfigurasi otomatis dibatalkan tanpa downtime.
-              </div>
-            </div>
-
-            <form onSubmit={handleSwitchPhpVersion} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[var(--ink)] mb-1.5">
-                  Pilih Versi PHP Baru
-                </label>
-                {isLoadingPhpVersions ? (
-                  <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)] py-2">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    Memuat versi PHP yang terpasang...
+            <form onSubmit={handleSwitchPhpVersion} className="dialog-form">
+              <div className="dialog-body space-y-4">
+                <div className="text-xs text-[var(--ink-muted)] leading-relaxed space-y-2">
+                  <p>
+                    Versi saat ini:{' '}
+                    <strong className="text-[var(--ink)] font-mono">PHP {site.version || '8.3'}</strong>
+                  </p>
+                  <div className="p-3 rounded-[var(--radius-sm)] bg-[var(--primary)]/10 border border-[var(--primary)]/20 text-[var(--ink)] text-[11px] leading-relaxed">
+                    <strong>Zero-Downtime & Automatic Rollback:</strong> Master pool target disiapkan dan diverifikasi
+                    kesehatannya terlebih dahulu sebelum socket Nginx dialihkan. Jika pemeriksaan gagal, konfigurasi
+                    otomatis dibatalkan tanpa downtime.
                   </div>
-                ) : availablePhpVersions.length === 0 ? (
-                  <div className="text-xs text-[var(--ink-muted)] py-2">
-                    Tidak ada versi PHP terpasang lain yang tersedia.
-                  </div>
-                ) : (
-                  <select
-                    value={selectedPhpVersion}
-                    onChange={(e) => setSelectedPhpVersion(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] font-mono"
-                  >
-                    {availablePhpVersions.map((v) => (
-                      <option key={v.version} value={v.version}>
-                        PHP {v.version} {v.version === site.version ? '(Saat Ini)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)]">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink)] mb-1.5">Pilih Versi PHP Baru</label>
+                  {isLoadingPhpVersions ? (
+                    <div className="flex items-center gap-2 text-xs text-[var(--ink-muted)] py-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Memuat versi PHP yang terpasang...
+                    </div>
+                  ) : availablePhpVersions.length === 0 ? (
+                    <div className="text-xs text-[var(--ink-muted)] py-2">
+                      Tidak ada versi PHP terpasang lain yang tersedia.
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedPhpVersion}
+                      onChange={(e) => setSelectedPhpVersion(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)] font-mono"
+                    >
+                      {availablePhpVersions.map((v) => (
+                        <option key={v.version} value={v.version}>
+                          PHP {v.version} {v.version === site.version ? '(Saat Ini)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--line)] dialog-footer">
                 <button
                   type="button"
                   onClick={() => setIsSwitchPhpModalOpen(false)}
@@ -1880,7 +1888,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             </form>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {/* SSH & SFTP Connection Modal */}
