@@ -92,7 +92,12 @@ async fn setup_test_context() -> TestContext {
     runner.add_existing_path("/usr/bin/php8.3");
     runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
     runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
-    runner.set_response("systemctl is-enabled php8.3-fpm.service", 0, b"masked\n", b"");
+    runner.set_response(
+        "systemctl is-enabled php8.3-fpm.service",
+        0,
+        b"masked\n",
+        b"",
+    );
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>

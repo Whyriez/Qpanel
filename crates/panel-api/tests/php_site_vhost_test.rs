@@ -698,12 +698,11 @@ async fn test_php_site_rejects_missing_runtime_or_socket_without_leaving_records
         let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(error["error"], expected_error);
 
-        let counts: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM sites), (SELECT COUNT(*) FROM domains)",
-        )
-        .fetch_one(&ctx.pool)
-        .await
-        .unwrap();
+        let counts: (i64, i64) =
+            sqlx::query_as("SELECT (SELECT COUNT(*) FROM sites), (SELECT COUNT(*) FROM domains)")
+                .fetch_one(&ctx.pool)
+                .await
+                .unwrap();
         assert_eq!(counts, (0, 0), "Rejected provisioning left site records");
         assert!(!ctx.nginx_dir.join("sites-enabled/site_1.conf").exists());
     }
