@@ -4,6 +4,7 @@ import { createTerminalSession, closeTerminalSession } from '../../api/client';
 import { TerminalTabs } from './TerminalTabs';
 import { TerminalInstance } from './TerminalInstance';
 import { toast } from 'sonner';
+import { TerminalAccessNotice, useTerminalAccess } from './TerminalAccess';
 
 interface TerminalDrawerProps {
   tenant?: string;
@@ -19,6 +20,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
   initialCwd,
   tenant,
 }) => {
+  const { state: access, refresh: refreshAccess, canOpenTerminal } = useTerminalAccess(tenant, isOpen);
   const initialized = React.useRef(false);
   const open = React.useRef(isOpen);
   open.current = isOpen;
@@ -38,12 +40,14 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isMaximized, setIsMaximized] = useState(false);
   const [isSpawning, setIsSpawning] = useState(false);
+  const [sessionError, setSessionError] = useState('');
 
   // Helper to spawn a new session tab
   const spawnTab = useCallback(
     async (cwd?: string) => {
-      if (isSpawning) return;
+      if (isSpawning || !canOpenTerminal) return;
       setIsSpawning(true);
+      setSessionError('');
 
       const targetCwd = cwd || initialCwd || '';
       const fallbackTitle = targetCwd
@@ -84,15 +88,18 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
           )
         );
       } catch (err: unknown) {
+        if (!mounted.current || !open.current) return;
         const errorMsg = err instanceof Error ? err.message : 'Gagal membuka sesi terminal';
         toast.error(errorMsg);
+        setSessionError(errorMsg);
+        if ((err as { status?: number })?.status === 403) refreshAccess();
         // Remove temporary failed tab
         setTabs((prev) => prev.filter((t) => t.id !== tempId));
       } finally {
-        setIsSpawning(false);
+        if (mounted.current) setIsSpawning(false);
       }
     },
-    [initialCwd, isSpawning, tabs.length, tenant]
+    [initialCwd, isSpawning, tabs.length, tenant, canOpenTerminal, refreshAccess]
   );
 
   // Spawn initial tab when drawer opens with no tabs
@@ -103,11 +110,11 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
       liveSessions.current.clear();
       setTabs(previous => previous.length ? [] : previous);
     }
-    if (isOpen && !initialized.current && tabs.length === 0 && !isSpawning) {
+    if (isOpen && canOpenTerminal && !initialized.current && tabs.length === 0 && !isSpawning) {
       initialized.current = true;
       spawnTab(initialCwd);
     }
-  }, [isOpen, tabs.length, initialCwd, spawnTab, isSpawning]);
+  }, [isOpen, tabs.length, initialCwd, spawnTab, isSpawning, canOpenTerminal]);
 
   const handleCloseTab = async (tabId: string) => {
     const tabToClose = tabs.find((t) => t.id === tabId);
@@ -154,6 +161,7 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
         activeTabId={activeTabId}
         onSelectTab={setActiveTabId}
         onNewTab={() => spawnTab()}
+        newTabDisabled={!canOpenTerminal || isSpawning}
         onCloseTab={handleCloseTab}
         isMaximized={isMaximized}
         onToggleMaximize={() => setIsMaximized(!isMaximized)}
@@ -162,7 +170,10 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
 
       {/* Terminal Viewports Container */}
       <div className="flex-1 w-full h-full relative overflow-hidden bg-[var(--surface)]">
-        {tabs.map((tab) => {
+        {!canOpenTerminal ? <TerminalAccessNotice state={access} onRefresh={refreshAccess} /> : tabs.length === 0 ? <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm">
+          <p role={sessionError ? 'alert' : undefined}>{sessionError || 'Tidak ada sesi terminal aktif saat ini.'}</p>
+          <button type="button" onClick={() => spawnTab()} disabled={isSpawning} className="rounded border border-[var(--line)] px-3 py-2">Buka sesi terminal</button>
+        </div> : tabs.map((tab) => {
           if (!tab.session) {
             return (
               <div

@@ -20,6 +20,7 @@ use sqlx::Row;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::auth::{RequireAdminCsrf, RequireAuth};
+use crate::jobs::JobItem;
 use crate::routes::AppState;
 
 /// Query parameters for fetching Node.js versions.
@@ -268,13 +269,13 @@ async fn fetch_remote_index_json(
 }
 
 /// POST /api/v1/runtimes/node/install
-/// Installs a Node.js version, verifies SHA256 checksum, extracts archive, and enables corepack.
+/// Enqueues installation with checksum verification and optional corepack.
 #[utoipa::path(
     post,
     path = "/api/v1/runtimes/node/install",
     request_body = NodeRuntimeInstallApiRequest,
     responses(
-        (status = 200, description = "Node.js berhasil dipasang", body = NodeRuntimeActionApiResponse),
+        (status = 202, description = "Tugas pemasangan Node.js dibuat", body = JobItem),
         (status = 400, description = "Permintaan tidak valid"),
         (status = 403, description = "Akses ditolak (hanya admin)")
     ),
@@ -309,49 +310,54 @@ pub async fn install_node_version_handler(
         base_dir: payload.base_dir,
     };
 
-    match state.agent_client.install_node_runtime(req).await {
-        Ok(res) => {
-            state.audit_writer.log_async(
-                Some(admin.0.id),
-                &admin.0.username,
-                "node.runtime_install",
-                raw_node_version_tag(&norm_ver),
-                "success",
-                None,
-                Some(format!("Berhasil memasang Node.js v{}", norm_ver)),
-            );
-
-            (
-                StatusCode::OK,
-                Json(NodeRuntimeActionApiResponse {
-                    version: res.version,
-                    success: res.success,
-                    path: res.path,
-                    message: res.message,
-                }),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            state.audit_writer.log_async(
-                Some(admin.0.id),
-                &admin.0.username,
-                "node.runtime_install",
-                raw_node_version_tag(&norm_ver),
-                "error",
-                None,
-                Some(format!("Gagal memasang Node.js v{}: {}", norm_ver, e)),
-            );
-
-            (
-                StatusCode::BAD_REQUEST,
+    let payload_json = match serde_json::to_string(&req) {
+        Ok(json) => json,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
-                    "error": format!("Gagal memasang Node.js v{}: {}", norm_ver, e)
+                    "error": "Gagal menyiapkan tugas pemasangan Node.js"
                 })),
             )
-                .into_response()
+                .into_response();
         }
-    }
+    };
+    let (job, _) = match state
+        .job_runner
+        .enqueue(
+            Some(admin.0.id),
+            None,
+            "node.install".to_string(),
+            payload_json,
+            Some(3),
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": format!("Gagal membuat antrean pemasangan Node.js: {e}")
+                })),
+            )
+                .into_response();
+        }
+    };
+    state.job_runner.notify.notify_one();
+    state.audit_writer.log_async(
+        Some(admin.0.id),
+        &admin.0.username,
+        "node.runtime_install",
+        raw_node_version_tag(&norm_ver),
+        "success",
+        None,
+        Some(format!(
+            "Tugas pemasangan Node.js v{norm_ver} dibuat: {}",
+            job.id
+        )),
+    );
+    (StatusCode::ACCEPTED, Json(JobItem::from(job))).into_response()
 }
 
 /// DELETE /api/v1/runtimes/node/{version}

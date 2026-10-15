@@ -31,9 +31,14 @@ impl JobRunner {
 
     /// Creates a new `JobRunner` with a custom registry.
     pub fn with_registry(pool: DbPool, registry: JobRegistry) -> Self {
+        Self::with_pools(pool.clone(), pool, registry)
+    }
+
+    /// Core identity/config access stays separate from high-frequency job writes.
+    pub fn with_pools(pool: DbPool, operations: DbPool, registry: JobRegistry) -> Self {
         let (event_tx, _) = broadcast::channel(1024);
         Self {
-            job_repo: SqliteJobRepository::new(pool.clone()),
+            job_repo: SqliteJobRepository::new(operations),
             pool,
             event_tx,
             notify: Arc::new(tokio::sync::Notify::new()),

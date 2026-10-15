@@ -107,7 +107,8 @@ impl SqliteJobRepository {
         let res = sqlx::query(
             r#"
             UPDATE jobs
-            SET status = ?, result_json = ?, error_message = ?, updated_at = ?
+            SET status = ?, result_json = ?, error_message = ?, updated_at = ?,
+                progress = CASE WHEN ? = 'succeeded' THEN 100 ELSE progress END
             WHERE id = ?
             "#,
         )
@@ -115,6 +116,7 @@ impl SqliteJobRepository {
         .bind(result_json)
         .bind(error_message)
         .bind(now)
+        .bind(status)
         .bind(id)
         .execute(&self.pool)
         .await?;

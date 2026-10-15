@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   BarChart3,
   Server,
@@ -15,6 +15,7 @@ import { Site, SystemTimeseriesResponse, SystemInsightsResponse } from '../types
 import { SiteAnalyticsTab } from '../components/sites/SiteAnalyticsTab';
 import { ServerSystemMetrics } from '../components/analytics/ServerSystemMetrics';
 import { AnalyticsRetentionCard } from '../components/analytics/AnalyticsRetentionCard';
+import { summarizeSystemInsights } from '../components/analytics/systemInsights';
 
 type AnalyticsScope = 'site' | 'server';
 
@@ -32,6 +33,8 @@ export const AnalyticsPage: React.FC = () => {
   const [systemInsights, setSystemInsights] = useState<SystemInsightsResponse | null>(null);
   const [isLoadingServer, setIsLoadingServer] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
   const [serverRange, setServerRange] = useState<'1h' | '6h' | '24h' | '7d'>('24h');
 
   // Load sites for selector
@@ -61,8 +64,12 @@ export const AnalyticsPage: React.FC = () => {
   // Load server metrics when scope is server
   const loadServerMetrics = useCallback(async () => {
     if (!isAdmin) return;
+    const sequence = ++requestSequence.current;
     setIsLoadingServer(true);
     setServerError(null);
+    setInsightsError(null);
+    setServerMetrics(null);
+    setSystemInsights(null);
 
     const now = Math.floor(Date.now() / 1000);
     let from = now - 24 * 3600;
@@ -71,30 +78,27 @@ export const AnalyticsPage: React.FC = () => {
     else if (serverRange === '24h') from = now - 24 * 3600;
     else if (serverRange === '7d') from = now - 7 * 24 * 3600;
 
-    try {
-      const [res, insightsRes] = await Promise.all([
-        fetchSystemAnalyticsTimeseries({ from, to: now }),
-        fetchSystemInsights().catch(() => null),
-      ]);
-      setServerMetrics(res);
-      if (insightsRes) {
-        setSystemInsights(insightsRes);
-      }
-    } catch (err: unknown) {
-      const e = err as Error;
-      setServerError(e.message || 'Gagal memuat metrik sistem server');
-    } finally {
-      setIsLoadingServer(false);
-    }
+    const [metricsResult, insightsResult] = await Promise.allSettled([
+      fetchSystemAnalyticsTimeseries({ from, to: now }),
+      fetchSystemInsights(),
+    ]);
+    if (sequence !== requestSequence.current) return;
+    if (metricsResult.status === 'fulfilled') setServerMetrics(metricsResult.value);
+    else setServerError(metricsResult.reason instanceof Error ? metricsResult.reason.message : 'Gagal memuat metrik sistem server');
+    if (insightsResult.status === 'fulfilled') setSystemInsights(insightsResult.value);
+    else setInsightsError(insightsResult.reason instanceof Error ? insightsResult.reason.message : 'Gagal memuat insight sistem');
+    setIsLoadingServer(false);
   }, [isAdmin, serverRange]);
 
   useEffect(() => {
     if (scope === 'server') {
       loadServerMetrics();
     }
+    return () => { requestSequence.current++; };
   }, [scope, loadServerMetrics]);
 
   const selectedSite = sites.find((s: Site) => s.id === selectedSiteId) || sites[0];
+  const insightSummary = useMemo(() => systemInsights ? summarizeSystemInsights(systemInsights, sites) : null, [systemInsights, sites]);
 
   return (
     <div className="space-y-6">
@@ -232,13 +236,15 @@ export const AnalyticsPage: React.FC = () => {
 
           {/* Error */}
           {serverError && (
-            <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500">
+            <div role="alert" className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500">
               {serverError}
             </div>
           )}
+          {insightsError && <p role="alert" className="text-sm text-[var(--danger)]">{insightsError}</p>}
+          {isLoadingServer && <p role="status" className="text-sm text-[var(--ink-muted)]">Memuat metrik server dan insight sistem…</p>}
 
           {/* System Insights Health Overview (Phase 9 - P9-T7) */}
-          {systemInsights && (
+          {insightSummary && (
             <div className="p-4 bg-[var(--surface)] border border-[var(--line)] rounded-xl space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -248,19 +254,19 @@ export const AnalyticsPage: React.FC = () => {
                   </h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  {systemInsights.total_critical > 0 && (
+                  {insightSummary.total_critical > 0 && (
                     <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center gap-1">
                       <AlertOctagon className="w-3 h-3" />
-                      {systemInsights.total_critical} Kritis
+                      {insightSummary.total_critical} Kritis
                     </span>
                   )}
-                  {systemInsights.total_warning > 0 && (
+                  {insightSummary.total_warning > 0 && (
                     <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
-                      {systemInsights.total_warning} Peringatan
+                      {insightSummary.total_warning} Peringatan
                     </span>
                   )}
-                  {systemInsights.total_critical === 0 && systemInsights.total_warning === 0 && (
+                  {insightSummary.total_critical === 0 && insightSummary.total_warning === 0 && (
                     <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" />
                       Semua Situs Normal
@@ -270,11 +276,11 @@ export const AnalyticsPage: React.FC = () => {
               </div>
 
               {/* Show affected sites if any */}
-              {systemInsights.site_insights.length > 0 ? (
+              {insightSummary.site_insights.length > 0 ? (
                 <div className="space-y-2 pt-1">
-                  {systemInsights.site_insights.map((si) => (
+                  {insightSummary.site_insights.map((si) => (
                     <div
-                      key={si.site_id}
+                      key={si.site_id ?? 'host'}
                       className="p-3 bg-[var(--bg)] border border-[var(--line)] rounded-lg flex items-center justify-between gap-3 text-xs"
                     >
                       <div className="flex items-center gap-2">
@@ -298,7 +304,7 @@ export const AnalyticsPage: React.FC = () => {
                             {ins.title}
                           </span>
                         ))}
-                        <button
+                        {si.can_review && si.site_id !== null && <button
                           type="button"
                           onClick={() => {
                             setSelectedSiteId(si.site_id);
@@ -306,8 +312,8 @@ export const AnalyticsPage: React.FC = () => {
                           }}
                           className="text-[var(--primary)] font-medium hover:underline ml-2"
                         >
-                          Tinjau Situs &rarr;
-                        </button>
+                          Tinjau situs
+                        </button>}
                       </div>
                     </div>
                   ))}

@@ -93,7 +93,6 @@ export const AnalyticsRetentionCard: React.FC<AnalyticsRetentionCardProps> = ({
 
   // Operational State
   const [forceVacuum, setForceVacuum] = useState<boolean>(false);
-  const [forceWalCheckpoint, setForceWalCheckpoint] = useState<boolean>(true);
   const [runningMaintenance, setRunningMaintenance] = useState<boolean>(false);
   const [maintenanceReport, setMaintenanceReport] = useState<RetentionMaintenanceReportDto | null>(
     () => initialData?.last_report ?? null
@@ -186,7 +185,6 @@ export const AnalyticsRetentionCard: React.FC<AnalyticsRetentionCardProps> = ({
     try {
       const rep = await triggerAnalyticsMaintenance({
         force_vacuum: forceVacuum,
-        force_wal_checkpoint: forceWalCheckpoint,
       });
       setMaintenanceReport(rep);
       setSuccessMsg(
@@ -265,7 +263,7 @@ export const AnalyticsRetentionCard: React.FC<AnalyticsRetentionCardProps> = ({
 
       {/* Alerts */}
       {error && (
-        <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500 flex items-start gap-2.5">
+        <div role="alert" className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500 flex items-start gap-2.5">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <div className="flex-1">{error}</div>
         </div>
@@ -528,7 +526,7 @@ export const AnalyticsRetentionCard: React.FC<AnalyticsRetentionCardProps> = ({
                 <input
                   id="retention-max-db"
                   type="number"
-                  min="10"
+                  min="50"
                   placeholder="Kosong = Tanpa batas"
                   value={maxDbMb}
                   onChange={(e) => setMaxDbMb(e.target.value)}
@@ -576,15 +574,7 @@ export const AnalyticsRetentionCard: React.FC<AnalyticsRetentionCardProps> = ({
 
             {/* Options */}
             <div className="mt-4 space-y-2 text-xs">
-              <label className="flex items-center gap-2 font-medium text-[var(--ink)] cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={forceWalCheckpoint}
-                  onChange={(e) => setForceWalCheckpoint(e.target.checked)}
-                  className="rounded border-[var(--line)] text-[var(--primary)] focus:ring-[var(--primary)]"
-                />
-                <span>Potong dan checkpoint jurnal WAL ke berkas utama (TRUNCATE)</span>
-              </label>
+              <p className="text-[var(--ink-muted)]">Pembersihan mencakup checkpoint jurnal WAL ke berkas utama (TRUNCATE).</p>
 
               <label className="flex items-center gap-2 font-medium text-[var(--ink)] cursor-pointer">
                 <input

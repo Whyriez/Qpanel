@@ -31,7 +31,8 @@ pub async fn run_reconcile(
     let site_repo = SqliteSiteRepository::new(pool.clone());
     let domain_repo = SqliteDomainRepository::new(pool.clone());
     let user_repo = SqliteUserRepository::new(pool.clone());
-    let job_repo = SqliteJobRepository::new(pool.clone());
+    let operations = panel_db::operations::for_maintenance(pool).await?;
+    let job_repo = SqliteJobRepository::new(operations.clone());
 
     let sites = site_repo.list_all().await?;
     let users = user_repo.list_all().await?;
@@ -111,7 +112,7 @@ pub async fn run_reconcile(
     // 2. Inspect stuck jobs
     let stuck_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE status = 'running';")
-            .fetch_one(pool)
+            .fetch_one(&operations)
             .await
             .unwrap_or(0);
 

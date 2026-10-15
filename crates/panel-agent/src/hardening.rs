@@ -18,8 +18,16 @@ use std::sync::Arc;
 use tracing::info;
 
 pub const DEFAULT_CGROUP_ROOT: &str = "/sys/fs/cgroup";
-pub const DEFAULT_PROC_MOUNTS: &str = "/proc/mounts";
+// /proc/mounts describes the agent's private namespace, not necessarily the host.
+pub const DEFAULT_PROC_MOUNTS: &str = "/proc/1/mounts";
 pub const DEFAULT_GROUP_FILE: &str = "/etc/group";
+pub const PROC_HARDENING_UNIT: &str = "panel-proc-hardening.service";
+
+fn has_hidepid(options: &str) -> bool {
+    options
+        .split(',')
+        .any(|option| matches!(option.trim(), "hidepid=2" | "hidepid=invisible"))
+}
 
 pub struct HardeningManager {
     runner: Arc<dyn SystemRunner>,
@@ -165,9 +173,9 @@ impl HardeningManager {
         let is_hidepid = if let Ok(mounts) = fs::read_to_string(&self.proc_mounts) {
             mounts.lines().any(|line| {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 && parts[1] == "/proc" {
+                if parts.len() >= 4 && parts[1] == "/proc" && parts[2] == "proc" {
                     let opts = parts[3];
-                    opts.contains("hidepid=2") || opts.contains("hidepid=invisible")
+                    has_hidepid(opts)
                 } else {
                     false
                 }
@@ -175,10 +183,13 @@ impl HardeningManager {
         } else {
             // Fallback to findmnt command
             self.runner
-                .run_command("findmnt", &["-n", "-o", "OPTIONS", "/proc"])
+                .run_command(
+                    "findmnt",
+                    &["--task", "1", "-n", "-o", "OPTIONS", "--target", "/proc"],
+                )
                 .map(|o| {
                     let opts = String::from_utf8_lossy(&o.stdout);
-                    opts.contains("hidepid=2") || opts.contains("hidepid=invisible")
+                    o.status.success() && has_hidepid(opts.trim())
                 })
                 .unwrap_or(false)
         };
@@ -190,14 +201,14 @@ impl HardeningManager {
                 message:
                     "Hardening procfs hidepid=2 aktif (proses tenant lain terisolasi di /proc)"
                         .to_string(),
-                details: Some("proc mounted with hidepid=2".to_string()),
+                details: Some("Host PID 1 procfs mounted with hidepid=2".to_string()),
             }
         } else {
             PrerequisiteCheckItem {
                 name: "hidepid".to_string(),
                 ok: false,
-                message: "procfs hidepid=2 belum aktif. Proses tenant lain berpotensi terlihat di /proc. Aktifkan melalui panel atau tambahkan opsi 'hidepid=2' ke /proc di /etc/fstab.".to_string(),
-                details: Some("proc mounted without hidepid=2".to_string()),
+                message: "procfs hidepid=2 belum aktif atau status host belum dapat diverifikasi. Aktifkan melalui panel; pastikan unit panel-proc-hardening.service terpasang dan host mengizinkan remount procfs.".to_string(),
+                details: Some(format!("Host mount source: {}", self.proc_mounts.display())),
             }
         }
     }
@@ -261,7 +272,9 @@ impl HardeningManager {
             let group_check = self.check_tenant_group();
             if !group_check.ok {
                 info!("Creating system group 'panel-tenants'...");
-                let output = self.runner.run_command("groupadd", &["panel-tenants"])?;
+                let output = self
+                    .runner
+                    .run_command("groupadd", &["--system", "panel-tenants"])?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
                     return Err(AgentError::CommandFailed {
@@ -279,22 +292,44 @@ impl HardeningManager {
 
         // 2. Enable hidepid=2 on /proc
         if req.enable_hidepid {
+            // Persist the explicitly requested policy across reboot. PID 1 starts
+            // the fixed oneshot outside this daemon's filesystem namespace.
+            self.runner.run_command("systemctl", &["enable", PROC_HARDENING_UNIT])
+                .map_err(|e| AgentError::Internal(format!(
+                    "Gagal mengaktifkan {PROC_HARDENING_UNIT}. Pasang unit dari release terbaru: {e}"
+                )))?;
             let hidepid_check = self.check_hidepid();
             if !hidepid_check.ok {
-                info!("Remounting /proc with hidepid=2...");
+                info!("Applying host procfs policy through {PROC_HARDENING_UNIT}...");
                 let output = self
                     .runner
-                    .run_command("mount", &["-o", "remount,hidepid=2", "/proc"])?;
+                    .run_command("systemctl", &["restart", PROC_HARDENING_UNIT])
+                    .map_err(|e| AgentError::Internal(format!(
+                        "Gagal menerapkan hidepid host melalui {PROC_HARDENING_UNIT}. Periksa journal unit dan izin mount host: {e}"
+                    )))?;
                 if !output.status.success() {
                     let err = String::from_utf8_lossy(&output.stderr);
                     return Err(AgentError::CommandFailed {
-                        binary: "mount".to_string(),
+                        binary: "systemctl".to_string(),
                         code: output.status.code(),
                         stderr: err.to_string(),
                     });
                 }
+                let verified = self.runner.run_command(
+                    "findmnt",
+                    &["--task", "1", "-n", "-o", "OPTIONS", "--target", "/proc"],
+                )?;
+                if !verified.status.success()
+                    || !has_hidepid(String::from_utf8_lossy(&verified.stdout).trim())
+                {
+                    return Err(AgentError::Internal(
+                        "Unit hardening selesai, tetapi hidepid=2 pada /proc host belum terverifikasi. Periksa journal panel-proc-hardening.service.".to_owned()
+                    ));
+                }
                 hidepid_applied = true;
-                messages.push("procfs berhasil di-remount dengan hidepid=2");
+                messages.push(
+                    "procfs host memakai hidepid=2 dan kebijakan diaktifkan untuk boot berikutnya",
+                );
             } else {
                 messages.push("procfs hidepid=2 sudah aktif");
             }
@@ -369,6 +404,12 @@ mod tests {
         )
         .expect("write mounts");
         fs::write(&group_file, "root:x:0:\n").expect("write group");
+        runner.set_response(
+            "findmnt --task 1 -n -o OPTIONS --target /proc",
+            0,
+            b"rw,nosuid,nodev,noexec,hidepid=2,gid=100\n",
+            b"",
+        );
 
         let manager = HardeningManager::with_paths(
             Arc::clone(&runner) as Arc<dyn SystemRunner>,
@@ -395,9 +436,10 @@ mod tests {
         // Verify actions recorded
         let actions = runner.recorded_actions();
         assert!(actions.iter().any(|a| matches!(a, crate::system::MockAction::Command { binary, .. } if binary == "groupadd")));
-        assert!(actions.iter().any(
-            |a| matches!(a, crate::system::MockAction::Command { binary, .. } if binary == "mount")
-        ));
+        let commands = runner.get_commands();
+        assert!(commands.contains(&format!("systemctl enable {PROC_HARDENING_UNIT}")));
+        assert!(commands.contains(&format!("systemctl restart {PROC_HARDENING_UNIT}")));
+        assert!(!commands.iter().any(|command| command.starts_with("mount ")));
 
         // Update mounts and group to simulate applied state
         fs::write(
@@ -412,6 +454,84 @@ mod tests {
 
         let group_check_after = manager.check_tenant_group();
         assert!(group_check_after.ok);
+    }
+
+    #[test]
+    fn test_proc_mount_option_tokens_are_exact() {
+        for accepted in ["rw,hidepid=2", "hidepid=invisible,gid=100"] {
+            assert!(has_hidepid(accepted));
+        }
+        for rejected in [
+            "hidepid=20",
+            "x-hidepid=2",
+            "hidepid=1",
+            "hidepid=invisible-extra",
+        ] {
+            assert!(!has_hidepid(rejected));
+        }
+        assert_eq!(DEFAULT_PROC_MOUNTS, "/proc/1/mounts");
+    }
+
+    #[test]
+    fn test_helper_failure_and_unverified_success_are_reported() {
+        let temp = tempdir().expect("tempdir");
+        let mounts = temp.path().join("mounts");
+        fs::write(&mounts, "proc /proc proc rw,relatime 0 0\n").unwrap();
+        for failure in ["enable", "restart", "verification"] {
+            let runner = Arc::new(MockSystemRunner::new());
+            if failure != "verification" {
+                runner.set_response(
+                    &format!("systemctl {failure} {PROC_HARDENING_UNIT}"),
+                    1,
+                    b"",
+                    b"permission denied or unit unavailable",
+                );
+            }
+            let manager = HardeningManager::with_paths(
+                Arc::clone(&runner) as Arc<dyn SystemRunner>,
+                temp.path(),
+                &mounts,
+                temp.path().join("group"),
+            );
+            let error = manager
+                .apply(HardeningApplyRequest {
+                    enable_hidepid: true,
+                    ensure_tenant_group: false,
+                })
+                .expect_err("must not claim host hardening succeeded");
+            assert!(error.to_string().contains("panel-proc-hardening.service"));
+            assert!(
+                !runner
+                    .get_commands()
+                    .iter()
+                    .any(|command| command.starts_with("mount "))
+            );
+        }
+    }
+
+    #[test]
+    fn test_existing_host_policy_is_enabled_for_boot_without_remount() {
+        let temp = tempdir().unwrap();
+        let mounts = temp.path().join("mounts");
+        fs::write(&mounts, "proc /proc proc rw,hidepid=invisible 0 0\n").unwrap();
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = HardeningManager::with_paths(
+            Arc::clone(&runner) as Arc<dyn SystemRunner>,
+            temp.path(),
+            &mounts,
+            temp.path().join("group"),
+        );
+        let result = manager
+            .apply(HardeningApplyRequest {
+                enable_hidepid: true,
+                ensure_tenant_group: false,
+            })
+            .unwrap();
+        assert!(!result.hidepid_applied);
+        assert_eq!(
+            runner.get_commands(),
+            vec![format!("systemctl enable {PROC_HARDENING_UNIT}")]
+        );
     }
 
     #[test]

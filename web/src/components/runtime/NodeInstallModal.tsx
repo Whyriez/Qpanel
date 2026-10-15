@@ -1,5 +1,5 @@
 import { ModalOverlay } from '../ui/ModalOverlay';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Download, Loader2, X, Settings2, ShieldCheck, Check } from 'lucide-react';
 import { NodeVersionItem, NodeRuntimeInstallRequest } from '../../types/api';
 
@@ -9,6 +9,8 @@ interface NodeInstallModalProps {
   availableVersions: NodeVersionItem[];
   onInstall: (payload: NodeRuntimeInstallRequest) => Promise<void>;
   preselectedVersion?: string;
+  busyVersions?: string[];
+  jobsUnavailable?: boolean;
 }
 
 export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
@@ -17,9 +19,11 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
   availableVersions,
   onInstall,
   preselectedVersion,
+  busyVersions = [],
+  jobsUnavailable = false,
 }) => {
   const [selectedVersion, setSelectedVersion] = useState<string>(
-    preselectedVersion || availableVersions.find((v) => !v.is_installed)?.version || '22.14.0'
+    preselectedVersion || availableVersions.find((v) => !v.is_installed)?.version || ''
   );
   const [customVersion, setCustomVersion] = useState('');
   const [isCustom, setIsCustom] = useState(false);
@@ -29,15 +33,35 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
   const [offlinePath, setOfflinePath] = useState('');
   const [offlineChecksum, setOfflineChecksum] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const openCycle = useRef(0);
+
+  useEffect(() => { openCycle.current++; }, [isOpen]);
+  const version = (isCustom ? customVersion.trim() : selectedVersion).replace(/^v/, '');
+  const versionBusy = busyVersions.includes(version);
+  const versionInstalled = availableVersions.some(item => item.version === version && item.is_installed);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedVersion(current => preselectedVersion ||
+        (availableVersions.some(v => v.version === current && !v.is_installed) ? current : availableVersions.find(v => !v.is_installed)?.version || ''));
+      setSubmitError('');
+    }
+  }, [isOpen, preselectedVersion, availableVersions]);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting || versionBusy || versionInstalled || jobsUnavailable) return;
+    const cycle = openCycle.current;
     const ver = isCustom ? customVersion.trim() : selectedVersion;
     if (!ver) return;
 
     setSubmitting(true);
+    setSubmitError('');
+    closeButton.current?.focus();
     try {
       await onInstall({
         version: ver,
@@ -46,7 +70,9 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
         offline_checksum: offlineChecksum.trim() || undefined,
         enable_corepack: enableCorepack,
       });
-      onClose();
+      if (openCycle.current === cycle) onClose();
+    } catch (error: unknown) {
+      setSubmitError(error instanceof Error ? error.message : 'Gagal membuat tugas pemasangan Node.js.');
     } finally {
       setSubmitting(false);
     }
@@ -59,7 +85,6 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
       aria-modal="true"
       aria-labelledby="node-install-title"
       onDismiss={onClose}
-      dismissDisabled={submitting}
     >
       <div className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] dialog-panel">
         {/* Header */}
@@ -73,13 +98,13 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
                 Pasang Versi Node.js
               </h2>
               <p className="text-[11px] text-[var(--ink-muted)]">
-                Unduh dan verifikasi checksum SHA256 secara otomatis
+                Pemasangan berjalan di latar belakang dan dapat dipantau di Tugas.
               </p>
             </div>
           </div>
           <button
+            ref={closeButton}
             onClick={onClose}
-            disabled={submitting}
             className="p-1.5 rounded-[var(--radius-md)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)] transition-colors"
             aria-label="Tutup"
           >
@@ -90,6 +115,9 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto dialog-form">
           <div className="dialog-body space-y-4">
+            {submitError && <p role="alert" className="text-xs text-[var(--danger)] whitespace-pre-wrap break-words">{submitError}</p>}
+            {versionBusy && <p role="status" className="text-xs text-[var(--ink-muted)]">Versi ini sedang dipasang. Pantau progres pada halaman Tugas; modal boleh ditutup.</p>}
+            {submitting && <p role="status" className="text-xs text-[var(--ink-muted)]">Membuat tugas pemasangan. Modal boleh ditutup; proses tetap dilanjutkan.</p>}
             {/* Version Selection */}
             <div className="space-y-2">
               <label className="block text-xs font-medium text-[var(--ink)]">Versi Node.js</label>
@@ -105,7 +133,7 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
                     {availableVersions.map((v) => {
                       const label = `v${v.version}${v.is_lts ? ` (LTS ${v.lts_codename || ''})` : ''}${v.is_installed ? ' — Sudah Terpasang' : ''}`;
                       return (
-                        <option key={v.version} value={v.version}>
+                        <option key={v.version} value={v.version} disabled={v.is_installed || busyVersions.includes(v.version)}>
                           {label}
                         </option>
                       );
@@ -238,20 +266,19 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
               className="px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] text-[var(--ink)] hover:bg-[var(--line)]/50 transition-colors disabled:opacity-50"
             >
-              Batal
+              Tutup
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || versionBusy || versionInstalled || jobsUnavailable || !version}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm"
             >
               {submitting ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Memasang...</span>
+                  <span>Membuat tugas...</span>
                 </>
               ) : (
                 <>

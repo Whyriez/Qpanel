@@ -317,7 +317,7 @@ pub async fn install_database_server_handler(
         }
     };
 
-    let _ = SqliteAuditLogRepository::new(state.pool.clone())
+    let _ = SqliteAuditLogRepository::new(state.operations_pool.clone())
         .create(&CreateAuditLog {
             user_id: Some(user.id),
             actor_username: user.username.clone(),
@@ -379,7 +379,7 @@ pub async fn action_database_server_handler(
         .await
     {
         Ok(res) => {
-            let _ = SqliteAuditLogRepository::new(state.pool.clone())
+            let _ = SqliteAuditLogRepository::new(state.operations_pool.clone())
                 .create(&CreateAuditLog {
                     user_id: Some(user.id),
                     actor_username: user.username.clone(),
@@ -694,7 +694,7 @@ pub async fn create_database_handler(
 
             match db_repo.create(&input).await {
                 Ok(created) => {
-                    let _ = SqliteAuditLogRepository::new(state.pool.clone())
+                    let _ = SqliteAuditLogRepository::new(state.operations_pool.clone())
                         .create(&CreateAuditLog {
                             user_id: Some(user.id),
                             actor_username: user.username.clone(),
@@ -821,7 +821,7 @@ pub async fn delete_database_handler(
     // Delete record from repo
     match db_repo.delete(id).await {
         Ok(_) => {
-            let _ = SqliteAuditLogRepository::new(state.pool.clone())
+            let _ = SqliteAuditLogRepository::new(state.operations_pool.clone())
                 .create(&CreateAuditLog {
                     user_id: Some(user.id),
                     actor_username: user.username.clone(),
@@ -919,7 +919,7 @@ pub async fn rotate_password_handler(
         .await
     {
         Ok(_) => {
-            let _ = SqliteAuditLogRepository::new(state.pool.clone())
+            let _ = SqliteAuditLogRepository::new(state.operations_pool.clone())
                 .create(&CreateAuditLog {
                     user_id: Some(user.id),
                     actor_username: user.username.clone(),
@@ -1026,7 +1026,7 @@ pub async fn update_remote_access_handler(
 
             match db_repo.update(id, &update_input).await {
                 Ok(updated) => {
-                    let _ = SqliteAuditLogRepository::new(state.pool.clone())
+                    let _ = SqliteAuditLogRepository::new(state.operations_pool.clone())
                         .create(&CreateAuditLog {
                             user_id: Some(user.id),
                             actor_username: user.username.clone(),

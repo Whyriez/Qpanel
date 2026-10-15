@@ -322,8 +322,9 @@ pub async fn run_doctor(
     checks.push(check_database_integrity(pool, db_path).await);
 
     // 2. Check Job Queue (Stuck jobs in running state)
-    let job_repo = SqliteJobRepository::new(pool.clone());
-    let (job_check, stuck_count) = check_job_queue(pool).await;
+    let operations = panel_db::operations::for_maintenance(pool).await?;
+    let job_repo = SqliteJobRepository::new(operations.clone());
+    let (job_check, stuck_count) = check_job_queue(&operations).await;
     checks.push(job_check);
 
     // 3. Try communicating with Agent over IPC Socket

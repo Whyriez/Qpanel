@@ -1734,6 +1734,7 @@ export interface InsightActionDto {
 
 export interface AnalyticsInsightDto {
   id: string;
+  site_id?: number | null;
   insight_type: string;
   severity: 'critical' | 'warning' | 'info';
   title: string;
@@ -1751,10 +1752,8 @@ export interface SiteInsightsResponse {
 }
 
 export interface SystemInsightsResponse {
-  total_critical: number;
-  total_warning: number;
-  total_info: number;
-  site_insights: SiteInsightsResponse[];
+  total_insights: number;
+  insights: AnalyticsInsightDto[];
   evaluated_at: number;
 }
 
@@ -1883,6 +1882,7 @@ export interface IntegrityCheckReportDto {
 }
 
 export interface AnalyticsRetentionResponse {
+  // UI model. analyticsContracts maps the Rust retention/stats wire response.
   config: RetentionConfigDto;
   storage: DatabaseStorageStatsDto;
   last_report?: RetentionMaintenanceReportDto | null;
@@ -1901,7 +1901,6 @@ export interface UpdateRetentionRequest {
 
 export interface TriggerMaintenanceRequest {
   force_vacuum?: boolean | null;
-  force_wal_checkpoint?: boolean | null;
 }
 
 // ==========================================

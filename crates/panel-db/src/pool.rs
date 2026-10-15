@@ -10,17 +10,23 @@ use crate::error::DbError;
 
 pub type DbPool = SqlitePool;
 
-/// Initializes SQLite connection pool with WAL mode, foreign keys, and 5-second busy timeout.
+/// WAL keeps reads concurrent with writes; a busy timeout also covers other processes.
 pub async fn init_pool(database_url: &str) -> Result<DbPool, DbError> {
+    init_pool_with_limit(database_url, 8).await
+}
+
+pub async fn init_pool_with_limit(database_url: &str, connections: u32) -> Result<DbPool, DbError> {
     let options = SqliteConnectOptions::from_str(database_url)?
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
         .foreign_keys(true)
-        .busy_timeout(Duration::from_secs(5));
+        .busy_timeout(Duration::from_secs(15))
+        .pragma("wal_autocheckpoint", "1000");
 
     let pool = SqlitePoolOptions::new()
-        .max_connections(16)
+        .max_connections(connections)
+        .acquire_timeout(Duration::from_secs(30))
         .connect_with(options)
         .await?;
 

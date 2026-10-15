@@ -5,9 +5,11 @@ import { TerminalTabs } from '../components/terminal/TerminalTabs';
 import { TerminalInstance } from '../components/terminal/TerminalInstance';
 import { toast } from 'sonner';
 import { TenantTarget } from '../components/tenants/TenantTarget';
+import { TerminalAccessNotice, useTerminalAccess } from '../components/terminal/TerminalAccess';
 
 export const TerminalPage: React.FC = () => <TenantTarget>{tenant => <TenantTerminal key={tenant || 'self'} tenant={tenant} />}</TenantTarget>;
 export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
+  const { state: access, refresh: refreshAccess, canOpenTerminal } = useTerminalAccess(tenant);
   const initialized = React.useRef(false);
   const liveSessions = React.useRef(new Set<string>());
   const mounted = React.useRef(true);
@@ -24,11 +26,13 @@ export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
   const [tabs, setTabs] = useState<TerminalTabItem[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [isSpawning, setIsSpawning] = useState(false);
+  const [sessionError, setSessionError] = useState('');
 
   const spawnTab = useCallback(
     async (cwd?: string) => {
-      if (isSpawning) return;
+      if (isSpawning || !canOpenTerminal) return;
       setIsSpawning(true);
+      setSessionError('');
 
       const targetCwd = cwd || '';
       const fallbackTitle = targetCwd
@@ -69,23 +73,26 @@ export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
           )
         );
       } catch (err: unknown) {
+        if (!mounted.current) return;
         const errorMsg = err instanceof Error ? err.message : 'Gagal membuka sesi terminal';
         toast.error(errorMsg);
+        setSessionError(errorMsg);
+        if ((err as { status?: number })?.status === 403) refreshAccess();
         setTabs((prev) => prev.filter((t) => t.id !== tempId));
       } finally {
-        setIsSpawning(false);
+        if (mounted.current) setIsSpawning(false);
       }
     },
-    [isSpawning, tabs.length, tenant]
+    [isSpawning, tabs.length, tenant, canOpenTerminal, refreshAccess]
   );
 
   // Spawn initial tab on mount if empty
   useEffect(() => {
-    if (!initialized.current && tabs.length === 0 && !isSpawning) {
+    if (canOpenTerminal && !initialized.current && tabs.length === 0 && !isSpawning) {
       initialized.current = true;
       spawnTab();
     }
-  }, [tabs.length, isSpawning, spawnTab]);
+  }, [tabs.length, isSpawning, spawnTab, canOpenTerminal]);
 
   const handleCloseTab = async (tabId: string) => {
     const tabToClose = tabs.find((t) => t.id === tabId);
@@ -120,17 +127,20 @@ export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
         activeTabId={activeTabId}
         onSelectTab={setActiveTabId}
         onNewTab={() => spawnTab()}
+        newTabDisabled={!canOpenTerminal || isSpawning}
         onCloseTab={handleCloseTab}
       />
 
       {/* Viewport */}
       <div className="flex-1 w-full h-full relative overflow-hidden bg-[var(--surface)]">
-        {tabs.length === 0 ? (
+        {!canOpenTerminal ? <TerminalAccessNotice state={access} onRefresh={refreshAccess} /> : tabs.length === 0 ? (
           <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center text-xs text-[var(--ink-muted)]">
             <p className="mb-3">Tidak ada sesi terminal aktif saat ini.</p>
+            {sessionError && <p role="alert" className="mb-3 text-[var(--danger)]">{sessionError}</p>}
             <button
               type="button"
               onClick={() => spawnTab()}
+              disabled={isSpawning}
               className="px-3 py-1.5 rounded-[var(--radius-md)] bg-[var(--primary)] text-white text-xs font-medium hover:opacity-90"
             >
               Buka Sesi Terminal

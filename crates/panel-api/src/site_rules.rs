@@ -281,7 +281,7 @@ pub async fn update_site_rules_handler(
     }
 
     // 6. Record audit log
-    let audit_repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let audit_repo = SqliteAuditLogRepository::new(state.operations_pool.clone());
     let _ = audit_repo
         .create(&CreateAuditLog {
             user_id: Some(auth_user.id),

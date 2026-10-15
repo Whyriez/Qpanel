@@ -83,13 +83,23 @@ export const JobsPage: React.FC = () => {
   // SSE subscription effect
   useEffect(() => {
     if (!activeStreamJob) return;
+    let active = true;
+    const jobId = activeStreamJob.id;
 
     const unsubscribe = subscribeJobEvents(
-      activeStreamJob.id,
+      jobId,
       (event: JobProgressEvent) => {
-        setStreamEvents((prev) => [...prev, event]);
+        if (!active || event.job_id !== jobId) return;
+        setStreamEvents((prev) => {
+          const last = prev.at(-1);
+          // The SSE stream starts with the same persisted snapshot used on open.
+          if (last && last.job_id === event.job_id && last.status === event.status &&
+            last.progress === event.progress && last.timestamp === event.timestamp &&
+            last.message === event.message) return prev;
+          return [...prev, event];
+        });
         setActiveStreamJob((current: JobItem | null) =>
-          current ? { ...current, status: event.status as JobStatus, progress: event.progress } : null
+          current?.id === event.job_id ? { ...current, status: event.status as JobStatus, progress: event.progress } : current
         );
         setJobs((prev) =>
           prev.map((j) =>
@@ -102,6 +112,7 @@ export const JobsPage: React.FC = () => {
     );
 
     return () => {
+      active = false;
       unsubscribe();
     };
   }, [activeStreamJob?.id]);
@@ -309,20 +320,24 @@ export const JobsPage: React.FC = () => {
       {activeStreamJob && (
         <ModalOverlay
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="job-monitor-title"
           onClick={() => setActiveStreamJob(null)}
           onDismiss={() => setActiveStreamJob(null)}
         >
           <div
-            className="w-full max-w-lg bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-5 space-y-4 dialog-panel"
+            className="w-full max-w-4xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] p-5 space-y-4 dialog-panel"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-[var(--line)] pb-3 dialog-header">
               <div className="flex items-center gap-2">
                 <Radio className="w-4 h-4 text-[var(--primary)] animate-pulse" />
-                <h3 className="font-semibold text-xs text-[var(--ink)]">Live Monitor: {activeStreamJob.name}</h3>
+                <h3 id="job-monitor-title" className="font-semibold text-xs text-[var(--ink)]">Live Monitor: {activeStreamJob.name}</h3>
               </div>
               <button
                 onClick={() => setActiveStreamJob(null)}
+                aria-label="Tutup monitor"
                 className="p-1 rounded text-[var(--ink-muted)] hover:text-[var(--ink)] cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -357,17 +372,19 @@ export const JobsPage: React.FC = () => {
                 <span className="block text-[11px] font-medium text-[var(--ink-muted)]">
                   Log Event Progres (Server-Sent Events):
                 </span>
-                <div className="p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] overflow-y-auto max-h-48 space-y-1.5">
+                <div role="log" aria-label="Log progres tugas" className="min-w-0 p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] space-y-3">
                   {streamEvents.map((ev, i) => (
                     <div
                       key={i}
-                      className="flex items-start gap-2 border-b border-[var(--line)]/30 pb-1 last:border-b-0"
+                      className="min-w-0 border-b border-[var(--line)]/30 pb-3 last:border-b-0"
                     >
+                      <div className="mb-1 flex flex-wrap items-center gap-2">
                       <span className="text-[var(--ink-muted)] text-[10px] shrink-0">
                         [{new Date(ev.timestamp * 1000).toLocaleTimeString()}]
                       </span>
                       <span className="font-bold text-[var(--primary)] shrink-0">{ev.status}</span>
-                      <span className="truncate">{ev.message || `Progres ${ev.progress}%`}</span>
+                      </div>
+                      <p className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{ev.message || `Progres ${ev.progress}%`}</p>
                     </div>
                   ))}
                 </div>

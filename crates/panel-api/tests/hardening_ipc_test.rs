@@ -38,6 +38,12 @@ async fn test_hardening_prerequisites_and_apply_over_ipc() {
     fs::write(&group_path, "root:x:0:\n").expect("write group without panel-tenants");
 
     let runner = Arc::new(MockSystemRunner::new());
+    runner.set_response(
+        "findmnt --task 1 -n -o OPTIONS --target /proc",
+        0,
+        b"rw,nosuid,nodev,noexec,hidepid=2,gid=100\n",
+        b"",
+    );
     let user_manager = Arc::new(panel_agent::user::UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn panel_agent::system::SystemRunner>,
     ));
@@ -105,7 +111,10 @@ async fn test_hardening_prerequisites_and_apply_over_ipc() {
     // Verify mock commands were recorded
     let actions = runner.recorded_actions();
     assert!(actions.iter().any(|a| matches!(a, panel_agent::system::MockAction::Command { binary, .. } if binary == "groupadd")));
-    assert!(actions.iter().any(|a| matches!(a, panel_agent::system::MockAction::Command { binary, .. } if binary == "mount")));
+    let commands = runner.get_commands();
+    assert!(commands.contains(&"systemctl enable panel-proc-hardening.service".to_owned()));
+    assert!(commands.contains(&"systemctl restart panel-proc-hardening.service".to_owned()));
+    assert!(!commands.iter().any(|command| command.starts_with("mount ")));
 
     // 3. Update simulated system state to hardened and re-check
     fs::write(

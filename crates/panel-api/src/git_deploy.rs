@@ -361,7 +361,7 @@ pub async fn upsert_git_config_handler(
     };
 
     // Audit log
-    let audit_repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let audit_repo = SqliteAuditLogRepository::new(state.operations_pool.clone());
     let _ = audit_repo
         .create(&CreateAuditLog {
             user_id: Some(auth_user.id),
@@ -485,7 +485,7 @@ pub async fn generate_deploy_key_handler(
             .into_response();
     }
 
-    let audit_repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let audit_repo = SqliteAuditLogRepository::new(state.operations_pool.clone());
     let _ = audit_repo
         .create(&CreateAuditLog {
             user_id: Some(auth_user.id),
@@ -824,7 +824,7 @@ pub async fn rollback_deploy_handler(
         }
     };
 
-    let audit_repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let audit_repo = SqliteAuditLogRepository::new(state.operations_pool.clone());
     let _ = audit_repo
         .create(&CreateAuditLog {
             user_id: Some(auth_user.id),

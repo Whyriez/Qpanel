@@ -18,7 +18,8 @@ use panel_core::auth::hash_password;
 use panel_db::models::{CreateDomain, CreatePlan, CreateSite, CreateUser};
 use panel_db::pool::{DbPool, init_pool, run_migrations};
 use panel_db::repositories::{
-    SqliteDomainRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteUserRepository,
+    SqliteDomainRepository, SqliteJobRepository, SqlitePlanRepository, SqliteSiteRepository,
+    SqliteUserRepository,
 };
 use panel_runtime::node::compute_sha256;
 use serde_json::Value;
@@ -26,6 +27,7 @@ use tower::ServiceExt;
 
 struct TestContext {
     app: axum::Router,
+    job_runner: Arc<panel_api::jobs::JobRunner>,
     pool: DbPool,
     admin_session: String,
     user_session: String,
@@ -167,6 +169,7 @@ async fn setup_test_context() -> TestContext {
         AuthConfig::default(),
         Arc::new(LockoutManager::new(5, 900)),
     );
+    let job_runner = Arc::clone(&state.job_runner);
     let app = create_router(state);
 
     // Login Admin
@@ -217,6 +220,7 @@ async fn setup_test_context() -> TestContext {
 
     TestContext {
         app,
+        job_runner,
         pool,
         admin_session,
         user_session,
@@ -338,16 +342,99 @@ async fn test_install_node_version_rbac_and_flow() {
         ))
         .unwrap();
     let install_res = ctx.app.clone().oneshot(install_req).await.unwrap();
-    if install_res.status() != StatusCode::OK {
-        let err_body = install_res.into_body().collect().await.unwrap().to_bytes();
-        panic!("Install failed: {}", String::from_utf8_lossy(&err_body));
-    }
-    assert_eq!(install_res.status(), StatusCode::OK);
-
+    assert_eq!(install_res.status(), StatusCode::ACCEPTED);
     let body = install_res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["success"].as_bool(), Some(true));
-    assert_eq!(json["version"].as_str(), Some("22.14.0"));
+    let job: panel_api::jobs::JobItem = serde_json::from_slice(&body).unwrap();
+    assert_eq!(job.name, "node.install");
+    assert_eq!(job.status, "queued");
+    assert_eq!(job.user_id, Some(1));
+    let target = ctx._runtimes_base_dir.join("22.14.0/bin/node");
+    assert!(
+        !target.exists(),
+        "HTTP request must not install the runtime"
+    );
+    assert!(
+        panel_api::jobs::process_one_job(&ctx.job_runner)
+            .await
+            .unwrap()
+    );
+    let finished = SqliteJobRepository::new(ctx.pool.clone())
+        .find_by_id(&job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(finished.status, "succeeded", "{:?}", finished.error_message);
+    assert_eq!(finished.progress, 100);
+    let result: Value = serde_json::from_str(finished.result_json.as_deref().unwrap()).unwrap();
+    assert_eq!(result["success"], true);
+    assert_eq!(result["version"], "22.14.0");
+    assert!(target.exists());
+
+    // A failed background installation persists the full error for the monitor.
+    let bad_payload = serde_json::json!({
+        "version": "22.14.1", "enable_corepack": false,
+        "mirror_url": null, "offline_tarball_path": offline_tar_file.to_string_lossy(),
+        "offline_checksum": "0".repeat(64), "base_dir": ctx._runtimes_base_dir.to_string_lossy()
+    });
+    let (bad_job, _) = ctx
+        .job_runner
+        .enqueue(
+            Some(1),
+            None,
+            "node.install".into(),
+            bad_payload.to_string(),
+            Some(0),
+        )
+        .await
+        .unwrap();
+    assert!(
+        panel_api::jobs::process_one_job(&ctx.job_runner)
+            .await
+            .unwrap()
+    );
+    let failed = SqliteJobRepository::new(ctx.pool.clone())
+        .find_by_id(&bad_job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(failed.status, "failed");
+    assert!(
+        failed
+            .error_message
+            .unwrap()
+            .contains("Instalasi Node.js v22.14.1 gagal")
+    );
+    assert!(!ctx._runtimes_base_dir.join("22.14.1/bin/node").exists());
+
+    // Recheck privileges when executing work queued before a role change.
+    let (denied_job, _) = ctx
+        .job_runner
+        .enqueue(
+            Some(2),
+            None,
+            "node.install".into(),
+            bad_payload.to_string(),
+            Some(0),
+        )
+        .await
+        .unwrap();
+    assert!(
+        panel_api::jobs::process_one_job(&ctx.job_runner)
+            .await
+            .unwrap()
+    );
+    let denied = SqliteJobRepository::new(ctx.pool.clone())
+        .find_by_id(&denied_job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(denied.status, "failed");
+    assert!(
+        denied
+            .error_message
+            .unwrap()
+            .contains("administrator aktif")
+    );
 }
 
 #[tokio::test]

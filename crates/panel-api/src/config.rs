@@ -162,6 +162,26 @@ impl PanelConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        let url = if self.database.url.starts_with("sqlite:") {
+            self.database.url.clone()
+        } else {
+            format!("sqlite://{}", self.database.url.replace('\\', "/"))
+        };
+        let options: sqlx::sqlite::SqliteConnectOptions = url
+            .parse()
+            .map_err(|e| ConfigError::Invalid(format!("Invalid SQLite URL: {e}")))?;
+        let core = options.get_filename();
+        if core != Path::new(":memory:")
+            && (panel_db::operations::same_file_path(core, &self.analytics.path)
+                || panel_db::operations::same_file_path(
+                    &panel_db::operations::sidecar_path(core),
+                    &self.analytics.path,
+                ))
+        {
+            return Err(ConfigError::Invalid(
+                "Core, operations and analytics databases must use distinct files".to_owned(),
+            ));
+        }
         if self.server.environment == "production" {
             if !self.analytics.path.is_absolute()
                 && !self.analytics.path.to_string_lossy().starts_with('/')
@@ -194,6 +214,20 @@ impl PanelConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analytics_cannot_share_a_file_with_core_or_operations() {
+        let temp = tempfile::tempdir().unwrap();
+        let core = temp.path().join("panel.db");
+        let mut config = PanelConfig::default();
+        config.database.url = core.to_string_lossy().into_owned();
+        config.analytics.path = core.clone();
+        assert!(config.validate().is_err());
+        config.analytics.path = panel_db::operations::sidecar_path(&core);
+        assert!(config.validate().is_err());
+        config.analytics.path = temp.path().join("analytics.db");
+        assert!(config.validate().is_ok());
+    }
 
     #[test]
     fn fresh_http_install_can_use_session_cookies() {

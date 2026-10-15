@@ -19,6 +19,7 @@ use panel_runtime::fpm::{
 };
 use panel_runtime::php::{
     CURATED_PHP_EXTENSIONS, PhpVersion, find_curated_extension, is_sury_repo_installed,
+    missing_php_package_candidates,
 };
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -27,16 +28,10 @@ use tracing::{info, warn};
 pub fn setup_php_repository(runner: &dyn SystemRunner) -> Result<PhpRepoSetupResponse, AgentError> {
     info!("Setting up Ondřej Surý PHP PPA repository");
 
-    // Check if repo already installed
-    let already_installed = is_sury_repo_installed(|p| runner.path_exists(p));
-    if already_installed {
-        info!("Sury PHP repository already present in apt sources");
-        return Ok(PhpRepoSetupResponse {
-            success: true,
-            ppa_configured: true,
-            message: "Repositori PPA PHP Sury sudah terpasang".to_string(),
-        });
-    }
+    // A source filename alone does not prove that it is enabled or that its
+    // package index was downloaded. Refresh bootstrap sources, then idempotently
+    // re-enable the fixed PPA and refresh again before installing versioned PHP.
+    refresh_php_package_index(runner)?;
 
     // Step 1: Install prerequisite packages
     runner.run_command(
@@ -53,10 +48,13 @@ pub fn setup_php_repository(runner: &dyn SystemRunner) -> Result<PhpRepoSetupRes
     )?;
 
     // Step 2: Add PPA repository
-    runner.run_command("add-apt-repository", &["-y", "ppa:ondrej/php"])?;
+    runner.run_command(
+        "add-apt-repository",
+        &["-y", "--no-update", "ppa:ondrej/php"],
+    )?;
 
     // Step 3: Refresh apt package index
-    runner.run_command("apt-get", &["update"])?;
+    refresh_php_package_index(runner)?;
 
     info!("Ondřej Surý PHP PPA repository configured successfully");
     Ok(PhpRepoSetupResponse {
@@ -64,6 +62,13 @@ pub fn setup_php_repository(runner: &dyn SystemRunner) -> Result<PhpRepoSetupRes
         ppa_configured: true,
         message: "Repositori PPA PHP Ondřej Surý berhasil dikonfigurasi".to_string(),
     })
+}
+
+fn refresh_php_package_index(runner: &dyn SystemRunner) -> Result<(), AgentError> {
+    // apt-get update can otherwise exit successfully with stale indexes after
+    // a DNS/TLS/repository failure. Preserve the full diagnostic on failure.
+    runner.run_command("apt-get", &["-o", "APT::Update::Error-Mode=any", "update"])?;
+    Ok(())
 }
 
 /// Lists all supported PHP versions along with installation and masking statuses.
@@ -126,9 +131,29 @@ pub fn install_php_runtime(
 
     info!("Installing PHP version {}", version.as_str());
 
+    setup_php_repository(runner)?;
+
+    let pkgs = version.base_packages();
+    let mut policy_args = vec!["policy"];
+    policy_args.extend(pkgs.iter().map(String::as_str));
+    let policy = runner.run_command("apt-cache", &policy_args)?;
+    let policy_text = String::from_utf8_lossy(&policy.stdout);
+    let missing = missing_php_package_candidates(version, &policy_text);
+    if !missing.is_empty() {
+        return Err(AgentError::InvalidInput(format!(
+            "Paket PHP {} belum tersedia setelah konfigurasi PPA dan pembaruan indeks APT. \
+             Tidak ada kandidat instalasi untuk: {}. Periksa sumber PPA yang aktif, \
+             codename OS, arsitektur, dan aturan pinning APT pada server.\n\
+             apt-cache policy:\n{}\n{}",
+            version.as_str(),
+            missing.join(", "),
+            policy_text,
+            String::from_utf8_lossy(&policy.stderr),
+        )));
+    }
+
     // Step 1: Install packages via apt-get
     let mut install_args = vec!["install", "-y", "--no-install-recommends"];
-    let pkgs = version.base_packages();
     let pkg_strs: Vec<&str> = pkgs.iter().map(String::as_str).collect();
     install_args.extend(pkg_strs);
 
@@ -1153,6 +1178,15 @@ mod tests {
     use crate::system::MockSystemRunner;
     use std::path::PathBuf;
 
+    fn available_php_candidates(runner: &MockSystemRunner, version: PhpVersion) {
+        let policy: String = version
+            .base_packages()
+            .iter()
+            .map(|package| format!("{package}:\n  Installed: (none)\n  Candidate: 1.0\n"))
+            .collect();
+        runner.set_response("apt-cache", 0, policy.as_bytes(), b"");
+    }
+
     #[test]
     fn test_setup_php_repository_installs_and_updates() {
         let runner = MockSystemRunner::new();
@@ -1170,14 +1204,132 @@ mod tests {
         assert!(
             commands
                 .iter()
-                .any(|cmd| cmd.contains("add-apt-repository -y ppa:ondrej/php"))
+                .any(|cmd| cmd.contains("add-apt-repository -y --no-update ppa:ondrej/php"))
         );
-        assert!(commands.iter().any(|cmd| cmd.contains("apt-get update")));
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|cmd| cmd.as_str() == "apt-get -o APT::Update::Error-Mode=any update")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_php84_prepares_repository_even_when_source_file_exists() {
+        for source in [
+            "ondrej-ubuntu-php-noble.list",
+            "ondrej-ubuntu-php-noble.sources",
+        ] {
+            let runner = MockSystemRunner::new();
+            available_php_candidates(&runner, PhpVersion::Php84);
+            runner.add_existing_path(PathBuf::from("/etc/apt/sources.list.d").join(source));
+            runner.set_response(
+                "systemctl is-enabled php8.4-fpm.service",
+                0,
+                b"masked\n",
+                b"",
+            );
+            install_php_runtime(&runner, "8.4").unwrap();
+            let commands = runner.get_commands();
+            let setup = commands
+                .iter()
+                .position(|cmd| cmd.starts_with("add-apt-repository "))
+                .unwrap();
+            let install = commands
+                .iter()
+                .position(|cmd| {
+                    cmd.starts_with(
+                        "apt-get install -y --no-install-recommends php8.4-fpm php8.4-cli",
+                    )
+                })
+                .unwrap();
+            assert!(setup < install);
+            assert_eq!(
+                commands[setup + 1],
+                "apt-get -o APT::Update::Error-Mode=any update"
+            );
+            assert!(
+                commands
+                    .iter()
+                    .any(|cmd| cmd == "systemctl mask php8.4-fpm.service")
+            );
+        }
+    }
+
+    #[test]
+    fn test_php_install_stops_on_package_index_error() {
+        let runner = MockSystemRunner::new();
+        runner.set_response(
+            "apt-get -o APT::Update::Error-Mode=any update",
+            100,
+            b"",
+            b"Failed to fetch PPA: DNS lookup failed",
+        );
+        let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
+        assert!(error.contains("DNS lookup failed"));
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|cmd| cmd.contains("php8.4-fpm"))
+        );
+    }
+
+    #[test]
+    fn test_php_install_stops_on_repository_setup_error() {
+        let runner = MockSystemRunner::new();
+        runner.set_response("add-apt-repository", 1, b"", b"PPA signing key unavailable");
+        let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
+        assert!(error.contains("signing key unavailable"));
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|cmd| cmd.contains("php8.4-fpm"))
+        );
+    }
+
+    #[test]
+    fn test_php_install_rejects_missing_candidate_after_successful_update() {
+        let runner = MockSystemRunner::new();
+        runner.set_response(
+            "apt-cache",
+            0,
+            b"php8.4-fpm:\n  Candidate: (none)\n",
+            b"No index for this architecture",
+        );
+        let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
+        assert!(error.contains("Tidak ada kandidat instalasi"));
+        assert!(error.contains("php8.4-fpm"));
+        assert!(error.contains("Candidate: (none)"));
+        assert!(error.contains("No index for this architecture"));
+        assert!(!runner.get_commands().iter().any(|command| {
+            command.starts_with("apt-get install -y --no-install-recommends php8.4")
+        }));
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|command| command.starts_with("systemctl"))
+        );
+    }
+
+    #[test]
+    fn test_php_install_preserves_candidate_lookup_failure() {
+        let runner = MockSystemRunner::new();
+        runner.set_response("apt-cache", 100, b"", b"Package cache is corrupt");
+        let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
+        assert!(error.contains("Package cache is corrupt"));
+        assert!(!runner.get_commands().iter().any(|command| {
+            command.starts_with("apt-get install -y --no-install-recommends php8.4")
+        }));
     }
 
     #[test]
     fn test_install_php_runtime_installs_and_masks_service() {
         let runner = MockSystemRunner::new();
+        available_php_candidates(&runner, PhpVersion::Php83);
         let res = install_php_runtime(&runner, "8.3").unwrap();
 
         assert!(res.success);

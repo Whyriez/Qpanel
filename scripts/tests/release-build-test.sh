@@ -68,6 +68,7 @@ for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
     done
     [[ -f "$extract/nusa-panel-v0.1.1-$target/templates/nginx/nusa-panel.conf" ]]
     [[ -f "$extract/nusa-panel-v0.1.1-$target/templates/systemd/panel-api.service" ]]
+    cmp -s "$REPO/templates/systemd/panel-proc-hardening.service" "$extract/nusa-panel-v0.1.1-$target/templates/systemd/panel-proc-hardening.service"
     [[ "$output" == *'[SUKSES]'* ]]
     pass "native $target GLIBC gate and tarball read freshly compiled artifacts"
 done

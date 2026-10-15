@@ -49,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let pool = panel_db::pool::init_pool(&db_url).await?;
     panel_db::pool::run_migrations(&pool).await?;
+    let operations = panel_db::operations::open(&pool).await?;
 
     let lockout_manager = Arc::new(panel_api::auth::LockoutManager::new(
         config.auth.max_failed_attempts,
@@ -56,9 +57,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let agent_client = Arc::new(AgentClient::new(config.agent.socket_path.clone()));
-    let mut state = AppState::new(
+    let mut state = AppState::with_operations(
         agent_client,
         pool,
+        operations,
         config.server.environment.clone(),
         config.auth.clone(),
         lockout_manager,

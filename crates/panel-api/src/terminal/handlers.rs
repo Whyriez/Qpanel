@@ -426,7 +426,7 @@ pub async fn get_terminal_audit_handler(
 
         let total: (i64,) = count_builder
             .build_query_as()
-            .fetch_one(&state.pool)
+            .fetch_one(&state.operations_read_pool)
             .await
             .map_err(|e| {
                 (
@@ -437,7 +437,7 @@ pub async fn get_terminal_audit_handler(
 
         let logs = list_builder
             .build_query_as::<panel_db::models::AuditLog>()
-            .fetch_all(&state.pool)
+            .fetch_all(&state.operations_read_pool)
             .await
             .map_err(|e| {
                 (

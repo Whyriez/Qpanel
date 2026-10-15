@@ -46,6 +46,9 @@ jobs:
       - name: Installer regression checks (mocks, no host services)
         run: bash scripts/tests/install-regression-test.sh
 
+      - name: SQLite partition SQL contracts (temporary databases)
+        run: python3 scripts/tests/sqlite-partition-regression.py
+
       - name: Run Clippy lints
         run: cargo clippy --workspace --all-targets -- -D warnings -A clippy::unwrap_used -A clippy::expect_used -A clippy::clone_on_ref_ptr && cargo clippy --workspace --lib --bins -- -D warnings
 

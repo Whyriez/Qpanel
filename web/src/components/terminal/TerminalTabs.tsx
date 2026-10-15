@@ -3,6 +3,7 @@ import { TerminalTabItem } from '../../types/terminal';
 import { Plus, X, Terminal, Search, RotateCw, Trash2, Maximize2, Minimize2 } from 'lucide-react';
 
 interface TerminalTabsProps {
+  newTabDisabled?: boolean;
   tabs: TerminalTabItem[];
   activeTabId: string;
   onSelectTab: (id: string) => void;
@@ -28,6 +29,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
   isMaximized,
   onToggleMaximize,
   onCloseAll,
+  newTabDisabled = false,
 }) => {
   return (
     <div className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--surface-hover)] px-2 py-1 select-none text-xs">
@@ -80,7 +82,8 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
         <button
           type="button"
           onClick={onNewTab}
-          className="flex items-center gap-1 px-2 py-1.5 rounded-[var(--radius-md)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface)] transition-colors cursor-pointer text-xs"
+          disabled={newTabDisabled}
+          className="flex items-center gap-1 px-2 py-1.5 rounded-[var(--radius-md)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--surface)] transition-colors cursor-pointer text-xs disabled:opacity-50 disabled:cursor-not-allowed"
           title="Buka tab terminal baru"
         >
           <Plus className="h-3.5 w-3.5" />

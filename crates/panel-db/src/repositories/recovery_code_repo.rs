@@ -21,7 +21,7 @@ impl SqliteRecoveryCodeRepository {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
 
         // 1. Delete old codes
         sqlx::query("DELETE FROM user_recovery_codes WHERE user_id = ?")

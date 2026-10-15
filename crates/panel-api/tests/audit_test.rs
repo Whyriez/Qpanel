@@ -85,9 +85,11 @@ async fn setup_test_app() -> (axum::Router, DbPool, Arc<AuditWriter>, tempfile::
 
     let lockout_manager = Arc::new(LockoutManager::new(5, 300));
     let agent_client = Arc::new(AgentClient::new(sock_path));
-    let state = AppState::new(
+    let operations = panel_db::operations::open(&pool).await.expect("operations");
+    let state = AppState::with_operations(
         agent_client,
         pool.clone(),
+        operations,
         "development".to_string(),
         auth_config,
         lockout_manager,
@@ -168,7 +170,8 @@ async fn test_audit_writer_direct_sync_and_async() {
     );
 
     // Wait for background task to write
-    let repo = SqliteAuditLogRepository::new(pool);
+    let repo =
+        SqliteAuditLogRepository::new(panel_db::operations::for_maintenance(&pool).await.unwrap());
     let mut list = Vec::new();
     for _ in 0..40 {
         list = repo.list(10, 0).await.expect("list");
@@ -235,7 +238,8 @@ async fn test_auth_actions_recorded_in_audit_log() {
     assert_eq!(res.status(), StatusCode::OK);
 
     // Wait for background tasks to settle
-    let repo = SqliteAuditLogRepository::new(pool);
+    let repo =
+        SqliteAuditLogRepository::new(panel_db::operations::for_maintenance(&pool).await.unwrap());
     let mut all_logs = Vec::new();
     for _ in 0..60 {
         all_logs = repo.list(50, 0).await.expect("list");

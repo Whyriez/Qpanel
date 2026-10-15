@@ -20,6 +20,7 @@ async function fixture(browser,{authenticated=false,role='admin',installed=true}
     else if(path==='/api/v1/auth/setup'){if(mode.setupFail){status=500;body={title:'Internal Server Error',error:'Penyimpanan administrator gagal; token belum digunakan.'};mode.setupFail=false;}else {status=201;body={created:true,user_id:1,username:'admin'};}}
     else if(path==='/api/v1/tenants')body={tenants:[owner]};
     else if(path==='/api/v1/tenants/42')body={tenant:owner,plan:null};
+    else if(path==='/api/v1/tenants/42/shell-policy')body={user_id:42,username:'customer',shell_policy:null,effective_policy:'full',inherited_from_plan:true,plan_policy:'full'};
     else if(path==='/api/v1/php/versions')body={versions:installed?[{version:'8.3',installed:true,fpm_binary_exists:true}]:[]};
     else if(path==='/api/v1/sites'&&req.method()==='POST')body={...site,...req.postDataJSON()};
     else if(path==='/api/v1/sites')body=[site];

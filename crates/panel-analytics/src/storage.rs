@@ -20,6 +20,7 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct AnalyticsStorage {
     pool: Pool<Sqlite>,
+    write_pool: Pool<Sqlite>,
     db_path: Option<String>,
 }
 
@@ -32,16 +33,24 @@ impl AnalyticsStorage {
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-            .busy_timeout(std::time::Duration::from_secs(5));
+            .busy_timeout(std::time::Duration::from_secs(15));
 
+        let write_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .connect_with(options.clone())
+            .await
+            .map_err(AnalyticsError::Database)?;
         let pool = SqlitePoolOptions::new()
-            .max_connections(5)
-            .connect_with(options)
+            .max_connections(4)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .connect_with(options.pragma("query_only", "ON"))
             .await
             .map_err(AnalyticsError::Database)?;
 
         let storage = Self {
             pool,
+            write_pool,
             db_path: Some(path_str),
         };
         storage.init_schema().await?;
@@ -57,6 +66,7 @@ impl AnalyticsStorage {
             .map_err(AnalyticsError::Database)?;
 
         let storage = Self {
+            write_pool: pool.clone(),
             pool,
             db_path: None,
         };
@@ -65,7 +75,8 @@ impl AnalyticsStorage {
     }
 
     pub fn pool(&self) -> &Pool<Sqlite> {
-        &self.pool
+        // Explicit maintenance/fixture writes still pass through the single writer.
+        &self.write_pool
     }
 
     pub fn db_path(&self) -> Option<&str> {
@@ -588,7 +599,7 @@ impl AnalyticsStorage {
         "#;
 
         sqlx::query(schema)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -625,7 +636,7 @@ impl AnalyticsStorage {
             .bind(pt.net_tx_bytes_sec)
             .bind(pt.io_read_bytes_sec)
             .bind(pt.io_write_bytes_sec)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -641,7 +652,11 @@ impl AnalyticsStorage {
             return Ok(());
         }
 
-        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let mut tx = self
+            .write_pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AnalyticsError::Database)?;
         let query = r#"
         INSERT OR REPLACE INTO metrics_tenant_raw (
             timestamp, uid, cpu_usage_usec, cpu_percent, memory_current_bytes,
@@ -680,7 +695,11 @@ impl AnalyticsStorage {
             return Ok(());
         }
 
-        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let mut tx = self
+            .write_pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AnalyticsError::Database)?;
         let query = r#"
         INSERT OR REPLACE INTO metrics_service_raw (
             timestamp, service_name, cpu_usage_usec, cpu_percent,
@@ -742,7 +761,7 @@ impl AnalyticsStorage {
         "#;
         let s_res = sqlx::query(s_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -767,7 +786,7 @@ impl AnalyticsStorage {
         "#;
         let t_res = sqlx::query(t_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -792,7 +811,7 @@ impl AnalyticsStorage {
         "#;
         let svc_res = sqlx::query(svc_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -837,7 +856,7 @@ impl AnalyticsStorage {
         "#;
         let s_res = sqlx::query(s_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -861,7 +880,7 @@ impl AnalyticsStorage {
         "#;
         let t_res = sqlx::query(t_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -885,7 +904,7 @@ impl AnalyticsStorage {
         "#;
         let svc_res = sqlx::query(svc_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -930,7 +949,7 @@ impl AnalyticsStorage {
         "#;
         let s_res = sqlx::query(s_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -954,7 +973,7 @@ impl AnalyticsStorage {
         "#;
         let t_res = sqlx::query(t_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -978,7 +997,7 @@ impl AnalyticsStorage {
         "#;
         let svc_res = sqlx::query(svc_query)
             .bind(max_bucket)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -1001,27 +1020,27 @@ impl AnalyticsStorage {
         let raw_cutoff = current_timestamp - retention.raw_retention_secs;
         let q1 = sqlx::query("DELETE FROM metrics_server_raw WHERE timestamp < ?")
             .bind(raw_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q2 = sqlx::query("DELETE FROM metrics_tenant_raw WHERE timestamp < ?")
             .bind(raw_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q3 = sqlx::query("DELETE FROM metrics_service_raw WHERE timestamp < ?")
             .bind(raw_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_fpm_raw = sqlx::query("DELETE FROM metrics_php_fpm_raw WHERE timestamp < ?")
             .bind(raw_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_app_raw = sqlx::query("DELETE FROM metrics_app_process_raw WHERE timestamp < ?")
             .bind(raw_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         total_deleted += (q1.rows_affected()
@@ -1034,32 +1053,32 @@ impl AnalyticsStorage {
         let m1_cutoff = current_timestamp - retention.one_minute_retention_secs;
         let q4 = sqlx::query("DELETE FROM metrics_server_1m WHERE bucket_ts < ?")
             .bind(m1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q5 = sqlx::query("DELETE FROM metrics_tenant_1m WHERE bucket_ts < ?")
             .bind(m1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q6 = sqlx::query("DELETE FROM metrics_service_1m WHERE bucket_ts < ?")
             .bind(m1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_fpm_1m = sqlx::query("DELETE FROM metrics_php_fpm_1m WHERE bucket_ts < ?")
             .bind(m1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_app_1m = sqlx::query("DELETE FROM metrics_app_process_1m WHERE bucket_ts < ?")
             .bind(m1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_slow = sqlx::query("DELETE FROM php_slowlog_events WHERE timestamp < ?")
             .bind(m1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         total_deleted += (q4.rows_affected()
@@ -1073,17 +1092,17 @@ impl AnalyticsStorage {
         let h1_cutoff = current_timestamp - retention.one_hour_retention_secs;
         let q7 = sqlx::query("DELETE FROM metrics_server_1h WHERE bucket_ts < ?")
             .bind(h1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q8 = sqlx::query("DELETE FROM metrics_tenant_1h WHERE bucket_ts < ?")
             .bind(h1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q9 = sqlx::query("DELETE FROM metrics_service_1h WHERE bucket_ts < ?")
             .bind(h1_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         total_deleted += (q7.rows_affected() + q8.rows_affected() + q9.rows_affected()) as usize;
@@ -1093,17 +1112,17 @@ impl AnalyticsStorage {
             let d1_cutoff = current_timestamp - d1_secs;
             let q10 = sqlx::query("DELETE FROM metrics_server_1d WHERE bucket_ts < ?")
                 .bind(d1_cutoff)
-                .execute(&self.pool)
+                .execute(&self.write_pool)
                 .await
                 .map_err(AnalyticsError::Database)?;
             let q11 = sqlx::query("DELETE FROM metrics_tenant_1d WHERE bucket_ts < ?")
                 .bind(d1_cutoff)
-                .execute(&self.pool)
+                .execute(&self.write_pool)
                 .await
                 .map_err(AnalyticsError::Database)?;
             let q12 = sqlx::query("DELETE FROM metrics_service_1d WHERE bucket_ts < ?")
                 .bind(d1_cutoff)
-                .execute(&self.pool)
+                .execute(&self.write_pool)
                 .await
                 .map_err(AnalyticsError::Database)?;
             total_deleted +=
@@ -1114,7 +1133,7 @@ impl AnalyticsStorage {
         let sec_cutoff = current_timestamp - 7 * 86400;
         let q_sec = sqlx::query("DELETE FROM site_security_events WHERE timestamp < ?")
             .bind(sec_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         total_deleted += q_sec.rows_affected() as usize;
@@ -1161,7 +1180,7 @@ impl AnalyticsStorage {
     /// Truncate and flush WAL journal pages back into the main SQLite database file.
     pub async fn wal_checkpoint_truncate(&self) -> Result<(), AnalyticsError> {
         sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok(())
@@ -1170,7 +1189,7 @@ impl AnalyticsStorage {
     /// Rebuild database file to reclaim deleted pages and reduce disk fragmentation.
     pub async fn vacuum(&self) -> Result<(), AnalyticsError> {
         sqlx::query("VACUUM")
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok(())
@@ -1298,27 +1317,27 @@ impl AnalyticsStorage {
     async fn prune_raw_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
         let q1 = sqlx::query("DELETE FROM metrics_server_raw WHERE timestamp < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q2 = sqlx::query("DELETE FROM metrics_tenant_raw WHERE timestamp < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q3 = sqlx::query("DELETE FROM metrics_service_raw WHERE timestamp < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_fpm_raw = sqlx::query("DELETE FROM metrics_php_fpm_raw WHERE timestamp < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_app_raw = sqlx::query("DELETE FROM metrics_app_process_raw WHERE timestamp < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok((q1.rows_affected()
@@ -1331,37 +1350,37 @@ impl AnalyticsStorage {
     async fn prune_1m_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
         let q4 = sqlx::query("DELETE FROM metrics_server_1m WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q5 = sqlx::query("DELETE FROM metrics_tenant_1m WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q6 = sqlx::query("DELETE FROM metrics_service_1m WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_fpm_1m = sqlx::query("DELETE FROM metrics_php_fpm_1m WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_app_1m = sqlx::query("DELETE FROM metrics_app_process_1m WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_slow = sqlx::query("DELETE FROM php_slowlog_events WHERE timestamp < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_site_1m = sqlx::query("DELETE FROM site_metrics_1m WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok((q4.rows_affected()
@@ -1376,22 +1395,22 @@ impl AnalyticsStorage {
     async fn prune_1h_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
         let q7 = sqlx::query("DELETE FROM metrics_server_1h WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q8 = sqlx::query("DELETE FROM metrics_tenant_1h WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q9 = sqlx::query("DELETE FROM metrics_service_1h WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_site_1h = sqlx::query("DELETE FROM site_metrics_1h WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok((q7.rows_affected()
@@ -1403,22 +1422,22 @@ impl AnalyticsStorage {
     async fn prune_1d_records(&self, cutoff: i64) -> Result<usize, AnalyticsError> {
         let q10 = sqlx::query("DELETE FROM metrics_server_1d WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q11 = sqlx::query("DELETE FROM metrics_tenant_1d WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q12 = sqlx::query("DELETE FROM metrics_service_1d WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let q_site_1d = sqlx::query("DELETE FROM site_metrics_1d WHERE bucket_ts < ?")
             .bind(cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok((q10.rows_affected()
@@ -1431,20 +1450,20 @@ impl AnalyticsStorage {
         let emerg_raw = current_ts - 1800;
         let _ = sqlx::query("DELETE FROM metrics_server_raw WHERE timestamp < ?")
             .bind(emerg_raw)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await;
         let _ = sqlx::query("DELETE FROM metrics_tenant_raw WHERE timestamp < ?")
             .bind(emerg_raw)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await;
         let _ = sqlx::query("DELETE FROM metrics_service_raw WHERE timestamp < ?")
             .bind(emerg_raw)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await;
         let emerg_1m = current_ts - 3 * 86400;
         let _ = sqlx::query("DELETE FROM site_metrics_1m WHERE bucket_ts < ?")
             .bind(emerg_1m)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await;
     }
 
@@ -1475,7 +1494,7 @@ impl AnalyticsStorage {
         let sec_cutoff = current_ts - config.security_events_retention_secs;
         let q_sec = sqlx::query("DELETE FROM site_security_events WHERE timestamp < ?")
             .bind(sec_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let sec_pruned = q_sec.rows_affected() as usize;
@@ -1484,7 +1503,7 @@ impl AnalyticsStorage {
         let chk_cutoff = current_ts - 30 * 86400;
         let q_chk = sqlx::query("DELETE FROM log_tailer_checkpoints WHERE updated_at < ?")
             .bind(chk_cutoff)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         let checkpoints_pruned = q_chk.rows_affected() as usize;
@@ -1782,7 +1801,7 @@ impl AnalyticsStorage {
             .bind(checkpoint.file_offset as i64)
             .bind(checkpoint.last_processed_ts)
             .bind(checkpoint.updated_at)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -1820,7 +1839,7 @@ impl AnalyticsStorage {
         let query = "DELETE FROM log_tailer_checkpoints WHERE file_path = ?";
         sqlx::query(query)
             .bind(file_path)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
         Ok(())
@@ -1898,7 +1917,7 @@ impl AnalyticsStorage {
                 .bind(&top_slow_urls_json)
                 .bind(&top_error_urls_json)
                 .bind(&latency_buckets_json)
-                .execute(&self.pool)
+                .execute(&self.write_pool)
                 .await
                 .map_err(AnalyticsError::Database)?;
         }
@@ -1998,7 +2017,7 @@ impl AnalyticsStorage {
                 .bind(&top_error_urls_json)
                 .bind(&latency_buckets_json)
                 .bind(r.sample_count as i64)
-                .execute(&self.pool)
+                .execute(&self.write_pool)
                 .await
                 .map_err(AnalyticsError::Database)?;
         }
@@ -2407,14 +2426,14 @@ impl AnalyticsStorage {
         let cutoff_1m = current_ts - config.one_minute_retention_secs;
         let res_1m = sqlx::query("DELETE FROM site_metrics_1m WHERE bucket_ts < ?")
             .bind(cutoff_1m)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
         let cutoff_1h = current_ts - config.one_hour_retention_secs;
         let res_1h = sqlx::query("DELETE FROM site_metrics_1h WHERE bucket_ts < ?")
             .bind(cutoff_1h)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -2441,7 +2460,11 @@ impl AnalyticsStorage {
         &self,
         pts: &[PhpFpmPoolMetricPoint],
     ) -> Result<(), AnalyticsError> {
-        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let mut tx = self
+            .write_pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AnalyticsError::Database)?;
         let query = r#"
         INSERT OR REPLACE INTO metrics_php_fpm_raw (
             timestamp, pool_name, user, php_version,
@@ -2511,7 +2534,7 @@ impl AnalyticsStorage {
 
         let res = sqlx::query(query)
             .bind(until_ts)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -2707,7 +2730,7 @@ impl AnalyticsStorage {
             .bind(entry.duration_secs)
             .bind(entry.site_id)
             .bind(&entry.tenant_user)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -2813,7 +2836,11 @@ impl AnalyticsStorage {
         &self,
         pts: &[AppProcessMetricPoint],
     ) -> Result<(), AnalyticsError> {
-        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let mut tx = self
+            .write_pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AnalyticsError::Database)?;
         let query = r#"
         INSERT OR REPLACE INTO metrics_app_process_raw (
             timestamp, site_id, app_type, service_name,
@@ -2876,7 +2903,7 @@ impl AnalyticsStorage {
 
         let res = sqlx::query(query)
             .bind(until_ts)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -3042,7 +3069,7 @@ impl AnalyticsStorage {
             .bind(&ev.country)
             .bind(ev.event_type.as_str())
             .bind(ev.threat_score as i64)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 
@@ -3058,7 +3085,11 @@ impl AnalyticsStorage {
             return Ok(0);
         }
 
-        let mut tx = self.pool.begin().await.map_err(AnalyticsError::Database)?;
+        let mut tx = self
+            .write_pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AnalyticsError::Database)?;
         let query = r#"
         INSERT INTO site_security_events (
             site_id, timestamp, client_ip, method, uri, status, user_agent, country, event_type, threat_score
@@ -3291,7 +3322,7 @@ impl AnalyticsStorage {
     pub async fn prune_security_events(&self, cutoff_ts: i64) -> Result<u64, AnalyticsError> {
         let res = sqlx::query("DELETE FROM site_security_events WHERE timestamp < ?")
             .bind(cutoff_ts)
-            .execute(&self.pool)
+            .execute(&self.write_pool)
             .await
             .map_err(AnalyticsError::Database)?;
 

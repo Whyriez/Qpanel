@@ -91,17 +91,28 @@ fn stop_and_remove_systemd_services() -> (bool, bool) {
     }
 
     let _ = std::process::Command::new("systemctl")
-        .args(["stop", "panel-api.service", "panel-agent.service"])
+        .args([
+            "stop",
+            "panel-api.service",
+            "panel-agent.service",
+            "panel-proc-hardening.service",
+        ])
         .status();
 
     let _ = std::process::Command::new("systemctl")
-        .args(["disable", "panel-api.service", "panel-agent.service"])
+        .args([
+            "disable",
+            "panel-api.service",
+            "panel-agent.service",
+            "panel-proc-hardening.service",
+        ])
         .status();
 
     let mut unit_removed = false;
     for unit_file in &[
         "/etc/systemd/system/panel-api.service",
         "/etc/systemd/system/panel-agent.service",
+        "/etc/systemd/system/panel-proc-hardening.service",
     ] {
         let p = Path::new(unit_file);
         if p.exists() {

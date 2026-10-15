@@ -612,57 +612,41 @@ impl ReliabilityManager {
         }
 
         let final_archive_path = backups_dir.join(&filename);
-        let staging_dir = backups_dir.join(format!("staging_{}", timestamp));
+        let staging_dir =
+            backups_dir.join(format!("staging_{}_{}", timestamp, uuid::Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&staging_dir);
         let _ = self.runner.create_dir_all(&staging_dir, 0o700, 0, 0);
 
         let mut manifest_files = Vec::new();
 
-        // 1. Copy SQLite database
+        // Take consistent SQLite snapshots; raw copies can omit committed WAL data.
         let db_src = req
             .db_path
             .as_deref()
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("panel.db"));
-
-        if db_src.exists() {
-            let target_db = staging_dir.join("panel.db");
-            if let Ok(content) = std::fs::read(&db_src) {
-                let size = content.len() as u64;
-                let hash = compute_bytes_sha256(&content);
-                let _ = std::fs::write(&target_db, &content);
-                let _ = self.runner.write_file(&target_db, &content, 0o600);
+            .unwrap_or_else(|| PathBuf::from(panel_core::production::DEFAULT_DATABASE_PATH));
+        let operations_src = panel_db::operations::sidecar_path(&db_src);
+        let analytics_src = req
+            .analytics_db_path
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| db_src.with_file_name("analytics.db"));
+        for (source, name, include) in [
+            (db_src, "panel.db", true),
+            (operations_src, "operations.db", true),
+            (analytics_src, "analytics.db", req.include_analytics),
+        ] {
+            if include && source.exists() {
+                let target = staging_dir.join(name);
+                panel_db::snapshot::from_file_blocking(&source, &target)
+                    .map_err(|e| AgentError::Internal(format!("Snapshot {name} failed: {e}")))?;
+                let content = std::fs::read(&target)?;
                 manifest_files.push(SystemBackupFileEntry {
-                    relative_path: "database/panel.db".to_string(),
+                    relative_path: format!("database/{name}"),
                     file_type: "sqlite_db".to_string(),
-                    size_bytes: size,
-                    sha256: hash,
+                    size_bytes: content.len() as u64,
+                    sha256: compute_bytes_sha256(&content),
                 });
-            }
-        }
-
-        // 2. Copy Analytics SQLite database if requested
-        if req.include_analytics {
-            let analytics_db_src = req
-                .analytics_db_path
-                .as_deref()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("analytics.db"));
-
-            if analytics_db_src.exists() {
-                let target_analytics = staging_dir.join("analytics.db");
-                if let Ok(content) = std::fs::read(&analytics_db_src) {
-                    let size = content.len() as u64;
-                    let hash = compute_bytes_sha256(&content);
-                    let _ = std::fs::write(&target_analytics, &content);
-                    let _ = self.runner.write_file(&target_analytics, &content, 0o600);
-                    manifest_files.push(SystemBackupFileEntry {
-                        relative_path: "database/analytics.db".to_string(),
-                        file_type: "sqlite_db".to_string(),
-                        size_bytes: size,
-                        sha256: hash,
-                    });
-                }
             }
         }
 
@@ -839,6 +823,17 @@ impl ReliabilityManager {
             )));
         }
 
+        let target = req
+            .target_db_path
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(panel_core::production::DEFAULT_DATABASE_PATH));
+        if panel_db::operations::sidecar_path(&target).exists() {
+            return Err(AgentError::InvalidInput(
+                "Pemulihan multi-database memerlukan panel-api dihentikan dan panelctl backup restore dijalankan offline".to_owned()
+            ));
+        }
+
         // Create safety pre-restore backup
         let timestamp = Self::now_secs();
         let pre_restore_req = SystemBackupCreateRequest {
@@ -875,15 +870,10 @@ impl ReliabilityManager {
             }
         }
 
-        // Copy restored panel.db to target
+        // Legacy single-file restore; partitioned installations use offline CLI.
         let restored_db = restore_staging.join("panel.db");
         if restored_db.exists() {
-            let target_db = req
-                .target_db_path
-                .as_deref()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("panel.db"));
-            let _ = std::fs::copy(&restored_db, &target_db);
+            std::fs::copy(&restored_db, &target)?;
         }
 
         let _ = self.runner.remove_dir_all(&restore_staging);
@@ -1009,7 +999,15 @@ mod tests {
 
         // Create dummy DB file
         let db_path = temp.path().join("panel.db");
-        std::fs::write(&db_path, b"SQLite format 3\0test_db_content").unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let pool = panel_db::pool::init_pool(&format!("sqlite://{}", db_path.display()))
+                .await
+                .unwrap();
+            panel_db::pool::run_migrations(&pool).await.unwrap();
+            pool.close().await;
+        });
+        drop(runtime);
 
         // 1. Create backup
         let create_res = mgr

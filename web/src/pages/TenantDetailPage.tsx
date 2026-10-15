@@ -1,4 +1,4 @@
-import { navigate, useBrowserRoute } from '../lib/router';
+import { navigate, RouteLink, useBrowserRoute } from '../lib/router';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft,
@@ -49,6 +49,7 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const route = useBrowserRoute();
+  const shellPolicyCard = React.useRef<HTMLDivElement>(null);
   const activeTab = route.pathname.split('/')[3] || 'overview';
   const setActiveTab = (tab: string) => navigate(`/tenants/${tenantId}/${tab}`);
 
@@ -102,6 +103,13 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
     loadResources();
     loadShellPolicy();
   }, [loadTenant, loadResources, loadShellPolicy]);
+
+  useEffect(() => {
+    if (!isLoading && route.search.get('section') === 'shell') {
+      shellPolicyCard.current?.scrollIntoView({ block: 'start' });
+      shellPolicyCard.current?.focus({ preventScroll: true });
+    }
+  }, [isLoading, route.url, route.search]);
 
   const handleSaveShellPolicy = async () => {
     setIsSavingPolicy(true);
@@ -384,7 +392,7 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
           </div>
 
           {/* Kartu Kebijakan Shell & Akses Terminal (P6-T6) */}
-          <div className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-4">
+          <div ref={shellPolicyCard} tabIndex={-1} aria-label="Kebijakan shell dan akses terminal" className="p-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[var(--line)] gap-2">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-[var(--primary)]" />
@@ -442,23 +450,25 @@ export const TenantDetailPage: React.FC<TenantDetailPageProps> = ({
                     <span>Kelola Override Kebijakan Shell (Admin)</span>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-[11px] text-[var(--ink-muted)] block">
-                      Pilih Kebijakan Shell untuk Tenant Ini:
+                    <label htmlFor="tenant-shell-policy" className="text-[11px] text-[var(--ink-muted)] block">
+                      Pilih kebijakan shell untuk tenant ini
                     </label>
                     <select
+                      id="tenant-shell-policy"
                       value={selectedShellPolicy}
                       onChange={(e) => setSelectedShellPolicy(e.target.value)}
                       className="w-full text-xs px-2.5 py-1.5 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] focus:outline-hidden focus:ring-1 focus:ring-[var(--primary)]"
                     >
                       <option value="inherit">
-                        Mewarisi dari Paket ({plan?.shell_policy || 'full'})
+                        Mewarisi dari Paket ({plan?.shell_policy || 'none'})
                       </option>
                       <option value="none">none (Kunci total akses terminal & SFTP)</option>
                       <option value="sftp">sftp (Hanya SFTP chroot, tanpa terminal)</option>
                       <option value="full">full (Akses shell interaktif & web terminal)</option>
                     </select>
                   </div>
-                  <div className="flex justify-end pt-1">
+                  <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
+                    {shellPolicyData?.effective_policy === 'full' && <RouteLink href={`/terminal?tenant=${tenantId}`} className="text-xs font-medium text-[var(--primary)]">Buka terminal</RouteLink>}
                     <button
                       onClick={handleSaveShellPolicy}
                       disabled={isSavingPolicy}

@@ -26,6 +26,7 @@ SETUP_TOKEN=""
 MANAGED_FILES=(
     /usr/local/bin/panel-api /usr/local/bin/panel-agent /usr/local/bin/panelctl
     /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service
+    /etc/systemd/system/panel-proc-hardening.service
     /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf
     /etc/panel/public-port
 )
@@ -157,8 +158,8 @@ rollback() {
         fi
     done
     if [[ "$STATE_CHECKED" == true ]]; then
-        # Only restore the panel database; tenant files and live analytics stay intact.
-        for path in panel.db panel.db-wal panel.db-shm; do
+        # Core and operational state must roll back together; tenant files and analytics stay intact.
+        for path in panel.db panel.db-wal panel.db-shm panel.operations.db panel.operations.db-wal panel.operations.db-shm; do
             rm -f "/var/lib/panel/$path" || failed=true
             if [[ "$STATE_SAVED" == true && -f "$BACKUP_DIR/state/$path" ]]; then
                 cp -a "$BACKUP_DIR/state/$path" "/var/lib/panel/$path" || failed=true
@@ -204,7 +205,7 @@ setup_identity() {
     # /run/panel is created and secured by panel-agent.service on every boot.
     chown -R panel-api:panel /var/lib/panel
     local file
-    for file in /var/lib/panel/panel.db{,-wal,-shm}; do
+    for file in /var/lib/panel/panel.db{,-wal,-shm} /var/lib/panel/panel.operations.db{,-wal,-shm}; do
         [[ ! -f "$file" ]] || chmod 0640 "$file"
     done
 }
@@ -217,6 +218,7 @@ install_binaries_and_units() {
     done
     install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-api.service" /etc/systemd/system/panel-api.service
     install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-agent.service" /etc/systemd/system/panel-agent.service
+    install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-proc-hardening.service" /etc/systemd/system/panel-proc-hardening.service
     systemctl daemon-reload
 }
 
@@ -241,7 +243,7 @@ initialize_database() {
     fi
     chown -R panel-api:panel /var/lib/panel
     local file
-    for file in /var/lib/panel/panel.db{,-wal,-shm}; do
+    for file in /var/lib/panel/panel.db{,-wal,-shm} /var/lib/panel/panel.operations.db{,-wal,-shm}; do
         [[ ! -f "$file" ]] || chmod 0640 "$file"
     done
 }
@@ -356,7 +358,7 @@ validate_health() {
     }
     local file
     [[ "$(stat -c '%U:%G:%a' /var/lib/panel)" == panel-api:panel:750 ]] || { fail 'Permission direktori SQLite salah'; return 1; }
-    for file in /var/lib/panel/panel.db{,-wal,-shm}; do
+    for file in /var/lib/panel/panel.db{,-wal,-shm} /var/lib/panel/panel.operations.db{,-wal,-shm}; do
         if [[ -e "$file" && "$(stat -c '%U:%G' "$file")" != panel-api:panel ]]; then
             fail "Ownership SQLite salah: $file"; return 1
         fi

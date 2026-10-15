@@ -451,7 +451,7 @@ pub async fn create_site_cron_handler(
     }
 
     // 5. Audit log
-    let audit_repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let audit_repo = SqliteAuditLogRepository::new(state.operations_pool.clone());
 
     let _ = audit_repo
         .create(&CreateAuditLog {
@@ -677,7 +677,7 @@ pub async fn delete_site_cron_handler(
     }
 
     // Audit log
-    let audit_repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let audit_repo = SqliteAuditLogRepository::new(state.operations_pool.clone());
 
     let _ = audit_repo
         .create(&CreateAuditLog {

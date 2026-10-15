@@ -134,7 +134,7 @@ pub async fn get_system_doctor_handler(State(state): State<AppState>) -> impl In
     });
 
     // 2. Interrupted/stuck jobs check
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = state.job_runner.job_repo.clone();
     let running_jobs = job_repo.list_by_status("running").await.unwrap_or_default();
     let stuck_count = running_jobs.len();
 
@@ -258,7 +258,7 @@ async fn recover_jobs_safe(job_repo: &SqliteJobRepository) -> u64 {
     tag = "system"
 )]
 pub async fn fix_system_doctor_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = state.job_runner.job_repo.clone();
 
     // 1. Recover interrupted jobs
     let recovered = recover_jobs_safe(&job_repo).await;
@@ -333,7 +333,7 @@ pub async fn get_system_reconcile_handler(State(state): State<AppState>) -> impl
 
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let domain_repo = SqliteDomainRepository::new(state.pool.clone());
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = state.job_runner.job_repo.clone();
 
     let sites = site_repo.list_all().await.unwrap_or_default();
     let mut desired_sites_dto = Vec::new();
@@ -418,7 +418,7 @@ pub async fn apply_system_reconcile_handler(State(state): State<AppState>) -> im
 
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let domain_repo = SqliteDomainRepository::new(state.pool.clone());
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = state.job_runner.job_repo.clone();
 
     // 1. Recover jobs
     let _ = job_repo.recover_interrupted_jobs().await;
@@ -560,17 +560,17 @@ pub async fn create_system_backup_handler(
     State(state): State<AppState>,
     Json(payload): Json<Option<CreateSystemBackupPayload>>,
 ) -> impl IntoResponse {
-    // 1. Flush WAL before taking snapshot
-    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
-        .execute(&state.pool)
-        .await;
-
+    // SQLite's snapshot operation includes WAL data without stopping all writers.
     let output_filename = payload.and_then(|p| p.filename);
     let req = SystemBackupCreateRequest {
         output_filename,
         include_analytics: false,
-        db_path: None,
-        analytics_db_path: None,
+        db_path: panel_db::operations::database_path(&state.pool)
+            .await
+            .ok()
+            .flatten()
+            .map(|path| path.to_string_lossy().into_owned()),
+        analytics_db_path: Some(state.analytics_db_path.to_string_lossy().into_owned()),
     };
 
     let now = SystemTime::now()

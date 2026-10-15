@@ -335,6 +335,58 @@ impl JobHandler for PhpRepoSetupHandler {
     }
 }
 
+/// Node.js installation uses the persistent worker rather than an HTTP request.
+pub struct NodeInstallHandler {
+    agent_client: Arc<crate::agent_client::AgentClient>,
+}
+
+impl NodeInstallHandler {
+    pub fn new(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
+        Self { agent_client }
+    }
+}
+
+impl JobHandler for NodeInstallHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let req: panel_proto::NodeRuntimeInstallRequest =
+                serde_json::from_str(&job.payload_json)
+                    .map_err(|e| format!("Payload pemasangan Node.js tidak valid: {e}"))?;
+            let owner_id = job
+                .user_id
+                .ok_or_else(|| "Pemilik job Node.js wajib ada".to_string())?;
+            let owner = panel_db::repositories::SqliteUserRepository::new(ctx.pool.clone())
+                .find_by_id(owner_id)
+                .await
+                .map_err(|e| format!("Gagal memeriksa pemilik job: {e}"))?
+                .ok_or_else(|| "Pemilik job tidak ditemukan".to_string())?;
+            if owner.role != "admin" || owner.status != "active" {
+                return Err("Pemasangan runtime Node.js memerlukan administrator aktif".to_string());
+            }
+            if ctx.is_cancelled() {
+                return Err("Job dibatalkan sebelum pemasangan Node.js".to_string());
+            }
+            let version = req.version.clone();
+            ctx.report_progress(15, Some(&format!("Mengunduh dan memverifikasi Node.js v{version}; kemudian mengekstrak runtime dan menyiapkan Corepack.")))
+                .await.map_err(|e| e.to_string())?;
+            let res = self
+                .agent_client
+                .install_node_runtime(req)
+                .await
+                .map_err(|e| format!("Instalasi Node.js v{version} gagal: {e}"))?;
+            if !res.success {
+                return Err(res.message);
+            }
+            ctx.report_progress(100, Some(&res.message))
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string(&res)
+                .map(Some)
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
 /// PHP runtime installation handler.
 pub struct PhpInstallHandler {
     agent_client: Arc<crate::agent_client::AgentClient>,
@@ -370,7 +422,7 @@ impl JobHandler for PhpInstallHandler {
                 .report_progress(
                     35,
                     Some(&format!(
-                        "Memasang paket PHP {} dan melakukan masking service FPM...",
+                        "Menyiapkan repositori dan indeks paket, memasang PHP {} serta melakukan masking service FPM...",
                         version
                     )),
                 )
@@ -868,6 +920,10 @@ impl JobRegistry {
 
     pub fn new_with_agent(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
         let mut reg = Self::new();
+        reg.register(
+            "node.install",
+            NodeInstallHandler::new(Arc::clone(&agent_client)),
+        );
         reg.register(
             "quota.report",
             QuotaReportHandler::new(Arc::clone(&agent_client)),

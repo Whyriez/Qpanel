@@ -28,6 +28,7 @@ import {
   NodeVersionItem,
   NodeRuntimeInstallRequest,
   ProcessListResponse,
+  JobItem,
 } from '../types/api';
 import {
   fetchPhpVersions,
@@ -43,6 +44,8 @@ import {
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 import { PhpExtensionsModal } from '../components/runtime/PhpExtensionsModal';
 import { NodeInstallModal } from '../components/runtime/NodeInstallModal';
+import { runtimeJobVersion, useRuntimeJobs } from '../components/runtime/useRuntimeJobs';
+import { RuntimeJobProgress } from '../components/runtime/RuntimeJobProgress';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { DatabaseServersTab } from '../components/runtime/DatabaseServersTab';
 import { toast } from 'sonner';
@@ -95,12 +98,14 @@ export const RuntimePage: React.FC = () => {
     try {
       const res = await fetchPhpVersions();
       setPhpData(res);
+      return res;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memuat status runtime PHP.';
       setPhpError(msg);
       if (!quiet) {
         toast.error('Gagal memuat status runtime PHP', { description: msg });
       }
+      return null;
     } finally {
       if (!quiet) setPhpLoading(false);
     }
@@ -112,12 +117,14 @@ export const RuntimePage: React.FC = () => {
     try {
       const res = await fetchNodeVersions();
       setNodeData(res);
+      return res;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memuat daftar runtime Node.js.';
       setNodeError(msg);
       if (!quiet) {
         toast.error('Gagal memuat runtime Node.js', { description: msg });
       }
+      return null;
     } finally {
       if (!quiet) setNodeLoading(false);
     }
@@ -140,6 +147,28 @@ export const RuntimePage: React.FC = () => {
     }
   }, []);
 
+  const onRuntimeFinished = useCallback(async (job: JobItem) => {
+    const version = runtimeJobVersion(job);
+    if (job.name.startsWith('php.')) {
+      const inventory = await loadPhpData(true);
+      if (!inventory) return false;
+      if (job.status !== 'succeeded') return true;
+      if (job.name === 'php.repo.setup') return inventory.ppa_configured;
+      const installed = inventory.versions.some(item => item.version === version && item.installed);
+      return job.name === 'php.remove' ? !installed : installed;
+    }
+    const inventory = await loadNodeData(true);
+    return Boolean(inventory && (job.status !== 'succeeded' ||
+      inventory.versions.some(item => item.version === version && item.is_installed)));
+  }, [loadPhpData, loadNodeData]);
+  const runtimeJobs = useRuntimeJobs(onRuntimeFinished);
+  const jobsUnavailable = runtimeJobs.loading || Boolean(runtimeJobs.error);
+  const phpRepoJob = runtimeJobs.jobs.find(job => job.name === 'php.repo.setup');
+  const nodeBusyVersions = useMemo(() => [
+    ...runtimeJobs.jobs.filter(job => job.name === 'node.install').map(runtimeJobVersion).filter((v): v is string => Boolean(v)),
+    ...(processingNodeVersion ? [processingNodeVersion] : []),
+  ], [runtimeJobs.jobs, processingNodeVersion]);
+
   useEffect(() => {
     if (activeTab === 'php') {
       loadPhpData();
@@ -157,10 +186,10 @@ export const RuntimePage: React.FC = () => {
     setSettingUpRepo(true);
     try {
       const job = await setupPhpRepo();
+      runtimeJobs.track(job);
       toast.success('Tugas konfigurasi repositori PPA telah dibuat', {
         description: `ID Tugas: ${job.id}. Pembaruan paket sedang berjalan di latar belakang.`,
       });
-      setTimeout(() => loadPhpData(true), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memulai konfigurasi repositori.';
       toast.error('Gagal mengatur repositori Sury PPA', { description: msg });
@@ -173,10 +202,10 @@ export const RuntimePage: React.FC = () => {
     setProcessingPhpVersion(version);
     try {
       const job = await installPhpVersion(version);
+      runtimeJobs.track(job);
       toast.success(`Tugas pemasangan PHP ${version} telah dibuat`, {
         description: `ID Tugas: ${job.id}. Paket sedang diunduh dan service OS akan di-mask.`,
       });
-      setTimeout(() => loadPhpData(true), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : `Gagal memasang PHP ${version}.`;
       toast.error(`Gagal memasang PHP ${version}`, { description: msg });
@@ -192,10 +221,10 @@ export const RuntimePage: React.FC = () => {
     setProcessingPhpVersion(version);
     try {
       const job = await removePhpVersion(version);
+      runtimeJobs.track(job);
       toast.success(`Tugas penghapusan PHP ${version} telah dibuat`, {
         description: `ID Tugas: ${job.id}. Paket sedang dihapus dari sistem.`,
       });
-      setTimeout(() => loadPhpData(true), 3000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : `Gagal menghapus PHP ${version}.`;
       toast.error(`Gagal menghapus PHP ${version}`, { description: msg });
@@ -208,13 +237,16 @@ export const RuntimePage: React.FC = () => {
   // Node.js Handlers
   // =========================================================
   const handleInstallNode = async (payload: NodeRuntimeInstallRequest) => {
+    if (jobsUnavailable || nodeBusyVersions.includes(payload.version.trim().replace(/^v/, ''))) {
+      throw new Error('Status tugas belum tersedia atau versi ini sedang dipasang. Periksa halaman Tugas.');
+    }
     setProcessingNodeVersion(payload.version);
     try {
-      const res = await installNodeVersion(payload);
-      toast.success(`Node.js v${payload.version} berhasil dipasang`, {
-        description: res.message || `Terpasang di ${res.path}`,
+      const job = await installNodeVersion(payload);
+      runtimeJobs.track(job);
+      toast.success(`Tugas pemasangan Node.js v${payload.version} telah dibuat`, {
+        description: `ID Tugas: ${job.id}. Pemasangan berjalan di latar belakang. Pantau melalui halaman Tugas.`,
       });
-      await loadNodeData(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : `Gagal memasang Node.js v${payload.version}.`;
       toast.error(`Pemasangan Node.js gagal`, { description: msg });
@@ -335,6 +367,7 @@ export const RuntimePage: React.FC = () => {
                 setPreselectedNodeVersion(undefined);
                 setIsInstallModalOpen(true);
               }}
+              disabled={jobsUnavailable}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm"
             >
               <Download className="w-3.5 h-3.5" />
@@ -374,6 +407,11 @@ export const RuntimePage: React.FC = () => {
       </div>
 
       {/* Tabs Switcher: PHP vs Node.js vs Processes */}
+      {runtimeJobs.error && (
+        <p role="alert" className="text-xs text-[var(--danger)] whitespace-pre-wrap break-words">
+          Status tugas runtime gagal dimuat: {runtimeJobs.error}. Pemasangan ditahan sampai status dapat diperiksa kembali.
+        </p>
+      )}
       <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-fit">
         <button
           onClick={() => setActiveTab('php')}
@@ -496,10 +534,10 @@ export const RuntimePage: React.FC = () => {
 
               <button
                 onClick={handleSetupRepo}
-                disabled={settingUpRepo || phpLoading}
+                disabled={settingUpRepo || phpLoading || jobsUnavailable || Boolean(phpRepoJob)}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
               >
-                {settingUpRepo ? (
+                {settingUpRepo || phpRepoJob ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <ExternalLink className="w-3.5 h-3.5" />
@@ -536,7 +574,8 @@ export const RuntimePage: React.FC = () => {
                 </div>
               ) : (
                 phpData?.versions.map((v: PhpVersionStatusItem) => {
-                  const isProcessing = processingPhpVersion === v.version;
+                  const activeJob = runtimeJobs.jobs.find(job => job.name.startsWith('php.') && runtimeJobVersion(job) === v.version);
+                  const isProcessing = processingPhpVersion === v.version || Boolean(activeJob);
 
                   return (
                     <div
@@ -553,7 +592,12 @@ export const RuntimePage: React.FC = () => {
                               <span className="text-sm font-semibold text-[var(--ink)]">
                                 PHP {v.version}
                               </span>
-                              {v.installed ? (
+                              {activeJob ? (
+                                <span role="status" className="inline-flex items-center gap-1 text-xs text-[var(--primary)]">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  {activeJob.status === 'succeeded' ? 'Memperbarui daftar' : activeJob.status === 'queued' ? 'Dalam antrean' : 'Sedang diproses'} · {activeJob.progress}%
+                                </span>
+                              ) : v.installed ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
                                   <CheckCircle2 className="w-2.5 h-2.5" />
                                   {t('runtime.installed')}
@@ -593,6 +637,11 @@ export const RuntimePage: React.FC = () => {
                             </span>
                           </div>
                         )}
+                        {activeJob && (
+                          <div className="pl-11">
+                            <RuntimeJobProgress job={activeJob} runtime={`PHP ${v.version}`} />
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 sm:self-center pl-11 sm:pl-0">
@@ -622,7 +671,7 @@ export const RuntimePage: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => handleInstallPhp(v.version)}
-                            disabled={isProcessing}
+                            disabled={isProcessing || jobsUnavailable || Boolean(phpRepoJob)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
                           >
                             {isProcessing ? (
@@ -630,7 +679,7 @@ export const RuntimePage: React.FC = () => {
                             ) : (
                               <Download className="w-3.5 h-3.5" />
                             )}
-                            {t('runtime.install')}
+                            {activeJob ? activeJob.status === 'succeeded' ? 'Memperbarui daftar' : 'Sedang diproses' : t('runtime.install')}
                           </button>
                         )}
                       </div>
@@ -728,7 +777,8 @@ export const RuntimePage: React.FC = () => {
                 </div>
               ) : (
                 filteredNodeVersions.map((v) => {
-                  const isProcessing = processingNodeVersion === v.version;
+                  const activeJob = runtimeJobs.jobs.find(job => job.name === 'node.install' && runtimeJobVersion(job) === v.version);
+                  const isProcessing = processingNodeVersion === v.version || Boolean(activeJob);
 
                   return (
                     <div
@@ -754,7 +804,12 @@ export const RuntimePage: React.FC = () => {
                                 </span>
                               )}
 
-                              {v.is_installed ? (
+                              {activeJob ? (
+                                <span role="status" className="inline-flex items-center gap-1 text-xs text-[var(--primary)]">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  {activeJob.status === 'succeeded' ? 'Memperbarui daftar' : activeJob.status === 'queued' ? 'Dalam antrean' : 'Sedang dipasang'} · {activeJob.progress}%
+                                </span>
+                              ) : v.is_installed ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full">
                                   <CheckCircle2 className="w-2.5 h-2.5" />
                                   {t('runtime.installed')}
@@ -795,6 +850,11 @@ export const RuntimePage: React.FC = () => {
                         </div>
 
                         {/* Sites in use list */}
+                        {activeJob && (
+                          <div className="pl-12">
+                            <RuntimeJobProgress job={activeJob} runtime={`Node.js v${v.version}`} />
+                          </div>
+                        )}
                         {v.used_by_domains && v.used_by_domains.length > 0 && (
                           <div className="pl-12 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--ink-muted)]">
                             <span className="font-medium text-[var(--ink)]">Situs aktif:</span>
@@ -856,7 +916,7 @@ export const RuntimePage: React.FC = () => {
                               setPreselectedNodeVersion(v.version);
                               setIsInstallModalOpen(true);
                             }}
-                            disabled={isProcessing}
+                            disabled={isProcessing || jobsUnavailable}
                             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm"
                           >
                             {isProcessing ? (
@@ -864,7 +924,7 @@ export const RuntimePage: React.FC = () => {
                             ) : (
                               <Download className="w-3.5 h-3.5" />
                             )}
-                            <span>Pasang</span>
+                            <span>{activeJob ? activeJob.status === 'succeeded' ? 'Memperbarui daftar' : 'Sedang dipasang' : 'Pasang'}</span>
                           </button>
                         )}
                       </div>
@@ -1062,6 +1122,8 @@ export const RuntimePage: React.FC = () => {
         availableVersions={nodeData?.versions || []}
         onInstall={handleInstallNode}
         preselectedVersion={preselectedNodeVersion}
+        busyVersions={nodeBusyVersions}
+        jobsUnavailable={jobsUnavailable}
       />
     </div>
   );

@@ -22,6 +22,7 @@ vi.mock('../../../api/client', () => ({
   fetchTerminalSessions: vi.fn().mockResolvedValue([]),
   getTerminalSession: vi.fn().mockResolvedValue(null),
   resizeTerminalSession: vi.fn().mockResolvedValue({ success: true }),
+  fetchTenantShellPolicy: vi.fn(),
 }));
 
 describe('TerminalTabs Component', () => {
@@ -129,10 +130,10 @@ describe('TerminalDrawer Component', () => {
 });
 
 describe('TerminalPage Component', () => {
-  it('renders standalone TerminalPage header and empty state CTA', () => {
+  it('checks tenant policy before offering the initial terminal session', () => {
     const html = renderToString(<TerminalPage />);
 
-    expect(html).toContain('Tidak ada sesi terminal aktif saat ini.');
-    expect(html).toContain('Buka Sesi Terminal');
+    expect(html).toContain('Memeriksa kebijakan akses terminal...');
+    expect(html).not.toContain('Buka Sesi Terminal');
   });
 });

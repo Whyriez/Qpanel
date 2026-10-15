@@ -112,6 +112,26 @@ impl fmt::Display for PhpVersion {
     }
 }
 
+/// Packages without an install candidate in `LC_ALL=C apt-cache policy` output.
+/// A missing package stanza is also unavailable; successful index refresh alone
+/// does not prove that the PPA publishes the requested version/architecture.
+pub fn missing_php_package_candidates(version: PhpVersion, policy: &str) -> Vec<String> {
+    version
+        .base_packages()
+        .into_iter()
+        .filter(|package| {
+            let header = format!("{package}:");
+            !policy
+                .lines()
+                .skip_while(|line| line.trim_end() != header)
+                .skip(1)
+                .take_while(|line| line.is_empty() || line.starts_with(char::is_whitespace))
+                .filter_map(|line| line.trim().strip_prefix("Candidate:"))
+                .any(|candidate| !candidate.trim().is_empty() && candidate.trim() != "(none)")
+        })
+        .collect()
+}
+
 /// Detailed status information about a PHP runtime version on the host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhpVersionInfo {
@@ -160,8 +180,12 @@ pub fn is_sury_repo_installed(path_checker: impl Fn(&Path) -> bool) -> bool {
     let candidates = [
         Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-jammy.list"),
         Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-noble.list"),
+        Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-jammy.sources"),
+        Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-noble.sources"),
         Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php.list"),
+        Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php.sources"),
         Path::new("/etc/apt/sources.list.d/php.list"),
+        Path::new("/etc/apt/sources.list.d/php.sources"),
     ];
     candidates.iter().any(|p| path_checker(p))
 }
@@ -344,6 +368,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn package_candidates_require_every_base_package() {
+        let version = PhpVersion::Php84;
+        let policy: String = version
+            .base_packages()
+            .iter()
+            .map(|package| format!("{package}:\n  Installed: (none)\n  Candidate: 8.4.1-1\n  Version table:\n     8.4.1-1 500\n        500 https://ppa.launchpadcontent.net/ondrej/php/ubuntu noble/main amd64 Packages\n"))
+            .collect();
+        assert!(missing_php_package_candidates(version, &policy).is_empty());
+        let policy = policy.replacen("Candidate: 8.4.1-1", "Candidate: (none)", 1);
+        assert_eq!(
+            missing_php_package_candidates(version, &policy),
+            vec!["php8.4-fpm"]
+        );
+        assert_eq!(
+            missing_php_package_candidates(version, ""),
+            version.base_packages()
+        );
+    }
+
+    #[test]
+    fn installed_version_and_neighbour_candidate_do_not_prove_availability() {
+        let policy = "php8.4-fpm:\n  Installed: 8.4.1\n  Candidate: (none)\nphp8.4-cli:\n  Candidate: 8.4.1\n";
+        let missing = missing_php_package_candidates(PhpVersion::Php84, policy);
+        assert!(missing.contains(&"php8.4-fpm".to_string()));
+        assert!(!missing.contains(&"php8.4-cli".to_string()));
+        assert!(missing.contains(&"php8.4-mysql".to_string()));
+    }
+
+    #[test]
     fn test_php_version_parsing_and_whitelist() {
         assert_eq!(PhpVersion::parse("7.4").unwrap(), PhpVersion::Php74);
         assert_eq!(PhpVersion::parse("8.0").unwrap(), PhpVersion::Php80);
@@ -384,6 +437,19 @@ mod tests {
         let uninstalled = PhpVersionInfo::new(PhpVersion::Php83, false, false, false);
         assert!(!uninstalled.installed);
         assert_eq!(uninstalled.status, "not_installed");
+    }
+
+    #[test]
+    fn test_php_repository_detects_ubuntu_deb822_sources() {
+        assert!(is_sury_repo_installed(|path| path
+            == Path::new(
+                "/etc/apt/sources.list.d/ondrej-ubuntu-php-noble.sources"
+            )));
+        assert!(is_sury_repo_installed(|path| path
+            == Path::new(
+                "/etc/apt/sources.list.d/ondrej-ubuntu-php-noble.list"
+            )));
+        assert!(!is_sury_repo_installed(|_| false));
     }
 
     #[test]

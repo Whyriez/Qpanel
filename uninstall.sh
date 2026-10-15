@@ -87,11 +87,11 @@ if ! nginx -t || { systemctl is-active --quiet nginx && ! systemctl reload nginx
     echo '[ERROR] Konfigurasi Nginx tidak valid; pencopotan dibatalkan dan proxy dipulihkan.' >&2
     exit 1
 fi
-systemctl stop panel-api.service panel-agent.service >/dev/null 2>&1 || true
-systemctl disable panel-api.service panel-agent.service >/dev/null 2>&1 || true
+systemctl stop panel-api.service panel-agent.service panel-proc-hardening.service >/dev/null 2>&1 || true
+systemctl disable panel-api.service panel-agent.service panel-proc-hardening.service >/dev/null 2>&1 || true
 
 echo -e "${BLUE}[2/4] Menghapus unit file systemd...${NC}"
-rm -f /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service
+rm -f /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service /etc/systemd/system/panel-proc-hardening.service
 systemctl daemon-reload
 
 echo -e "${BLUE}[3/4] Menghapus biner Nusa Panel dari /usr/local/bin...${NC}"

@@ -52,7 +52,6 @@ async fn handle_success(
         .job_repo
         .update_status(job_id, "succeeded", result_json.as_deref(), None)
         .await?;
-    runner.job_repo.update_progress(job_id, 100).await?;
 
     let _ = runner.event_tx.send(JobProgressEvent {
         job_id: job_id.to_string(),
@@ -170,9 +169,22 @@ pub async fn process_one_job(runner: &Arc<JobRunner>) -> Result<bool, DbError> {
         cancel_token: cancel_token.clone(),
     };
 
-    let execution_result = match runner.registry.get(&job.name) {
-        Some(handler) => handler.run(&job, &ctx).await,
-        None => Err(format!("Unknown job handler: '{}'", job.name)),
+    // Cross-file owner IDs cannot have a SQLite foreign key. Recheck the current
+    // actor before *any* handler, including admin runtime installs, touches the host.
+    let owner_active = match job.user_id {
+        Some(id) => panel_db::repositories::SqliteUserRepository::new(runner.pool.clone())
+            .find_by_id(id)
+            .await?
+            .is_some_and(|owner| owner.status == "active"),
+        None => true,
+    };
+    let execution_result = if !owner_active {
+        Err("Pemilik pekerjaan tidak ditemukan atau tidak aktif".to_owned())
+    } else {
+        match runner.registry.get(&job.name) {
+            Some(handler) => handler.run(&job, &ctx).await,
+            None => Err(format!("Unknown job handler: '{}'", job.name)),
+        }
     };
 
     if cancel_token.is_cancelled() {

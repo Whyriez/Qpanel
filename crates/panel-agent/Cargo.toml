@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 panel-core = { workspace = true }
+panel-db = { workspace = true }
 panel-proto = { workspace = true }
 panel-webserver = { workspace = true }
 panel-runtime = { workspace = true }
@@ -40,7 +41,6 @@ tar = { workspace = true }
 libc = { workspace = true }
 
 [dev-dependencies]
-panel-db = { workspace = true }
 tempfile = { workspace = true }
 flate2 = { workspace = true }
 tar = { workspace = true }

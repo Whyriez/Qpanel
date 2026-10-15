@@ -114,7 +114,7 @@ pub async fn list_audit_logs_handler(
         to_time: query.to,
     };
 
-    let repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let repo = SqliteAuditLogRepository::new(state.operations_read_pool.clone());
     let total = match repo.count_filtered(&filter).await {
         Ok(t) => t,
         Err(e) => {
@@ -173,7 +173,7 @@ pub async fn get_audit_log_handler(
     RequireAuth(auth_user): RequireAuth,
     Path(id): Path<i64>,
 ) -> Response {
-    let repo = SqliteAuditLogRepository::new(state.pool.clone());
+    let repo = SqliteAuditLogRepository::new(state.operations_read_pool.clone());
     let log = match repo.find_by_id(id).await {
         Ok(Some(l)) => l,
         Ok(None) => {

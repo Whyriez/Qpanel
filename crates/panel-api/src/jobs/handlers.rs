@@ -186,7 +186,7 @@ pub async fn list_jobs_handler(
     };
 
     let status_filter = query.status.as_deref();
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = SqliteJobRepository::new(state.operations_read_pool.clone());
 
     let items = match job_repo
         .list_paginated(target_user_id, status_filter, per_page, offset)
@@ -247,7 +247,7 @@ pub async fn get_job_handler(
     RequireAuth(user): RequireAuth,
     Path(id): Path<String>,
 ) -> Response {
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = SqliteJobRepository::new(state.operations_read_pool.clone());
     let job = match job_repo.find_by_id(&id).await {
         Ok(Some(j)) => j,
         Ok(None) => {
@@ -301,7 +301,7 @@ pub async fn cancel_job_handler(
     RequireCsrf(user): RequireCsrf,
     Path(id): Path<String>,
 ) -> Response {
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = SqliteJobRepository::new(state.operations_read_pool.clone());
     let job = match job_repo.find_by_id(&id).await {
         Ok(Some(j)) => j,
         Ok(None) => {
@@ -376,7 +376,7 @@ pub async fn job_events_handler(
     RequireAuth(user): RequireAuth,
     Path(id): Path<String>,
 ) -> Response {
-    let job_repo = SqliteJobRepository::new(state.pool.clone());
+    let job_repo = SqliteJobRepository::new(state.operations_read_pool.clone());
     let job = match job_repo.find_by_id(&id).await {
         Ok(Some(j)) => j,
         Ok(None) => {

@@ -2,8 +2,10 @@
 
 pub mod error;
 pub mod models;
+pub mod operations;
 pub mod pool;
 pub mod repositories;
+pub mod snapshot;
 
 pub use error::DbError;
 pub use models::*;

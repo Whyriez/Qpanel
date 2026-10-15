@@ -23,6 +23,7 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "getent",
     "nginx",
     "apt-get",
+    "apt-cache",
     "add-apt-repository",
     "dpkg-query",
     "phpenmod",
@@ -102,10 +103,12 @@ impl SystemRunner for RealSystemRunner {
             )));
         }
 
-        let output = panel_core::production::system_command(binary)
-            .args(args)
-            .output()
-            .map_err(AgentError::Io)?;
+        let mut command = panel_core::production::system_command(binary);
+        // Candidate parsing must not depend on the server's display language.
+        if binary == "apt-cache" {
+            command.env("LC_ALL", "C");
+        }
+        let output = command.args(args).output().map_err(AgentError::Io)?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();

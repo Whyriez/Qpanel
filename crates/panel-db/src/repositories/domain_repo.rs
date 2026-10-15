@@ -26,7 +26,11 @@ impl SqliteDomainRepository {
         let redirect_mode = input.redirect_mode.as_deref().unwrap_or("none");
         let status = input.status.as_deref().unwrap_or("active");
 
-        let mut tx = self.pool.begin().await.map_err(DbError::Sqlx)?;
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(DbError::Sqlx)?;
 
         if input.is_primary {
             // Demote other domains for this site
@@ -151,7 +155,11 @@ impl SqliteDomainRepository {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let mut tx = self.pool.begin().await.map_err(DbError::Sqlx)?;
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(DbError::Sqlx)?;
 
         // Demote all
         sqlx::query("UPDATE domains SET is_primary = 0, updated_at = ? WHERE site_id = ?")
@@ -212,7 +220,11 @@ impl SqliteDomainRepository {
             .or(existing.redirect_target.as_ref());
         let status = input.status.as_ref().unwrap_or(&existing.status);
 
-        let mut tx = self.pool.begin().await.map_err(DbError::Sqlx)?;
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(DbError::Sqlx)?;
 
         if is_primary && !existing.is_primary {
             sqlx::query("UPDATE domains SET is_primary = 0, updated_at = ? WHERE site_id = ?")

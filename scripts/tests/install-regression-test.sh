@@ -83,6 +83,18 @@ grep -qx 'Group=panel' "$agent"
 grep -qx 'RuntimeDirectory=panel' "$agent"
 grep -qx 'RuntimeDirectoryMode=0750' "$agent"
 pass 'agent alone owns boot-time runtime directory'
+proc_helper="$REPO/templates/systemd/panel-proc-hardening.service"
+grep -qx 'Type=oneshot' "$proc_helper"
+grep -qx 'User=root' "$proc_helper"
+grep -qx 'ExecStart=/usr/bin/mount -o remount,hidepid=2,gid=panel /proc' "$proc_helper"
+grep -qx 'CapabilityBoundingSet=CAP_SYS_ADMIN' "$proc_helper"
+grep -qx 'NoNewPrivileges=true' "$proc_helper"
+! grep -Eq '^(PrivateTmp|PrivateDevices|PrivateMounts|ProtectSystem|ProtectHome|ProtectKernelTunables|ProtectKernelModules|ProtectControlGroups|ReadWritePaths|ReadOnlyPaths|InaccessiblePaths|RootDirectory|RootImage|ProtectProc|ProcSubset)=' "$proc_helper"
+! grep -q '^CapabilityBoundingSet=.*CAP_SYS_ADMIN' "$agent"
+grep -q 'templates/systemd/panel-proc-hardening.service.* /etc/systemd/system/panel-proc-hardening.service' "$REPO/install.sh"
+grep -q '^    /etc/systemd/system/panel-proc-hardening.service$' "$REPO/install.sh"
+grep -q 'panel-proc-hardening.service' "$REPO/uninstall.sh"
+pass 'host procfs helper has fixed mount command and isolated privilege without agent CAP_SYS_ADMIN'
 grep -qx 'ProtectSystem=strict' "$agent"
 grep -qx 'ProtectHome=false' "$agent"
 grep -qx 'NoNewPrivileges=true' "$agent"
@@ -99,6 +111,8 @@ grep -q 'DEFAULT_DATABASE_PATH.*"/var/lib/panel/panel.db"' "$REPO/crates/panel-c
 grep -q 'DEFAULT_DATABASE_PATH' "$REPO/crates/panel-api/src/config.rs"
 grep -q 'DEFAULT_DATABASE_PATH' "$REPO/crates/panel-cli/src/main.rs"
 pass 'API and CLI share an absolute production database default'
+grep -q 'for path in panel.db panel.db-wal panel.db-shm panel.operations.db panel.operations.db-wal panel.operations.db-shm;' "$REPO/install.sh"
+pass 'installer rollback includes operational database and its WAL/SHM together with core state'
 grep -q 'runner: ubuntu-22.04$' "$REPO/.github/workflows/release.yml"
 grep -q 'runner: ubuntu-22.04-arm$' "$REPO/.github/workflows/release.yml"
 grep -q 'scripts/check-glibc.sh' "$REPO/.github/workflows/release.yml"

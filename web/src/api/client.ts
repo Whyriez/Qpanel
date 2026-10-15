@@ -1,3 +1,4 @@
+import { parseSystemInsights, parseSystemTimeseries, parseRetention, parseMaintenance, parseIntegrity, retentionUpdatePayload } from './analyticsContracts';
 import {
   AuditLogItem,
   AuditLogListResponse,
@@ -1093,8 +1094,8 @@ export async function fetchNodeVersions(
 
 export async function installNodeVersion(
   payload: import('../types/api').NodeRuntimeInstallRequest
-): Promise<import('../types/api').NodeRuntimeActionResponse> {
-  return request<import('../types/api').NodeRuntimeActionResponse>(
+): Promise<JobItem> {
+  return request<JobItem>(
     '/api/v1/runtimes/node/install',
     {
       method: 'POST',
@@ -1912,7 +1913,7 @@ export async function fetchSystemAnalyticsTimeseries(
   if (params?.interval) query.set('interval', params.interval);
 
   const qs = query.toString();
-  return request<SystemTimeseriesResponse>(`/api/v1/system/analytics/timeseries${qs ? `?${qs}` : ''}`);
+  return parseSystemTimeseries(await request<unknown>(`/api/v1/system/analytics/timeseries${qs ? `?${qs}` : ''}`));
 }
 
 // Analytics Insights Engine (Phase 9 - P9-T7)
@@ -1931,7 +1932,7 @@ export async function evaluateSiteInsights(
 }
 
 export async function fetchSystemInsights(): Promise<SystemInsightsResponse> {
-  return request<SystemInsightsResponse>('/api/v1/system/analytics/insights');
+  return parseSystemInsights(await request<unknown>('/api/v1/system/analytics/insights'));
 }
 
 // Security Analytics & IP Banning (Phase 9 - P9-T8)
@@ -1980,31 +1981,31 @@ export async function unbanSiteIp(
 
 // Data Lifecycle & Retention Management (Phase 9 - P9-T9)
 export async function fetchAnalyticsRetention(): Promise<AnalyticsRetentionResponse> {
-  return request<AnalyticsRetentionResponse>('/api/v1/system/analytics/retention');
+  return parseRetention(await request<unknown>('/api/v1/system/analytics/retention'));
 }
 
 export async function updateAnalyticsRetention(
   data: UpdateRetentionRequest
 ): Promise<AnalyticsRetentionResponse> {
-  return request<AnalyticsRetentionResponse>('/api/v1/system/analytics/retention', {
+  return parseRetention(await request<unknown>('/api/v1/system/analytics/retention', {
     method: 'PUT',
-    body: JSON.stringify(data),
-  });
+    body: JSON.stringify(retentionUpdatePayload(data)),
+  }));
 }
 
 export async function triggerAnalyticsMaintenance(
   data: TriggerMaintenanceRequest = {}
 ): Promise<RetentionMaintenanceReportDto> {
-  return request<RetentionMaintenanceReportDto>('/api/v1/system/analytics/maintenance', {
+  return parseMaintenance(await request<unknown>('/api/v1/system/analytics/maintenance', {
     method: 'POST',
-    body: JSON.stringify(data),
-  });
+    body: JSON.stringify({ force_vacuum: data.force_vacuum }),
+  }));
 }
 
 export async function checkAnalyticsIntegrity(): Promise<IntegrityCheckReportDto> {
-  return request<IntegrityCheckReportDto>('/api/v1/system/analytics/integrity-check', {
+  return parseIntegrity(await request<unknown>('/api/v1/system/analytics/integrity-check', {
     method: 'POST',
-  });
+  }));
 }
 
 // Server Optimizer & Hardware Tuning (Phase 10 - P10-T2)

@@ -16,6 +16,7 @@ LimitNOFILE=65535
 
 # Systemd security hardening; measure the score on the target host.
 NoNewPrivileges=true
+# Host procfs remounts run in panel-proc-hardening.service, not this daemon.
 ProtectSystem=strict
 # Account tools and PHP/APT need configuration, package databases, caches and logs.
 # Node/Python live in /opt; packages write /usr; lifecycle tools need /home and /run.

@@ -373,6 +373,8 @@ pub struct SystemInfoResponse {
 pub struct AppState {
     pub agent_client: Arc<AgentClient>,
     pub pool: DbPool,
+    pub operations_pool: DbPool,
+    pub operations_read_pool: DbPool,
     pub environment: String,
     pub auth_config: AuthConfig,
     pub lockout_manager: Arc<LockoutManager>,
@@ -385,6 +387,8 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Single-database compatibility for isolated fixtures. The daemon initializes
+    /// operational pools before constructing state with `with_operations`.
     pub fn new(
         agent_client: Arc<AgentClient>,
         pool: DbPool,
@@ -392,10 +396,30 @@ impl AppState {
         auth_config: AuthConfig,
         lockout_manager: Arc<LockoutManager>,
     ) -> Self {
-        let audit_writer = Arc::new(crate::audit::AuditWriter::new(pool.clone()));
-        let job_registry = crate::jobs::JobRegistry::new_with_agent(Arc::clone(&agent_client));
-        let job_runner = Arc::new(crate::jobs::JobRunner::with_registry(
+        Self::with_operations(
+            agent_client,
             pool.clone(),
+            (pool.clone(), pool),
+            environment,
+            auth_config,
+            lockout_manager,
+        )
+    }
+
+    pub fn with_operations(
+        agent_client: Arc<AgentClient>,
+        pool: DbPool,
+        operations: (DbPool, DbPool),
+        environment: String,
+        auth_config: AuthConfig,
+        lockout_manager: Arc<LockoutManager>,
+    ) -> Self {
+        let (operations_pool, operations_read_pool) = operations;
+        let audit_writer = Arc::new(crate::audit::AuditWriter::new(operations_pool.clone()));
+        let job_registry = crate::jobs::JobRegistry::new_with_agent(Arc::clone(&agent_client));
+        let job_runner = Arc::new(crate::jobs::JobRunner::with_pools(
+            pool.clone(),
+            operations_pool.clone(),
             job_registry,
         ));
         let terminal_hub = Arc::new(
@@ -406,6 +430,8 @@ impl AppState {
         Self {
             agent_client,
             pool,
+            operations_pool,
+            operations_read_pool,
             environment,
             auth_config,
             lockout_manager,

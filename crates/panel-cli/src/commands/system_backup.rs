@@ -123,11 +123,6 @@ pub async fn create_system_backup(
         .unwrap_or_default()
         .as_secs();
 
-    // Checkpoint WAL first
-    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
-        .execute(pool)
-        .await;
-
     let backups_dir = determine_backups_dir(None);
     std::fs::create_dir_all(&backups_dir)?;
 
@@ -137,41 +132,41 @@ pub async fn create_system_backup(
     }
 
     let final_archive_path = backups_dir.join(&filename);
-    let staging_dir = backups_dir.join(format!("staging_{}", timestamp));
+    let staging_dir = backups_dir.join(format!("staging_{}_{}", timestamp, uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&staging_dir)?;
 
     let mut manifest_files = Vec::new();
 
-    // 1. Copy SQLite Database
-    let db_src = Path::new(db_path);
-    if db_src.exists() {
-        let content = std::fs::read(db_src)?;
-        let size = content.len() as u64;
-        let hash = compute_bytes_sha256(&content);
-        let dest = staging_dir.join("panel.db");
-        std::fs::write(&dest, &content)?;
-        manifest_files.push(SystemBackupFileEntry {
-            relative_path: "database/panel.db".to_string(),
-            file_type: "sqlite_db".to_string(),
-            size_bytes: size,
-            sha256: hash,
-        });
-    }
-
-    // 2. Copy Analytics DB if requested
-    if include_analytics {
-        let analytics_src = Path::new("analytics.db");
-        if analytics_src.exists() {
-            let content = std::fs::read(analytics_src)?;
-            let size = content.len() as u64;
-            let hash = compute_bytes_sha256(&content);
-            let dest = staging_dir.join("analytics.db");
-            std::fs::write(&dest, &content)?;
+    // Snapshot each lock domain through SQLite, including committed WAL frames.
+    let core_path = panel_db::operations::database_path(pool)
+        .await?
+        .unwrap_or_else(|| PathBuf::from(db_path));
+    let core_snapshot = staging_dir.join("panel.db");
+    panel_db::snapshot::from_pool(pool, &core_snapshot).await?;
+    let content = std::fs::read(&core_snapshot)?;
+    manifest_files.push(SystemBackupFileEntry {
+        relative_path: "database/panel.db".to_string(),
+        file_type: "sqlite_db".to_string(),
+        size_bytes: content.len() as u64,
+        sha256: compute_bytes_sha256(&content),
+    });
+    let operations_src = panel_db::operations::sidecar_path(&core_path);
+    let analytics_src = std::env::var_os("PANEL_ANALYTICS_DB_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| core_path.with_file_name("analytics.db"));
+    for (source, name, include) in [
+        (operations_src, "operations.db", true),
+        (analytics_src, "analytics.db", include_analytics),
+    ] {
+        if include && source.exists() {
+            let dest = staging_dir.join(name);
+            panel_db::snapshot::from_file(&source, &dest).await?;
+            let content = std::fs::read(&dest)?;
             manifest_files.push(SystemBackupFileEntry {
-                relative_path: "database/analytics.db".to_string(),
+                relative_path: format!("database/{name}"),
                 file_type: "sqlite_db".to_string(),
-                size_bytes: size,
-                sha256: hash,
+                size_bytes: content.len() as u64,
+                sha256: compute_bytes_sha256(&content),
             });
         }
     }
@@ -366,6 +361,26 @@ pub fn verify_system_backup(
         errors.push(e);
     }
 
+    for expected in &manifest.files {
+        let archive_name = Path::new(&expected.relative_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let actual = extracted_files.iter().find(|(name, _)| {
+            Path::new(name.as_str())
+                .file_name()
+                .and_then(|name| name.to_str())
+                == Some(archive_name)
+        });
+        if !matches!(actual, Some((_, (size, hash))) if *size == expected.size_bytes && *hash == expected.sha256)
+        {
+            errors.push(format!(
+                "Checksum atau ukuran tidak cocok: {}",
+                expected.relative_path
+            ));
+        }
+    }
+
     Ok(SystemBackupVerificationResult {
         is_valid: errors.is_empty(),
         manifest: Some(manifest),
@@ -380,12 +395,9 @@ fn unpack_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), Box<dyn Er
 
     for entry in archive.entries()? {
         let mut entry = entry?;
-        let path = entry.path()?.to_path_buf();
-        let dest = dest_dir.join(&path);
-        if let Some(parent) = dest.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if !entry.unpack_in(dest_dir)? {
+            return Err("Path arsip berada di luar direktori pemulihan".into());
         }
-        entry.unpack(&dest)?;
     }
     Ok(())
 }
@@ -400,6 +412,24 @@ pub async fn restore_system_backup(
         return Err(format!("Berkas cadangan tidak ditemukan: {}", path_str).into());
     }
 
+    let core_path = panel_db::operations::database_path(pool)
+        .await?
+        .ok_or("Pemulihan memerlukan database berbasis file")?;
+    #[cfg(unix)]
+    if core_path == Path::new(panel_core::production::DEFAULT_DATABASE_PATH) {
+        let status = panel_core::production::system_command("systemctl")
+            .args(["is-active", "panel-api.service"])
+            .output()?;
+        let state = String::from_utf8_lossy(&status.stdout);
+        if !matches!(state.trim(), "inactive" | "failed") {
+            return Err("Hentikan panel-api sebelum pemulihan database offline".into());
+        }
+    }
+    let verification = verify_system_backup(path_str)?;
+    if !verification.is_valid {
+        return Err(format!("Cadangan tidak valid: {:?}", verification.errors).into());
+    }
+
     // Safety pre-restore snapshot
     info!("Membuat cadangan keselamatan pra-pemulihan...");
     let pre_backup = create_system_backup(pool, db_path, None, false).await?;
@@ -410,19 +440,53 @@ pub async fn restore_system_backup(
         .unwrap_or_default()
         .as_secs();
 
-    let restore_temp = determine_backups_dir(None).join(format!("restore_cli_{}", timestamp));
+    let restore_temp = determine_backups_dir(None).join(format!(
+        "restore_cli_{}_{}",
+        timestamp,
+        uuid::Uuid::new_v4()
+    ));
     std::fs::create_dir_all(&restore_temp)?;
 
     unpack_archive(path, &restore_temp)?;
 
-    // Restore DB file
     let restored_db = restore_temp.join("panel.db");
-    if restored_db.exists() {
-        std::fs::copy(&restored_db, db_path)?;
-        info!(
-            "Basis data SQLite berhasil dipulihkan dari {}",
-            restored_db.display()
-        );
+    if !restored_db.is_file() {
+        return Err("Cadangan tidak memuat database utama".into());
+    }
+    // No connection may keep the old inode or apply old WAL frames to new data.
+    // The operator must also stop any other local CLI/agent database users.
+    pool.close().await;
+    for (name, target) in [
+        ("panel.db", core_path.clone()),
+        (
+            "operations.db",
+            panel_db::operations::sidecar_path(&core_path),
+        ),
+        (
+            "analytics.db",
+            std::env::var_os("PANEL_ANALYTICS_DB_PATH")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| core_path.with_file_name("analytics.db")),
+        ),
+    ] {
+        let source = restore_temp.join(name);
+        if source.exists() || name == "operations.db" {
+            for suffix in ["-wal", "-shm"] {
+                let mut sidecar = target.as_os_str().to_os_string();
+                sidecar.push(suffix);
+                match std::fs::remove_file(PathBuf::from(sidecar)) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            if source.exists() {
+                std::fs::copy(source, &target)?;
+            } else if target.exists() {
+                // A pre-split backup is imported again from its restored core DB.
+                std::fs::remove_file(&target)?;
+            }
+        }
     }
 
     let _ = std::fs::remove_dir_all(&restore_temp);

@@ -76,6 +76,12 @@ async fn setup_test_context() -> TestContext {
     fs::write(&group_path, "root:x:0:\n").expect("write group");
 
     let runner = Arc::new(MockSystemRunner::new());
+    runner.set_response(
+        "findmnt --task 1 -n -o OPTIONS --target /proc",
+        0,
+        b"rw,nosuid,nodev,noexec,hidepid=2,gid=100\n",
+        b"",
+    );
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
     ));

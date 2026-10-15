@@ -12,7 +12,7 @@ use panel_api::routes::AppState;
 use panel_core::auth::hash_password;
 use panel_db::models::{CreateJob, CreateUser};
 use panel_db::pool::{DbPool, init_pool, run_migrations};
-use panel_db::repositories::{SqliteJobRepository, SqliteUserRepository};
+use panel_db::repositories::SqliteUserRepository;
 use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -85,9 +85,11 @@ async fn setup_test_app() -> (axum::Router, DbPool, Arc<JobRunner>, tempfile::Te
 
     let lockout_manager = Arc::new(LockoutManager::new(5, 300));
     let agent_client = Arc::new(AgentClient::new(sock_path));
-    let state = AppState::new(
+    let operations = panel_db::operations::open(&pool).await.expect("operations");
+    let state = AppState::with_operations(
         agent_client,
         pool.clone(),
+        operations,
         "development".to_string(),
         auth_config,
         lockout_manager,
@@ -105,6 +107,35 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
         }
     }
     None
+}
+
+#[tokio::test]
+async fn deleted_actor_cannot_execute_a_previously_queued_job() {
+    let (_app, core, runner, _tmp) = setup_test_app().await;
+    let alice = SqliteUserRepository::new(core.clone())
+        .find_by_username("alice")
+        .await
+        .unwrap()
+        .unwrap();
+    let (job, _) = runner
+        .enqueue(
+            Some(alice.id),
+            None,
+            "system.echo".to_owned(),
+            "{}".to_owned(),
+            Some(1),
+        )
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM users WHERE id = ?")
+        .bind(alice.id)
+        .execute(&core)
+        .await
+        .unwrap();
+    assert!(process_one_job(&runner).await.unwrap());
+    let finished = runner.job_repo.find_by_id(&job.id).await.unwrap().unwrap();
+    assert_eq!(finished.status, "failed");
+    assert!(finished.error_message.unwrap().contains("tidak aktif"));
 }
 
 async fn login(app: &axum::Router, username: &str, password: &str) -> (String, String) {
@@ -413,8 +444,8 @@ async fn test_job_cancellation_queued_and_running() {
 
 #[tokio::test]
 async fn test_startup_recovery_interrupted_jobs() {
-    let (_app, pool, runner, _tmp) = setup_test_app().await;
-    let job_repo = SqliteJobRepository::new(pool);
+    let (_app, _pool, runner, _tmp) = setup_test_app().await;
+    let job_repo = runner.job_repo.clone();
 
     // Manually insert an interrupted running job
     let now = std::time::SystemTime::now()
@@ -695,4 +726,96 @@ async fn test_job_csrf_enforcement() {
 
     let res = app.clone().oneshot(req).await.expect("res");
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+/// No AgentServer and no worker are started: enqueue must succeed without RPC.
+#[tokio::test]
+async fn node_install_returns_persisted_job_without_a_running_agent() {
+    let (app, core, runner, tmp) = setup_test_app().await;
+    let (cookie, csrf) = login(&app, "admin", "AdminPass123!").await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/runtimes/node/install")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={cookie}"))
+        .header("X-CSRF-Token", csrf)
+        .body(Body::from(
+            r#"{"version":"v22.14.0","enable_corepack":true}"#,
+        ))
+        .expect("request");
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        app.clone().oneshot(request),
+    )
+    .await
+    .expect("enqueue must not wait for installation")
+    .expect("response");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let job: JobItem = serde_json::from_slice(&body).unwrap();
+    assert_eq!(job.name, "node.install");
+    assert_eq!(job.status, "queued");
+    assert!(job.result_json.is_none());
+    assert!(!tmp.path().join("agent.sock").exists());
+
+    // A separate database connection sees the job after the request has ended.
+    let (_writer, reader) = panel_db::operations::open(&core).await.unwrap();
+    let saved = panel_db::repositories::SqliteJobRepository::new(reader)
+        .find_by_id(&job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.status, "queued");
+    assert_eq!(saved.user_id, job.user_id);
+    let payload: Value = serde_json::from_str(&saved.payload_json).unwrap();
+    assert_eq!(payload["version"], "22.14.0");
+    assert_eq!(payload["enable_corepack"], true);
+    assert_eq!(runner.job_repo.count_filtered(None, None).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn node_install_rejects_invalid_or_unauthorized_enqueue_without_agent() {
+    let (app, _core, runner, _tmp) = setup_test_app().await;
+    let (admin_cookie, admin_csrf) = login(&app, "admin", "AdminPass123!").await;
+    let (user_cookie, user_csrf) = login(&app, "alice", "AlicePass123!").await;
+    for (cookie, csrf, version, expected) in [
+        (None, None, "22.14.0", StatusCode::UNAUTHORIZED),
+        (
+            Some(user_cookie.as_str()),
+            Some(user_csrf.as_str()),
+            "22.14.0",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(admin_cookie.as_str()),
+            None,
+            "22.14.0",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(admin_cookie.as_str()),
+            Some(admin_csrf.as_str()),
+            "../../etc",
+            StatusCode::BAD_REQUEST,
+        ),
+    ] {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/runtimes/node/install")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={cookie}"));
+        }
+        if let Some(csrf) = csrf {
+            request = request.header("X-CSRF-Token", csrf);
+        }
+        let request = request
+            .body(Body::from(
+                serde_json::json!({"version":version}).to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    assert_eq!(runner.job_repo.count_filtered(None, None).await.unwrap(), 0);
 }
