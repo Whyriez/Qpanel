@@ -32,8 +32,33 @@ async fn concurrent_ingestion_and_reads_use_separate_wal_connections() {
         result.unwrap();
     }
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM log_tailer_checkpoints")
-        .fetch_one(storage.pool())
+        .fetch_one(storage.write_pool())
         .await
         .unwrap();
     assert_eq!(count, 64);
+}
+
+#[tokio::test]
+async fn maintenance_writes_are_visible_to_query_only_readers() {
+    let temp = tempfile::tempdir().unwrap();
+    let storage = AnalyticsStorage::connect(temp.path().join("analytics.db"))
+        .await
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO log_tailer_checkpoints
+         (file_path, site_id, inode, file_offset, last_processed_ts, updated_at)
+         VALUES ('/log/maintenance.log', 1, 2, 300, 4, 5)",
+    )
+    .execute(storage.write_pool())
+    .await
+    .unwrap();
+
+    let checkpoint = storage
+        .get_log_checkpoint("/log/maintenance.log")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(checkpoint.site_id, 1);
+    assert_eq!(checkpoint.file_offset, 300);
 }

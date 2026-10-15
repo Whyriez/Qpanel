@@ -402,6 +402,32 @@ fn unpack_archive(archive_path: &Path, dest_dir: &Path) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+fn restore_database_file(
+    source: &Path,
+    target: &Path,
+    remove_if_missing: bool,
+) -> Result<(), Box<dyn Error>> {
+    if !source.exists() && !remove_if_missing {
+        return Ok(());
+    }
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = target.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        match std::fs::remove_file(PathBuf::from(sidecar)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    if source.exists() {
+        std::fs::copy(source, target)?;
+    } else if target.exists() {
+        // A pre-split backup is imported again from its restored core DB.
+        std::fs::remove_file(target)?;
+    }
+    Ok(())
+}
+
 pub async fn restore_system_backup(
     pool: &DbPool,
     db_path: &str,
@@ -470,23 +496,7 @@ pub async fn restore_system_backup(
         ),
     ] {
         let source = restore_temp.join(name);
-        if source.exists() || name == "operations.db" {
-            for suffix in ["-wal", "-shm"] {
-                let mut sidecar = target.as_os_str().to_os_string();
-                sidecar.push(suffix);
-                match std::fs::remove_file(PathBuf::from(sidecar)) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => return Err(e.into()),
-                }
-            }
-            if source.exists() {
-                std::fs::copy(source, &target)?;
-            } else if target.exists() {
-                // A pre-split backup is imported again from its restored core DB.
-                std::fs::remove_file(&target)?;
-            }
-        }
+        restore_database_file(&source, &target, name == "operations.db")?;
     }
 
     let _ = std::fs::remove_dir_all(&restore_temp);
@@ -496,4 +506,67 @@ pub async fn restore_system_backup(
         path_str
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restore_database_file;
+
+    #[test]
+    fn restored_database_replaces_contents_and_discards_stale_wal() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("snapshot.db");
+        let target = temp.path().join("panel.db");
+        let wal = temp.path().join("panel.db-wal");
+        let shm = temp.path().join("panel.db-shm");
+        std::fs::write(&source, b"snapshot").unwrap();
+        std::fs::write(&target, b"old database").unwrap();
+        std::fs::write(&wal, b"old WAL").unwrap();
+        std::fs::write(&shm, b"old SHM").unwrap();
+
+        restore_database_file(&source, &target, false).unwrap();
+
+        assert_eq!(std::fs::read(&target).unwrap(), b"snapshot");
+        assert!(!wal.exists());
+        assert!(!shm.exists());
+        // Missing sidecars on subsequent restores are harmless.
+        restore_database_file(&source, &target, false).unwrap();
+    }
+
+    #[test]
+    fn missing_operations_snapshot_removes_previous_database_and_wal() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("missing.db");
+        let target = temp.path().join("operations.db");
+        let wal = temp.path().join("operations.db-wal");
+        let shm = temp.path().join("operations.db-shm");
+        for path in [&target, &wal, &shm] {
+            std::fs::write(path, b"stale").unwrap();
+        }
+
+        restore_database_file(&source, &target, true).unwrap();
+
+        assert!(!target.exists());
+        assert!(!wal.exists());
+        assert!(!shm.exists());
+        restore_database_file(&source, &target, true).unwrap();
+    }
+
+    #[test]
+    fn missing_optional_snapshot_preserves_database_and_wal() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("missing.db");
+        let target = temp.path().join("analytics.db");
+        let wal = temp.path().join("analytics.db-wal");
+        let shm = temp.path().join("analytics.db-shm");
+        for path in [&target, &wal, &shm] {
+            std::fs::write(path, b"keep").unwrap();
+        }
+
+        restore_database_file(&source, &target, false).unwrap();
+
+        for path in [&target, &wal, &shm] {
+            assert_eq!(std::fs::read(path).unwrap(), b"keep");
+        }
+    }
 }

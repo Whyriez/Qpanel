@@ -585,7 +585,7 @@ async fn metrics_distinguish_waiting_ready_stale_failed_and_forbidden() {
     assert_eq!(result.state, "ready");
     assert_eq!(result.sample.unwrap(), point);
     sqlx::query("DELETE FROM metrics_server_raw")
-        .execute(storage.pool())
+        .execute(storage.write_pool())
         .await
         .unwrap();
     point.timestamp -= 120;

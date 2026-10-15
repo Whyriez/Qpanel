@@ -175,6 +175,8 @@ async fn setup_test_context() -> TestContext {
 
     let state = AppState {
         agent_client: Arc::clone(&agent_client),
+        operations_pool: pool.clone(),
+        operations_read_pool: pool.clone(),
         pool,
         environment: "testing".to_string(),
         auth_config,

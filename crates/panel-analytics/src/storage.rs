@@ -74,8 +74,8 @@ impl AnalyticsStorage {
         Ok(storage)
     }
 
-    pub fn pool(&self) -> &Pool<Sqlite> {
-        // Explicit maintenance/fixture writes still pass through the single writer.
+    /// Single-writer pool for explicit maintenance and fixture writes.
+    pub fn write_pool(&self) -> &Pool<Sqlite> {
         &self.write_pool
     }
 
