@@ -22,6 +22,7 @@ use panel_core::auth::hash_password;
 use panel_db::models::{CreateSite, CreateUser};
 use panel_db::pool::{init_pool, run_migrations};
 use panel_db::repositories::{SqliteJobRepository, SqliteSiteRepository, SqliteUserRepository};
+use panel_runtime::php::PhpVersion;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,6 +57,38 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
     None
 }
 
+fn php_runtime_runner() -> Arc<MockSystemRunner> {
+    let runner = Arc::new(MockSystemRunner::new());
+    runner.set_response("nginx", 0, b"syntax is ok", b"");
+    runner.set_response("systemctl", 0, b"masked\n", b"");
+    runner.set_response("apt-get", 0, b"Reading package lists... Done\n", b"");
+    runner.set_response("add-apt-repository", 0, b"Repository added\n", b"");
+    runner.set_response("dpkg-query", 0, b"", b"");
+    let policy: String = PhpVersion::all_supported()
+        .iter()
+        .flat_map(PhpVersion::base_packages)
+        .map(|package| format!("{package}:\n  Installed: (none)\n  Candidate: 1.0\n"))
+        .collect();
+    runner.set_response("apt-cache", 0, policy.as_bytes(), b"");
+    runner
+}
+
+// Exercises this suite's command fixture without starting AgentServer or a daemon.
+#[test]
+fn php_install_fixture_supports_candidate_checks_and_fpm_masking_without_daemon() {
+    let runner = php_runtime_runner();
+    let result = panel_agent::php::install_php_runtime(runner.as_ref(), "8.2")
+        .expect("PHP API fixture must provide installable package candidates");
+    assert!(result.success);
+    assert!(result.masked);
+    assert!(
+        runner
+            .get_commands()
+            .iter()
+            .any(|command| command == "systemctl mask php8.2-fpm.service")
+    );
+}
+
 async fn setup_test_context() -> TestContext {
     let guard = TEST_MUTEX.lock().await;
     let tmp = tempdir().expect("tempdir");
@@ -84,12 +117,7 @@ async fn setup_test_context() -> TestContext {
     let group_path = tmp.path().join("group");
     fs::write(&group_path, "root:x:0:\n").expect("write group");
 
-    let runner = Arc::new(MockSystemRunner::new());
-    runner.set_response("nginx", 0, b"syntax is ok", b"");
-    runner.set_response("systemctl", 0, b"masked\n", b"");
-    runner.set_response("apt-get", 0, b"Reading package lists... Done\n", b"");
-    runner.set_response("add-apt-repository", 0, b"Repository added\n", b"");
-    runner.set_response("dpkg-query", 0, b"", b"");
+    let runner = php_runtime_runner();
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
@@ -410,7 +438,11 @@ async fn test_php_repo_setup_rbac_and_execution() {
         .await
         .unwrap()
         .expect("job exists");
-    assert_eq!(finished_job.status, "succeeded");
+    assert_eq!(
+        finished_job.status, "succeeded",
+        "Job error: {:?}",
+        finished_job.error_message
+    );
     assert_eq!(finished_job.progress, 100);
 
     // Check mock runner executed add-apt-repository
@@ -483,8 +515,13 @@ async fn test_php_install_invalid_version_and_masking() {
         .await
         .unwrap()
         .expect("job exists");
-    assert_eq!(finished_job.status, "succeeded");
+    assert_eq!(
+        finished_job.status, "succeeded",
+        "Job error: {:?}",
+        finished_job.error_message
+    );
     assert_eq!(finished_job.progress, 100);
+    assert_eq!(finished_job.retry_count, 0);
 
     // CRITICAL PRD REQUIREMENT: Verify systemctl mask php8.2-fpm.service was executed!
     let commands = ctx.runner.get_commands();
@@ -581,7 +618,11 @@ async fn test_php_remove_prevented_if_in_use_by_site() {
         .await
         .unwrap()
         .expect("job exists");
-    assert_eq!(finished_job.status, "succeeded");
+    assert_eq!(
+        finished_job.status, "succeeded",
+        "Job error: {:?}",
+        finished_job.error_message
+    );
 
     // Check systemctl unmask and apt-get purge executed
     let commands = ctx.runner.get_commands();
