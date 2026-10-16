@@ -516,17 +516,55 @@ impl NginxManager {
             .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
         let uid_val = uid.as_u32();
 
-        let docroot_path = PathBuf::from(&req.docroot);
-        let home_path = PathBuf::from(&req.home_dir);
         let web_user = req.web_user.as_deref().unwrap_or("www-data");
+        if !matches!(web_user, "www-data" | "nginx") {
+            return Err(AgentError::InvalidInput(
+                "User worker Nginx harus www-data atau nginx".into(),
+            ));
+        }
+        let directories = site_provision_directories(&req, username.as_str())?;
+        let docroot_path = PathBuf::from(&req.docroot);
 
-        // 1. Create docroot directory with mode 0750 owned by tenant user
-        self.runner
-            .create_dir_all(&docroot_path, 0o750, uid_val, uid_val)?;
+        // Reject pre-existing symlink components before changing directories/ACLs.
+        self.check_site_symlinks(&docroot_path.join("index.html"))?;
+        for (index, path) in directories.iter().enumerate() {
+            if !self.runner.path_exists(path) {
+                self.runner.create_dir_all(
+                    path,
+                    if index == 0 { 0o700 } else { 0o750 },
+                    uid_val,
+                    uid_val,
+                )?;
+            }
+        }
 
-        // 2. Set ACL on home directory (u:<web_user>:--x) and docroot (u:<web_user>:r-x)
-        let _ = self.runner.set_facl(&home_path, web_user, "--x");
-        let _ = self.runner.set_facl(&docroot_path, web_user, "r-x");
+        // Every ancestor needs search permission, including the 0750 sites dir.
+        // Apply directly: the legacy set_facl helper ignores command failures.
+        for path in &directories {
+            self.check_site_symlinks(path)?;
+            let acl = if path == &docroot_path {
+                format!("u:{web_user}:r-x,d:u:{web_user}:r-x")
+            } else {
+                format!("u:{web_user}:--x")
+            };
+            let path_arg = path.to_string_lossy();
+            let output = self
+                .runner
+                .run_command("setfacl", &["-P", "-m", &acl, "--", &path_arg])
+                .map_err(|error| {
+                    AgentError::InvalidInput(format!(
+                        "ACL Nginx gagal pada {}: {error}",
+                        path.display()
+                    ))
+                })?;
+            if !output.status.success() {
+                return Err(AgentError::InvalidInput(format!(
+                    "ACL Nginx gagal pada {}: {}",
+                    path.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                )));
+            }
+        }
 
         // 3. Write index.html placeholder if not exists
         let index_path = docroot_path.join("index.html");
@@ -537,7 +575,7 @@ impl NginxManager {
             });
             self.runner
                 .write_file(&index_path, placeholder_content.as_bytes(), 0o644)?;
-            let _ = self.runner.set_ownership(&index_path, uid_val, uid_val);
+            self.runner.set_ownership(&index_path, uid_val, uid_val)?;
             placeholder_written = true;
         }
 
@@ -553,6 +591,18 @@ impl NginxManager {
             placeholder_written,
             acls_applied: true,
         })
+    }
+
+    fn check_site_symlinks(&self, path: &Path) -> Result<(), AgentError> {
+        for component in path.ancestors() {
+            if self.runner.read_link(component).is_ok() {
+                return Err(AgentError::SecurityViolation(format!(
+                    "Symlink tidak diizinkan pada jalur situs: {}",
+                    component.display()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Deploys an ACME HTTP-01 challenge response file.
@@ -913,6 +963,47 @@ impl NginxManager {
     }
 }
 
+fn site_provision_directories(
+    req: &SiteProvisionRequest,
+    username: &str,
+) -> Result<Vec<PathBuf>, AgentError> {
+    let home = PathBuf::from(format!("/home/{username}"));
+    let sites = home.join("sites");
+    let docroot = Path::new(&req.docroot);
+    if req.home_dir != format!("/home/{username}")
+        || req.docroot.contains('\\')
+        || req.docroot.chars().any(char::is_control)
+        || req
+            .docroot
+            .split('/')
+            .any(|component| matches!(component, "." | ".."))
+    {
+        return Err(AgentError::SecurityViolation(
+            "Jalur situs tidak valid untuk tenant".into(),
+        ));
+    }
+    let relative = docroot.strip_prefix(&sites).map_err(|_| {
+        AgentError::SecurityViolation("Docroot harus berada di direktori sites milik tenant".into())
+    })?;
+    if relative.as_os_str().is_empty() {
+        return Err(AgentError::SecurityViolation(
+            "Docroot tidak boleh berupa direktori sites tenant".into(),
+        ));
+    }
+    let mut directories = vec![home, sites.clone()];
+    let mut current = sites;
+    for component in relative.components() {
+        if !matches!(component, std::path::Component::Normal(_)) {
+            return Err(AgentError::SecurityViolation(
+                "Komponen jalur situs tidak valid".into(),
+            ));
+        }
+        current.push(component);
+        directories.push(current.clone());
+    }
+    Ok(directories)
+}
+
 fn find_php_log_file(runner: &dyn SystemRunner, tenant_dir: &Path, kind: &str) -> Option<PathBuf> {
     let suffix = format!("-{kind}.log");
     if let Ok(entries) = runner.read_dir(tenant_dir) {
@@ -935,6 +1026,195 @@ mod tests {
     use super::*;
     use crate::system::MockSystemRunner;
     use tempfile::TempDir;
+
+    fn provision_request(docroot: &str) -> SiteProvisionRequest {
+        SiteProvisionRequest {
+            site_id: 1,
+            username: "p_alice".into(),
+            uid: 10001,
+            home_dir: "/home/p_alice".into(),
+            docroot: docroot.into(),
+            web_user: Some("www-data".into()),
+            index_content: Some("website placeholder".into()),
+        }
+    }
+
+    #[test]
+    fn provision_grants_search_on_every_ancestor_before_writing_placeholder() {
+        for (docroot, expected) in [
+            (
+                "/home/p_alice/sites/example.test/public",
+                vec![
+                    "/home/p_alice",
+                    "/home/p_alice/sites",
+                    "/home/p_alice/sites/example.test",
+                    "/home/p_alice/sites/example.test/public",
+                ],
+            ),
+            (
+                "/home/p_alice/sites/example.test/app/public",
+                vec![
+                    "/home/p_alice",
+                    "/home/p_alice/sites",
+                    "/home/p_alice/sites/example.test",
+                    "/home/p_alice/sites/example.test/app",
+                    "/home/p_alice/sites/example.test/app/public",
+                ],
+            ),
+        ] {
+            let runner = Arc::new(MockSystemRunner::new());
+            let manager = NginxManager::new(runner.clone());
+            let request = provision_request(docroot);
+            let result = manager.provision_site(request.clone()).unwrap();
+            assert!(result.acls_applied && result.placeholder_written);
+            let actions = runner.recorded_actions();
+            let index = actions.iter().position(|action| matches!(action,
+                crate::system::MockAction::WriteFile { path, .. } if path.ends_with("index.html")
+            )).unwrap();
+            for expected_path in expected {
+                let path = Path::new(expected_path);
+                let acl = if path == Path::new(docroot) {
+                    "u:www-data:r-x,d:u:www-data:r-x"
+                } else {
+                    "u:www-data:--x"
+                };
+                let position = actions.iter().position(|action| matches!(action,
+                    crate::system::MockAction::Command { binary, args }
+                    if binary == "setfacl" && args.len() == 5 && args[..4] == ["-P", "-m", acl, "--"] && Path::new(&args[4]) == path
+                )).unwrap_or_else(|| panic!("missing ACL for {}", path.display()));
+                assert!(position < index);
+            }
+            assert!(actions.iter().any(|action| matches!(action,
+                crate::system::MockAction::CreateDir { path, mode: 0o700, uid: 10001, gid: 10001 }
+                if path == Path::new("/home/p_alice")
+            )));
+            assert!(
+                !actions
+                    .iter()
+                    .any(|action| matches!(action, crate::system::MockAction::SetFacl { .. })),
+                "must not use the helper that suppresses failures"
+            );
+        }
+    }
+
+    #[test]
+    fn provision_preserves_existing_directory_modes_owners_and_index() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        let request = provision_request("/home/p_alice/sites/example.test/public");
+        for path in site_provision_directories(&request, "p_alice").unwrap() {
+            runner.add_existing_path(path);
+        }
+        let index = Path::new(&request.docroot).join("index.html");
+        runner.set_file_content(&index, b"tenant website");
+        for _ in 0..2 {
+            let result = manager.provision_site(request.clone()).unwrap();
+            assert!(result.acls_applied && !result.placeholder_written);
+        }
+        assert_eq!(runner.read_file(&index).unwrap(), b"tenant website");
+        assert!(
+            runner
+                .recorded_actions()
+                .iter()
+                .all(|action| matches!(action,
+                    crate::system::MockAction::Command { binary, .. } if binary == "setfacl"
+                ))
+        );
+    }
+
+    #[test]
+    fn provision_acl_failure_does_not_write_placeholder_or_report_success() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        let sites = Path::new("/home/p_alice").join("sites");
+        runner.set_response(
+            &format!("setfacl -P -m u:www-data:--x -- {}", sites.display()),
+            1,
+            b"",
+            b"Operation not supported",
+        );
+        let error = manager
+            .provision_site(provision_request("/home/p_alice/sites/example.test/public"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("ACL Nginx gagal") && error.contains("Operation not supported"));
+        assert!(
+            !runner
+                .recorded_actions()
+                .iter()
+                .any(|action| matches!(action, crate::system::MockAction::WriteFile { .. }))
+        );
+    }
+
+    #[test]
+    fn provision_rejects_cross_tenant_traversal_and_invalid_worker_before_actions() {
+        for docroot in [
+            "/etc/nginx",
+            "/home/p_bob/sites/example/public",
+            "/home/p_alice/sites",
+            "/home/p_alice/sites/../private",
+            "/home/p_alice/sites/a/./public",
+            "/home/p_alice/sites/a\n/public",
+            "/home/p_alice/sites/a\\public",
+        ] {
+            let runner = Arc::new(MockSystemRunner::new());
+            let manager = NginxManager::new(runner.clone());
+            assert!(
+                manager.provision_site(provision_request(docroot)).is_err(),
+                "{docroot}"
+            );
+            assert!(runner.recorded_actions().is_empty());
+        }
+        for (home, worker) in [
+            ("/home/p_bob", "www-data"),
+            ("/home/p_alice", "root"),
+            ("/home/p_alice", "www-data:rw-"),
+        ] {
+            let runner = Arc::new(MockSystemRunner::new());
+            let manager = NginxManager::new(runner.clone());
+            let mut request = provision_request("/home/p_alice/sites/example.test/public");
+            request.home_dir = home.into();
+            request.web_user = Some(worker.into());
+            assert!(manager.provision_site(request).is_err());
+            assert!(runner.recorded_actions().is_empty());
+        }
+    }
+
+    #[test]
+    fn provision_rejects_symlink_ancestors_and_index_before_mutation() {
+        for link in [
+            "/home/p_alice/sites",
+            "/home/p_alice/sites/example.test/public/index.html",
+        ] {
+            let runner = Arc::new(MockSystemRunner::new());
+            runner
+                .create_symlink(Path::new("/etc"), Path::new(link))
+                .unwrap();
+            let count = runner.recorded_actions().len();
+            let manager = NginxManager::new(runner.clone());
+            assert!(
+                manager
+                    .provision_site(provision_request("/home/p_alice/sites/example.test/public"))
+                    .is_err()
+            );
+            assert_eq!(count, runner.recorded_actions().len());
+        }
+    }
+
+    #[test]
+    fn provision_supports_nginx_worker_account() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        let mut request = provision_request("/home/p_alice/sites/example.test/public");
+        request.web_user = Some("nginx".into());
+        manager.provision_site(request).unwrap();
+        assert!(
+            runner
+                .get_commands()
+                .iter()
+                .any(|command| command.contains("u:nginx:r-x,d:u:nginx:r-x"))
+        );
+    }
 
     fn log_apply_request(base_dir: &Path) -> SiteApplyRequest {
         SiteApplyRequest {

@@ -326,6 +326,17 @@ async fn test_ssl_lifecycle_and_self_signed_issuance() {
     assert_eq!(cert_detail.status, "active");
     assert!(cert_detail.days_remaining >= 88);
 
+    let vhost_path = ctx
+        ._temp
+        .path()
+        .join(format!("etc/nginx/sites-available/site_{}.conf", site.id));
+    let conf = fs::read_to_string(&vhost_path).expect("applied SSL vhost");
+    assert!(conf.contains("listen 443 ssl http2;"));
+    assert!(conf.contains("listen [::]:443 ssl http2;"));
+    assert!(!conf.lines().any(|line| line.trim().starts_with("http2 ")));
+    assert!(conf.contains("ssl_certificate "));
+    assert!(conf.contains("ssl_certificate_key "));
+
     // 3. Verify SSL status is now true
     let req = Request::builder()
         .method("GET")
@@ -357,6 +368,15 @@ async fn test_ssl_lifecycle_and_self_signed_issuance() {
     let res = ctx.app.clone().oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
 
+    let renewed_conf = fs::read_to_string(&vhost_path).expect("renewed SSL vhost");
+    assert!(renewed_conf.contains("listen 443 ssl http2;"));
+    assert!(renewed_conf.contains("listen [::]:443 ssl http2;"));
+    assert!(
+        !renewed_conf
+            .lines()
+            .any(|line| line.trim().starts_with("http2 "))
+    );
+
     // 5. Delete / Disable SSL
     let req = Request::builder()
         .method("DELETE")
@@ -373,6 +393,9 @@ async fn test_ssl_lifecycle_and_self_signed_issuance() {
     let bytes = res.into_body().collect().await.unwrap().to_bytes();
     let action_res: SslActionResponse = serde_json::from_slice(&bytes).unwrap();
     assert!(action_res.message.contains("reverted to HTTP"));
+    let conf = fs::read_to_string(&vhost_path).expect("HTTP vhost after disabling SSL");
+    assert!(!conf.contains("http2"));
+    assert!(!conf.contains("ssl_certificate"));
 
     // 6. Verify SSL status after disable
     let req = Request::builder()

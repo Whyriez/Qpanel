@@ -31,5 +31,8 @@ describe('SiteDatabaseTab Component', () => {
   it('renders loading state cleanly on initial render', () => {
     const html = renderToString(<SiteDatabaseTab siteId={1} />);
     expect(html).toContain('Memuat daftar basis data...');
+    expect(html).toContain('Memuat kuota...');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>[\s\S]*?Buat Basis Data/);
+    expect(html).not.toContain('aria-valuemax="5"');
   });
 });

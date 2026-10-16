@@ -1,4 +1,7 @@
 //! Nginx virtual host template rendering powered by `minijinja`.
+//!
+//! HTTPS listeners use `listen ... ssl http2` for distro Nginx compatibility.
+//! The standalone `http2 on` directive requires Nginx 1.25.1 or newer.
 
 use crate::error::WebserverError;
 use minijinja::Environment;
@@ -30,9 +33,8 @@ server {
     listen [::]:80;
     {% endif %}
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% if ocsp_stapling %}
@@ -92,9 +94,8 @@ server {
     listen 80;
     listen [::]:80;
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% endif %}
@@ -135,9 +136,8 @@ server {
     listen [::]:80;
     {% endif %}
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% if ocsp_stapling %}
@@ -293,9 +293,8 @@ server {
     listen 80;
     listen [::]:80;
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% endif %}
@@ -336,9 +335,8 @@ server {
     listen [::]:80;
     {% endif %}
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% if ocsp_stapling %}
@@ -440,9 +438,8 @@ server {
     listen 80;
     listen [::]:80;
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% endif %}
@@ -483,9 +480,8 @@ server {
     listen [::]:80;
     {% endif %}
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% if ocsp_stapling %}
@@ -578,9 +574,8 @@ server {
     listen 80;
     listen [::]:80;
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
     {% endif %}
@@ -620,9 +615,8 @@ server {
 # Main Reverse Proxy Server Block
 server {
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
 
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
@@ -728,9 +722,8 @@ server {
     listen 80;
     listen [::]:80;
     {% if has_ssl %}
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
 
     ssl_certificate {{ ssl_cert }};
     ssl_certificate_key {{ ssl_key }};
@@ -2120,6 +2113,116 @@ pub fn render_placeholder_html(domain: &str) -> String {
 mod tests {
     use super::*;
 
+    fn assert_compatible_ssl_listeners(conf: &str, expected_servers: usize) {
+        let directives: Vec<_> = conf.lines().map(str::trim).collect();
+        assert!(!directives.iter().any(|line| line.starts_with("http2 ")));
+        let tls_listeners: Vec<_> = directives
+            .iter()
+            .filter(|line| line.starts_with("listen ") && line.contains("443"))
+            .collect();
+        assert_eq!(tls_listeners.len(), expected_servers * 2);
+        assert_eq!(
+            directives
+                .iter()
+                .filter(|&&line| line == "listen 443 ssl http2;")
+                .count(),
+            expected_servers
+        );
+        assert_eq!(
+            directives
+                .iter()
+                .filter(|&&line| line == "listen [::]:443 ssl http2;")
+                .count(),
+            expected_servers
+        );
+    }
+
+    #[test]
+    fn test_ssl_http2_distro_compatibility_all_runtimes_and_redirects() {
+        let renderer = NginxTemplateRenderer::new();
+        let mut distributed = Environment::new();
+        distributed
+            .add_template(
+                "static",
+                include_str!("../../../templates/nginx/vhost_static.j2"),
+            )
+            .unwrap();
+        distributed
+            .add_template("php", include_str!("../../../templates/nginx/vhost_php.j2"))
+            .unwrap();
+        for has_ssl in [false, true] {
+            for force_https in [false, true] {
+                let context = serde_json::json!({
+                    "site_id": "site_1",
+                    "primary_domain": "example.com",
+                    "alias_domains": ["alias.example.com"],
+                    "redirects": [{
+                        "domain": "www.example.com",
+                        "target": "https://example.com$request_uri",
+                        "status_code": 301
+                    }],
+                    "docroot": "/home/p_alice/sites/example.com/public",
+                    "log_dir": "/var/log/panel/p_alice/example.com",
+                    "snippets_dir": "/etc/panel/nginx/snippets",
+                    "has_ssl": has_ssl,
+                    "force_https": force_https,
+                    "ssl_cert": if has_ssl { Some("/etc/panel/ssl/cert.pem") } else { None },
+                    "ssl_key": if has_ssl { Some("/etc/panel/ssl/privkey.pem") } else { None },
+                    "ocsp_stapling": false,
+                    "custom_headers": [],
+                    "spa_fallback": false,
+                    "php_version": "8.3",
+                    "fpm_socket": "/run/panel/php/p_alice-8.3.sock",
+                    "preset": "generic",
+                    "upstream_url": "http://127.0.0.1:20001",
+                    "static_assets_enabled": false,
+                    "unix_socket": "/run/panel/python/site-1.sock",
+                    "preserve_host": true,
+                    "websocket_support": true,
+                    "custom_request_headers": [],
+                    "proxy_ssl_server_name": false,
+                    "allow_external_upstream": false
+                });
+                let configurations = [
+                    renderer.render_static(&serde_json::from_value(context.clone()).unwrap()),
+                    renderer.render_php(&serde_json::from_value(context.clone()).unwrap()),
+                    renderer.render_nodejs(&serde_json::from_value(context.clone()).unwrap()),
+                    renderer.render_python(&serde_json::from_value(context.clone()).unwrap()),
+                    renderer.render_proxy(&serde_json::from_value(context.clone()).unwrap()),
+                ];
+                for result in configurations {
+                    let conf = result.expect("render validated vhost");
+                    assert_compatible_ssl_listeners(&conf, if has_ssl { 2 } else { 0 });
+                    assert!(conf.contains("server_name example.com alias.example.com;"));
+                    assert!(conf.contains("server_name www.example.com;"));
+                    assert!(conf.contains("return 301 https://example.com$request_uri;"));
+                    assert_eq!(
+                        conf.matches("ssl_certificate /etc/panel/ssl/cert.pem;")
+                            .count(),
+                        if has_ssl { 2 } else { 0 }
+                    );
+                    assert_eq!(
+                        conf.matches("ssl_certificate_key /etc/panel/ssl/privkey.pem;")
+                            .count(),
+                        if has_ssl { 2 } else { 0 }
+                    );
+                    assert_eq!(
+                        conf.contains("return 301 https://$host$request_uri;"),
+                        has_ssl && force_https
+                    );
+                }
+                for (name, ssl_servers) in [("static", 1), ("php", 2)] {
+                    let conf = distributed
+                        .get_template(name)
+                        .unwrap()
+                        .render(&context)
+                        .unwrap();
+                    assert_compatible_ssl_listeners(&conf, if has_ssl { ssl_servers } else { 0 });
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_golden_static_vhost_http_only() {
         let renderer = NginxTemplateRenderer::new();
@@ -2148,7 +2251,7 @@ mod tests {
         assert!(conf.contains("try_files $uri $uri/ =404;"));
         assert!(conf.contains("include /etc/panel/nginx/snippets/security-headers.conf;"));
         assert!(conf.contains("include /etc/panel/nginx/snippets/deny-sensitive.conf;"));
-        assert!(!conf.contains("listen 443 ssl;"));
+        assert!(!conf.contains("listen 443 ssl http2;"));
     }
 
     #[test]
@@ -2178,7 +2281,7 @@ mod tests {
 
         let conf = renderer.render_static(&ctx).expect("render spa with ssl");
         assert!(conf.contains("return 301 https://$host$request_uri;"));
-        assert!(conf.contains("listen 443 ssl;"));
+        assert!(conf.contains("listen 443 ssl http2;"));
         assert!(conf.contains("ssl_certificate /var/lib/panel/certs/my-app.id/fullchain.pem;"));
         assert!(conf.contains("ssl_certificate_key /var/lib/panel/certs/my-app.id/privkey.pem;"));
         assert!(conf.contains("ssl_stapling on;"));
@@ -2432,7 +2535,7 @@ mod tests {
 
         let conf = renderer.render_php(&ctx).expect("render wordpress");
         assert!(conf.contains("return 301 https://$host$request_uri;"));
-        assert!(conf.contains("listen 443 ssl;"));
+        assert!(conf.contains("listen 443 ssl http2;"));
         assert!(conf.contains("client_max_body_size 128M;"));
         // WordPress specific security rules
         assert!(conf.contains("location ~* ^/wp-content/uploads/.*\\.php$ {"));

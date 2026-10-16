@@ -249,7 +249,17 @@ async fn setup_test_context() -> TestContext {
 #[tokio::test]
 async fn create_site_log_failure_rolls_back_records_and_preserves_docroot() {
     let ctx = setup_test_context().await;
-    ctx.runner.set_response("setfacl", 1, b"", b"ACL denied");
+    ctx.runner.set_response(
+        &format!(
+            "setfacl -m u:p_alice:r-x {}",
+            std::path::Path::new("/var/log/panel")
+                .join("p_alice")
+                .display()
+        ),
+        1,
+        b"",
+        b"ACL denied",
+    );
     let payload = CreateStaticSiteRequest {
         domain: "failed-log.test".into(),
         user_id: Some(ctx.alice_id),
@@ -295,6 +305,68 @@ async fn create_site_log_failure_rolls_back_records_and_preserves_docroot() {
     assert!(
         !ctx.runner.read_file(&placeholder).unwrap().is_empty(),
         "rollback must preserve tenant data"
+    );
+}
+
+#[tokio::test]
+async fn create_site_web_acl_failure_stops_before_apply_and_preserves_existing_data() {
+    let ctx = setup_test_context().await;
+    let root = std::path::Path::new("/home/p_alice/sites/acl-failure.test/public");
+    let index = root.join("index.html");
+    ctx.runner
+        .set_file_content(&index, b"existing tenant content");
+    ctx.runner.set_response(
+        &format!(
+            "setfacl -P -m u:www-data:--x -- {}",
+            std::path::Path::new("/home/p_alice")
+                .join("sites")
+                .display()
+        ),
+        1,
+        b"",
+        b"ACL unsupported",
+    );
+    let payload = CreateStaticSiteRequest {
+        domain: "acl-failure.test".into(),
+        user_id: Some(ctx.alice_id),
+        ..Default::default()
+    };
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/sites")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(
+            header::COOKIE,
+            format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+        )
+        .header(CSRF_HEADER_NAME, &ctx.admin_csrf)
+        .body(Body::from(serde_json::to_string(&payload).unwrap()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&body).contains("ACL Nginx gagal"));
+    assert!(String::from_utf8_lossy(&body).contains("ACL unsupported"));
+    let sites: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sites")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    let domains: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domains")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!((sites, domains), (0, 0));
+    assert_eq!(
+        ctx.runner.read_file(&index).unwrap(),
+        b"existing tenant content"
+    );
+    assert!(
+        !ctx.runner
+            .recorded_actions()
+            .iter()
+            .any(|action| matches!(action,
+                panel_agent::system::MockAction::Command { binary, .. } if binary == "nginx"
+            ))
     );
 }
 

@@ -53,11 +53,8 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
   const isEn = i18n.language.startsWith('en');
 
   const [databases, setDatabases] = useState<DatabaseItem[]>([]);
-  const [quota, setQuota] = useState<DatabaseQuotaInfo>({
-    used: 0,
-    limit: 5,
-    remaining: 5,
-  });
+  const [quota, setQuota] = useState<DatabaseQuotaInfo | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [engineFilter, setEngineFilter] = useState<'all' | DatabaseEngine>('all');
@@ -124,12 +121,15 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
 
   const loadDatabases = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const res = await fetchDatabases(siteId ? { site_id: siteId } : undefined);
       setDatabases(res.databases);
       setQuota(res.quota);
-    } catch (err: any) {
-      showToast(err.message || 'Gagal memuat basis data', 'error');
+    } catch (err: unknown) {
+      setQuota(null);
+      setDatabases([]);
+      setLoadError(err instanceof Error ? err.message : 'Gagal memuat basis data');
     } finally {
       setIsLoading(false);
     }
@@ -162,7 +162,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
   // -------------------------------------------------------------
   const handleCreateDatabase = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createDbName.trim()) return;
+    if (!canCreate || !createDbName.trim()) return;
 
     setIsCreating(true);
     try {
@@ -212,7 +212,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
     setIsRotating(true);
     try {
       const payload: RotatePasswordRequest = {
-        password: autoRotatePassword ? undefined : rotateNewPassword || undefined,
+        new_password: autoRotatePassword ? undefined : rotateNewPassword || undefined,
       };
       const res = await rotateDatabasePassword(rotatingDb.id, payload);
       setRotatedPasswordResult(res.new_password);
@@ -308,9 +308,10 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
     }
   };
 
-  const isQuotaFull = quota.limit > 0 && quota.used >= quota.limit;
+  const isQuotaFull = quota !== null && quota.limit > 0 && quota.used >= quota.limit;
+  const canCreate = quota !== null && !isLoading && !loadError && !isQuotaFull;
   const quotaPercentage =
-    quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
+    quota && quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
 
   return (
     <div className="space-y-6">
@@ -364,7 +365,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
 
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            disabled={isQuotaFull}
+            disabled={!canCreate}
             className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition shadow-sm ${
               isQuotaFull
                 ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200 dark:border-slate-700'
@@ -383,18 +384,21 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               {isEn ? 'Database Quota Usage' : 'Penggunaan Kuota Basis Data'}
             </span>
             <span className="text-slate-900 dark:text-slate-200">
-              {quota.used} / {quota.limit > 0 ? quota.limit : '∞'}{' '}
-              {isEn ? 'Databases' : 'Basis Data'} ({quota.remaining}{' '}
-              {isEn ? 'remaining' : 'tersisa'})
+              {quota ? <>
+                {quota.used} / {quota.limit > 0 ? quota.limit : (isEn ? 'Unlimited' : 'Tanpa batas')}{' '}
+                {isEn ? 'Databases' : 'Basis Data'}
+                {quota.remaining !== null && <> ({quota.remaining} {isEn ? 'remaining' : 'tersisa'})</>}
+              </> : isLoading ? (isEn ? 'Loading quota...' : 'Memuat kuota...') : (isEn ? 'Quota unavailable' : 'Kuota belum tersedia')}
             </span>
           </div>
 
           <div
             className="w-full bg-slate-100 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden"
-            role="progressbar"
-            aria-valuenow={quota.used}
+            role={quota && quota.limit > 0 ? 'progressbar' : undefined}
+            aria-label={isEn ? 'Database quota usage' : 'Penggunaan kuota basis data'}
+            aria-valuenow={quota && quota.limit > 0 ? Math.min(quota.used, quota.limit) : undefined}
             aria-valuemin={0}
-            aria-valuemax={quota.limit}
+            aria-valuemax={quota && quota.limit > 0 ? quota.limit : undefined}
           >
             <div
               className={`h-full transition-all duration-300 rounded-full ${
@@ -490,6 +494,12 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
             {isEn ? 'Loading database list...' : 'Memuat daftar basis data...'}
           </p>
         </div>
+      ) : loadError ? (
+        <div role="alert" className="p-6 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] space-y-3">
+          <h3 className="font-semibold">{isEn ? 'Database list unavailable' : 'Daftar basis data belum tersedia'}</h3>
+          <p className="text-sm text-[var(--ink-muted)] break-words">{loadError}</p>
+          <button type="button" onClick={loadDatabases} className="project-button">{isEn ? 'Try again' : 'Coba lagi'}</button>
+        </div>
       ) : filteredDatabases.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 flex flex-col items-center justify-center text-center">
           <Database className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-3" />
@@ -505,7 +515,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
               ? 'Create a database to store and organize your application data securely.'
               : 'Buat basis data baru untuk menghubungkan aplikasi Anda ke MySQL/PostgreSQL.'}
           </p>
-          {!searchQuery && !isQuotaFull && (
+          {!searchQuery && canCreate && (
             <button
               onClick={() => setIsCreateModalOpen(true)}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition"
@@ -866,7 +876,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isCreating}
+                  disabled={isCreating || !canCreate}
                   className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl shadow-sm transition disabled:opacity-50"
                 >
                   {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}

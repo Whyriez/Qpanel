@@ -25,7 +25,7 @@ import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 import { EmptyState } from '../components/ui/EmptyState';
 
 export interface SitesPageProps {
-  onSelectSite?: (siteId: number) => void;
+  onSelectSite?: (site: Site) => void;
 }
 
 export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} }) => {
@@ -266,7 +266,7 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
                           </div>
                           <div>
                             <button
-                              onClick={() => onSelectSite(site.id)}
+                              onClick={() => onSelectSite(site)}
                               className="font-semibold text-sm text-[var(--ink)] hover:text-[var(--primary)] hover:underline flex items-center gap-1 text-left"
                             >
                               {site.primary_domain}
@@ -345,7 +345,7 @@ export const SitesPage: React.FC<SitesPageProps> = ({ onSelectSite = () => {} })
 
                           {/* Detail button */}
                           <button
-                            onClick={() => onSelectSite(site.id)}
+                            onClick={() => onSelectSite(site)}
                             className="p-1.5 rounded-[var(--radius-sm)] text-[var(--ink-muted)] hover:text-[var(--primary)] hover:bg-[var(--surface)] transition-colors"
                             title="Buka detail situs"
                           >

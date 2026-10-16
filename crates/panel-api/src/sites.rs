@@ -1555,7 +1555,7 @@ pub async fn create_static_site_handler(
             is_php.then_some(&php_version),
         )
         .await;
-        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Provisioning direktori situs gagal; pembuatan situs dibatalkan."}))).into_response();
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":format!("Provisioning direktori situs gagal; pembuatan situs dibatalkan: {e}")}))).into_response();
     }
 
     // 7b. If PHP site, ensure PHP-FPM master and pool exist

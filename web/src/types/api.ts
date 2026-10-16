@@ -1190,7 +1190,7 @@ export interface DatabaseServer {
 export interface DatabaseQuotaInfo {
   used: number;
   limit: number;
-  remaining: number;
+  remaining: number | null;
 }
 
 export interface DatabaseItem {
@@ -1233,7 +1233,7 @@ export interface CreateDatabaseResponse {
 }
 
 export interface RotatePasswordRequest {
-  password?: string | null;
+  new_password?: string | null;
 }
 
 export interface RotatePasswordResponse {

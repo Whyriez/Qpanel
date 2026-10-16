@@ -370,6 +370,44 @@ async fn test_database_server_list() {
 }
 
 #[tokio::test]
+async fn test_database_site_list_checks_access_and_missing_site() {
+    let ctx = setup_test_context().await;
+    let admin = SqliteUserRepository::new(ctx.pool.clone())
+        .find_by_username("admin")
+        .await
+        .unwrap()
+        .unwrap();
+    let foreign_site = SqliteSiteRepository::new(ctx.pool.clone())
+        .create(&CreateSite {
+            user_id: admin.id,
+            kind: "static".to_string(),
+            docroot: "/home/fixture/sites/foreign.test/public".to_string(),
+            runtime: None,
+            version: None,
+            status: Some("active".to_string()),
+            settings_json: None,
+        })
+        .await
+        .unwrap();
+    for (site_id, expected) in [
+        (foreign_site.id, StatusCode::FORBIDDEN),
+        (999999, StatusCode::NOT_FOUND),
+    ] {
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/v1/databases?site_id={site_id}"))
+            .header(
+                header::COOKIE,
+                format!("{SESSION_COOKIE_NAME}={}", ctx.alice_session),
+            )
+            .body(Body::empty())
+            .unwrap();
+        let response = ctx.app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), expected);
+    }
+}
+
+#[tokio::test]
 async fn test_database_lifecycle_and_quota() {
     let ctx = setup_test_context().await;
 
@@ -491,6 +529,33 @@ async fn test_database_lifecycle_and_quota() {
     assert_eq!(list_dto.databases.len(), 2);
     assert_eq!(list_dto.plan_max_databases, 2);
     assert_eq!(list_dto.used_databases, 2);
+
+    // Site-filtered admin reads must use the owner's tenant-wide quota, not admin's.
+    let site_list_req = Request::builder()
+        .method("GET")
+        .uri(format!("/api/v1/databases?site_id={}", ctx.site_id))
+        .header(
+            header::COOKIE,
+            format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let site_list_res = ctx.app.clone().oneshot(site_list_req).await.unwrap();
+    assert_eq!(site_list_res.status(), StatusCode::OK);
+    let site_list_json: serde_json::Value = serde_json::from_slice(
+        &site_list_res
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes(),
+    )
+    .unwrap();
+    assert_eq!(site_list_json["total"], 1);
+    assert_eq!(site_list_json["plan_max_databases"], 2);
+    assert_eq!(site_list_json["used_databases"], 2);
+    assert_eq!(site_list_json["databases"][0]["id"], db1_id);
+    assert!(site_list_json.get("quota").is_none());
 
     // 5. Rotate password for db1
     let rotate_payload = RotatePasswordRequest {

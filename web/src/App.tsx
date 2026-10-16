@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import './i18n';
 import { navigate, pagePath, useBrowserRoute } from './lib/router';
 import { isAdminOnlyRoute, postLoginDestination } from './lib/routeAccess';
+import { parseSiteRoute, sitePath } from './lib/siteRoutes';
 
 const FirstRunWizardPage = lazy(() =>
   import('./pages/FirstRunWizardPage').then((m) => ({ default: m.FirstRunWizardPage }))
@@ -33,8 +34,8 @@ const PlansPage = lazy(() =>
 const SitesPage = lazy(() =>
   import('./pages/SitesPage').then((m) => ({ default: m.SitesPage }))
 );
-const SiteDetailPage = lazy(() =>
-  import('./pages/SiteDetailPage').then((m) => ({ default: m.SiteDetailPage }))
+const SiteDetailRoute = lazy(() =>
+  import('./pages/SiteDetailRoute').then((m) => ({ default: m.SiteDetailRoute }))
 );
 const RuntimePage = lazy(() =>
   import('./pages/RuntimePage').then((m) => ({ default: m.RuntimePage }))
@@ -66,10 +67,9 @@ const MainApp: React.FC = () => {
   });
   const route = useBrowserRoute();
   const tenantMatch = /^\/tenants\/(\d+)(?:\/.*)?$/.exec(route.pathname);
-  const siteMatch = /^\/sites\/(\d+)(?:\/.*)?$/.exec(route.pathname);
+  const siteMatch = parseSiteRoute(route.pathname);
   const activeNav = tenantMatch ? 'tenant-detail' : siteMatch ? 'site-detail' : route.pathname.slice(1);
   const selectedTenantId = tenantMatch ? Number(tenantMatch[1]) : null;
-  const selectedSiteId = siteMatch ? Number(siteMatch[1]) : null;
   const isWizardOpen = route.pathname === '/setup';
   const setActiveNav = (page: string) => navigate(pagePath(page));
   const loginPath = `/login?returnTo=${encodeURIComponent(route.search.get('returnTo') || '/dashboard')}`;
@@ -158,21 +158,21 @@ const MainApp: React.FC = () => {
         theme={theme}
         onThemeChange={setTheme}
       >
-        {activeNav === 'dashboard' && <DashboardPage onNavigate={setActiveNav} onSelectSite={(id) => navigate(`/sites/${id}`)} />}
+        {activeNav === 'dashboard' && <DashboardPage onNavigate={setActiveNav} onSelectSite={(site) => navigate(sitePath(site))} />}
         <Suspense fallback={<PageFallback />}>
           {activeNav === 'audit' && <AuditLogPage />}
           {activeNav === 'jobs' && <JobsPage />}
           {activeNav === 'profile' && <SecurityProfilePage />}
           {activeNav === 'sites' && (
             <SitesPage
-              onSelectSite={(id) => {
-                navigate(`/sites/${id}`);
+              onSelectSite={(site) => {
+                navigate(sitePath(site));
               }}
             />
           )}
-          {activeNav === 'site-detail' && selectedSiteId && (
-            <SiteDetailPage
-              siteId={selectedSiteId}
+          {activeNav === 'site-detail' && siteMatch && (
+            <SiteDetailRoute
+              siteKey={siteMatch.key}
               onBack={() => {
                 navigate('/sites');
               }}

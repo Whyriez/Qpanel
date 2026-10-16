@@ -32,7 +32,7 @@ import { SiteWizardDialog } from "../components/sites/SiteWizardDialog";
 
 interface DashboardPageProps {
   onNavigate?: (page: string) => void;
-  onSelectSite?: (id: number) => void;
+  onSelectSite?: (site: Site) => void;
 }
 
 export function DashboardPage({
@@ -275,7 +275,7 @@ export function DashboardPage({
                       <td>
                         <button
                           className="domain-link"
-                          onClick={() => onSelectSite(site.id)}
+                          onClick={() => onSelectSite(site)}
                         >
                           {site.primary_domain}
                         </button>

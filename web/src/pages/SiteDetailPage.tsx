@@ -1,5 +1,6 @@
 import { ModalOverlay } from '../components/ui/ModalOverlay';
 import { navigate, RouteLink, useBrowserRoute } from '../lib/router';
+import { canonicalSiteUrl, sitePath } from '../lib/siteRoutes';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft,
@@ -95,10 +96,15 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const { user } = useAuth();
   const route = useBrowserRoute();
   const segment = route.pathname.split('/')[3] || 'overview';
-  const setActiveTab = (tab: TabType) => navigate(`/sites/${siteId}/${tab}`);
-
-
   const [site, setSite] = useState<Site | null>(null);
+  const setActiveTab = (tab: TabType) => {
+    if (site) navigate(sitePath(site, tab));
+  };
+  useEffect(() => {
+    if (!site) return;
+    const target = canonicalSiteUrl(site, route.pathname, window.location.search, window.location.hash);
+    if (target !== window.location.pathname + window.location.search + window.location.hash) navigate(target, true);
+  }, [site, route.pathname]);
   const runtimeTab = site?.kind === 'nodejs' ? 'node' : site?.kind || 'php';
   const activeTab = ((segment === 'settings' && route.pathname.split('/')[4] === 'runtime') || segment === 'runtime' ? runtimeTab : segment) as TabType;
   const [sslStatus, setSslStatus] = useState<SslStatus | null>(null);
@@ -553,6 +559,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
     }
   }, [logLines]);
 
+  if (!site && !isLoading) {
+    return (
+      <div className="site-route-state" role="alert">
+        <h1>Detail situs tidak tersedia</h1>
+        <p>{toastMessage?.text || 'Situs tidak ditemukan atau Anda tidak memiliki akses.'}</p>
+        <div>
+          <button onClick={onBack}>Kembali ke daftar situs</button>
+          <button onClick={() => void loadSiteData()}>Coba lagi</button>
+        </div>
+      </div>
+    );
+  }
   if (isLoading || !site) {
     return (
       <div className="p-12 text-center text-xs text-[var(--ink-muted)] flex items-center justify-center gap-2">
@@ -594,8 +612,8 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       )}
 
       {/* Top Navigation & Action Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}
             className="p-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--raised)] transition-colors"
@@ -604,10 +622,12 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
             <ArrowLeft className="w-4 h-4" />
           </button>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold font-mono tracking-tight text-[var(--ink)]">
-                {site.primary_domain}
+          <div className="min-w-0">
+            <div className="flex items-center flex-wrap gap-2">
+              <h1 className="text-lg sm:text-xl font-semibold break-words tracking-tight text-[var(--ink)]">
+                {site.primary_domain.split('.').map((label, index, labels) => (
+                  <React.Fragment key={index}>{label}{index < labels.length - 1 && <>.<wbr /></>}</React.Fragment>
+                ))}
               </h1>
               <StatusPill
                 variant={isActive ? 'success' : 'neutral'}
@@ -618,8 +638,6 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
               </div>
             </div>
             <div className="text-xs text-[var(--ink-muted)] flex items-center gap-2 mt-0.5">
-              <span>Tenant #{site.user_id}</span>
-              <span>&bull;</span>
               <span>
                 {site.kind === 'static'
                   ? 'Situs Statis'
@@ -631,7 +649,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
                 <>
                   <span>&bull;</span>
                   <span className="text-[var(--success)] font-medium flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> Force HTTPS
+                    <Lock className="w-3 h-3" /> HTTPS aktif
                   </span>
                 </>
               )}
@@ -639,7 +657,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           {/* SSH / SFTP Connection */}
           <button
             type="button"
@@ -701,7 +719,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
 
       {/* Tabs Bar */}
       <div className="flex items-center gap-1 border-b border-[var(--line)] text-xs font-medium overflow-x-auto">
-        <RouteLink href={`/sites/${siteId}/overview`}
+        <RouteLink href={sitePath(site, 'overview')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'overview'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -712,7 +730,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.overview')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/analytics`}
+        <RouteLink href={sitePath(site, 'analytics')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'analytics'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -723,7 +741,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           Analitik
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/domains`}
+        <RouteLink href={sitePath(site, 'domains')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'domains'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -734,7 +752,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.domains')} ({site.domains.length})
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/files`}
+        <RouteLink href={sitePath(site, 'files')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'files'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -745,7 +763,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           Berkas
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/environment`}
+        <RouteLink href={sitePath(site, 'environment')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'environment'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -756,7 +774,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.environment', 'Environment')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/database`}
+        <RouteLink href={sitePath(site, 'database')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'database'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -767,7 +785,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.database', 'Basis Data')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/ssl`}
+        <RouteLink href={sitePath(site, 'ssl')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'ssl'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -781,7 +799,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           )}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/rules`}
+        <RouteLink href={sitePath(site, 'rules')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'rules'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -792,7 +810,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.rules', 'Aturan')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/deploy`}
+        <RouteLink href={sitePath(site, 'deploy')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'deploy'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -803,7 +821,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.deploy', 'Deploy')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/backups`}
+        <RouteLink href={sitePath(site, 'backups')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'backups'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -814,7 +832,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.backups', 'Cadangan')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/logs`}
+        <RouteLink href={sitePath(site, 'logs')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'logs'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -826,7 +844,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         </RouteLink>
 
         {site.kind === 'php' && (
-          <RouteLink href={`/sites/${siteId}/php`}
+          <RouteLink href={sitePath(site, 'php')}
             className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
               activeTab === 'php'
                 ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -839,7 +857,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         )}
 
         {(site.kind === 'nodejs' || site.runtime === 'nodejs') && (
-          <RouteLink href={`/sites/${siteId}/node`}
+          <RouteLink href={sitePath(site, 'node')}
             className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
               activeTab === 'node'
                 ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -852,7 +870,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         )}
 
         {(site.kind === 'python' || site.runtime === 'python') && (
-          <RouteLink href={`/sites/${siteId}/python`}
+          <RouteLink href={sitePath(site, 'python')}
             className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
               activeTab === 'python'
                 ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -865,7 +883,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         )}
 
         {(site.kind === 'proxy' || site.runtime === 'proxy') && (
-          <RouteLink href={`/sites/${siteId}/proxy`}
+          <RouteLink href={sitePath(site, 'proxy')}
             className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
               activeTab === 'proxy'
                 ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -877,7 +895,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           </RouteLink>
         )}
 
-        <RouteLink href={`/sites/${siteId}/cron`}
+        <RouteLink href={sitePath(site, 'cron')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'cron'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'
@@ -888,7 +906,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
           {t('sites.tabs.cron', 'Cron')}
         </RouteLink>
 
-        <RouteLink href={`/sites/${siteId}/settings`}
+        <RouteLink href={sitePath(site, 'settings')}
           className={`px-4 py-2.5 border-b-2 transition-colors flex items-center gap-2 shrink-0 ${
             activeTab === 'settings'
               ? 'border-[var(--primary)] text-[var(--primary)] font-semibold'

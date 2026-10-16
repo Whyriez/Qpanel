@@ -429,7 +429,15 @@ pub async fn list_databases_handler(
     let user_repo = SqliteUserRepository::new(state.pool.clone());
     let plan_repo = SqlitePlanRepository::new(state.pool.clone());
 
-    let target_user_id = if user.role == "admin" {
+    let target_user_id = if let Some(site_id) = query.site_id {
+        let site_repo = SqliteSiteRepository::new(state.pool.clone());
+        match crate::sites::fetch_and_authorize_site(&site_repo, &user, site_id).await {
+            Ok(site) => site.user_id,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({ "error": message }))).into_response();
+            }
+        }
+    } else if user.role == "admin" {
         query.user_id.unwrap_or(user.id)
     } else {
         user.id

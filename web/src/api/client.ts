@@ -1,4 +1,5 @@
 import { parseSystemInsights, parseSystemTimeseries, parseRetention, parseMaintenance, parseIntegrity, retentionUpdatePayload } from './analyticsContracts';
+import { parseDatabaseList } from './databaseContracts';
 import {
   AuditLogItem,
   AuditLogListResponse,
@@ -1609,7 +1610,7 @@ export async function fetchDatabases(params?: {
     queryParts.push(`user_id=${params.user_id}`);
   }
   const query = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
-  return request<DatabaseListResponse>(`/api/v1/databases${query}`);
+  return parseDatabaseList(await request<unknown>(`/api/v1/databases${query}`));
 }
 
 export async function fetchDatabase(id: number): Promise<DatabaseItem> {
@@ -1878,7 +1879,7 @@ export async function fetchSiteAppMetrics(
   if (params?.to !== undefined) query.set('to', params.to.toString());
 
   const qs = query.toString();
-  return request<SiteAppMetricsResponse>(`/api/v1/sites/${siteId}/analytics/app-metrics${qs ? `?${qs}` : ''}`);
+  return request<SiteAppMetricsResponse>(`/api/v1/sites/${siteId}/analytics/app${qs ? `?${qs}` : ''}`);
 }
 
 export async function fetchSiteSlowlog(
