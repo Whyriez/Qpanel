@@ -848,6 +848,10 @@ pub async fn recompile_and_apply_site_vhost(
         config_content: rendered,
         enable,
         nginx_base_dir: None,
+        log_context: Some(panel_proto::SiteLogContext {
+            username: linux_uname.to_string(),
+            domain: primary_domain.to_string(),
+        }),
         test_config: true,
         reload: true,
     };
@@ -1738,6 +1742,7 @@ pub async fn enable_site_handler(
         config_content: String::new(),
         enable: true,
         nginx_base_dir: None,
+        log_context: None,
         test_config: false,
         reload: true,
     };
@@ -1818,6 +1823,7 @@ pub async fn disable_site_handler(
         config_content: String::new(),
         enable: false,
         nginx_base_dir: None,
+        log_context: None,
         test_config: false,
         reload: true,
     };
@@ -2356,6 +2362,7 @@ pub async fn site_quick_action_handler(
                 config_content: String::new(),
                 enable: true,
                 nginx_base_dir: None,
+                log_context: None,
                 test_config: false,
                 reload: true,
             };
@@ -2444,6 +2451,7 @@ pub async fn site_quick_action_handler(
                 config_content: String::new(),
                 enable: false,
                 nginx_base_dir: None,
+                log_context: None,
                 test_config: false,
                 reload: true,
             };

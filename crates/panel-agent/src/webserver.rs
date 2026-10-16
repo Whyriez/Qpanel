@@ -227,6 +227,37 @@ impl NginxManager {
         Ok(nginx_main_config_path(base_dir))
     }
 
+    fn prepare_site_logs(&self, context: &panel_proto::SiteLogContext) -> Result<(), AgentError> {
+        let username = panel_core::Username::parse(&context.username)
+            .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
+        let domain = panel_core::domain::DomainName::parse(&context.domain)
+            .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
+        let base = Path::new("/var/log/panel");
+        let tenant_dir = base.join(username.as_str());
+        let site_dir = tenant_dir.join(domain.as_ascii());
+        for (path, mode) in [
+            (base, 0o755),
+            (tenant_dir.as_path(), 0o750),
+            (site_dir.as_path(), 0o750),
+        ] {
+            if !self.runner.path_exists(path) {
+                self.runner.create_dir_all(path, mode, 0, 0)?;
+            }
+        }
+        // Strict ACL application: failure must stop apply before nginx -t. The
+        // default ACL gives new/rotated logs tenant read access without truncation.
+        for path in [&tenant_dir, &site_dir] {
+            let acl = if path == &site_dir {
+                format!("u:{}:r-x,d:u:{}:r-x", username.as_str(), username.as_str())
+            } else {
+                format!("u:{}:r-x", username.as_str())
+            };
+            self.runner
+                .run_command("setfacl", &["-m", &acl, &path.to_string_lossy()])?;
+        }
+        Ok(())
+    }
+
     fn build_config(&self, req: &NginxBaselineApplyRequest) -> NginxBaselineConfig {
         let base_dir = req
             .base_dir
@@ -360,6 +391,13 @@ impl NginxManager {
             .operation_lock
             .lock()
             .map_err(|_| AgentError::Internal("Kunci konfigurasi Nginx gagal".into()))?;
+        if let Some(context) = &req.log_context {
+            self.prepare_site_logs(context).map_err(|error| {
+                AgentError::InvalidInput(format!(
+                    "Persiapan direktori log situs gagal sebelum validasi Nginx: {error}"
+                ))
+            })?;
+        }
         let base_dir = req
             .nginx_base_dir
             .as_deref()
@@ -897,6 +935,146 @@ mod tests {
     use super::*;
     use crate::system::MockSystemRunner;
     use tempfile::TempDir;
+
+    fn log_apply_request(base_dir: &Path) -> SiteApplyRequest {
+        SiteApplyRequest {
+            site_id: "site_42".into(),
+            config_content: "server { listen 80; server_name testing.incogmsg.my.id; access_log /var/log/panel/p_tokoalim/testing.incogmsg.my.id/access.log panel_json; error_log /var/log/panel/p_tokoalim/testing.incogmsg.my.id/error.log warn; }".into(),
+            enable: true,
+            nginx_base_dir: Some(base_dir.to_string_lossy().into_owned()),
+            log_context: Some(panel_proto::SiteLogContext { username: "p_tokoalim".into(), domain: "testing.incogmsg.my.id".into() }),
+            test_config: true,
+            reload: true,
+        }
+    }
+
+    #[test]
+    fn apply_prepares_site_log_directories_and_acl_before_nginx_validation() {
+        let temp = TempDir::new().unwrap();
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::with_base_dir(runner.clone(), temp.path());
+        manager.apply_site(log_apply_request(temp.path())).unwrap();
+        let actions = runner.recorded_actions();
+        let check_index = actions
+            .iter()
+            .position(|action| {
+                matches!(action,
+            crate::system::MockAction::Command { binary, .. } if binary == "nginx")
+            })
+            .unwrap();
+        for path in [
+            "/var/log/panel/p_tokoalim",
+            "/var/log/panel/p_tokoalim/testing.incogmsg.my.id",
+        ] {
+            let index = actions
+                .iter()
+                .position(|action| {
+                    matches!(action,
+                crate::system::MockAction::CreateDir { path: actual, mode: 0o750, uid: 0, gid: 0 }
+                if actual == Path::new(path))
+                })
+                .unwrap();
+            assert!(index < check_index, "log directory must precede nginx -t");
+            assert!(actions[..check_index].iter().any(|action| matches!(action,
+                crate::system::MockAction::Command { binary, args }
+                    if binary == "setfacl" && args.last().is_some_and(|arg| Path::new(arg) == Path::new(path)))));
+        }
+        assert!(temp.path().join("sites-available/site_42.conf").exists());
+    }
+
+    #[test]
+    fn preparing_logs_preserves_existing_files_and_directory_ownership() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        for dir in [
+            "/var/log/panel",
+            "/var/log/panel/p_tokoalim",
+            "/var/log/panel/p_tokoalim/testing.incogmsg.my.id",
+        ] {
+            runner.add_existing_path(dir);
+        }
+        for name in ["access.log", "error.log"] {
+            runner.set_file_content(
+                Path::new(&format!(
+                    "/var/log/panel/p_tokoalim/testing.incogmsg.my.id/{name}"
+                )),
+                b"existing log history\n",
+            );
+        }
+        let context = log_apply_request(Path::new("fixture")).log_context.unwrap();
+        manager.prepare_site_logs(&context).unwrap();
+        manager.prepare_site_logs(&context).unwrap();
+        for name in ["access.log", "error.log"] {
+            assert_eq!(
+                runner
+                    .read_file(Path::new(&format!(
+                        "/var/log/panel/p_tokoalim/testing.incogmsg.my.id/{name}"
+                    )))
+                    .unwrap(),
+                b"existing log history\n"
+            );
+        }
+        assert!(
+            runner
+                .recorded_actions()
+                .iter()
+                .all(|action| matches!(action,
+            crate::system::MockAction::Command { binary, .. } if binary == "setfacl"))
+        );
+    }
+
+    #[test]
+    fn log_context_rejects_traversal_before_any_host_action_and_normalizes_idn() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        for (username, domain) in [
+            ("../../etc", "example.com"),
+            ("p_alice", "../../etc"),
+            ("p_alice", "example.com;error_log /etc/passwd"),
+        ] {
+            assert!(
+                manager
+                    .prepare_site_logs(&panel_proto::SiteLogContext {
+                        username: username.into(),
+                        domain: domain.into()
+                    })
+                    .is_err()
+            );
+        }
+        assert!(runner.recorded_actions().is_empty());
+        manager
+            .prepare_site_logs(&panel_proto::SiteLogContext {
+                username: "p_alice".into(),
+                domain: "CAFÉ.example".into(),
+            })
+            .unwrap();
+        assert!(runner.path_exists(Path::new("/var/log/panel/p_alice/xn--caf-dma.example")));
+    }
+
+    #[test]
+    fn log_acl_failure_stops_before_staging_or_nginx_and_preserves_previous_vhost() {
+        let temp = TempDir::new().unwrap();
+        let runner = Arc::new(MockSystemRunner::new());
+        runner.set_response("setfacl", 1, b"", b"ACL denied");
+        let manager = NginxManager::with_base_dir(runner.clone(), temp.path());
+        let path = temp.path().join("sites-available/site_42.conf");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "previous working vhost").unwrap();
+        let error = manager
+            .apply_site(log_apply_request(temp.path()))
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Persiapan direktori log situs gagal")
+        );
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "previous working vhost"
+        );
+        assert!(!runner.recorded_actions().iter().any(|action| matches!(action,
+            crate::system::MockAction::Command { binary, .. } if binary == "nginx" || binary == "systemctl")));
+    }
 
     const HOST_MAIN: &str = "/etc/nginx/nginx.conf";
     const HOST_BRIDGE: &str = "/etc/nginx/conf.d/00-nusa-panel-sites.conf";

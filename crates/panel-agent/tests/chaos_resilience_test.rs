@@ -39,6 +39,7 @@ async fn test_chaos_scenario_1_atomic_staging_abort_leaves_active_config_untouch
         config_content: initial_content.to_string(),
         enable: true,
         nginx_base_dir: Some(base_dir.to_string_lossy().to_string()),
+        log_context: None,
         test_config: true,
         reload: false,
     });
@@ -63,6 +64,7 @@ async fn test_chaos_scenario_1_atomic_staging_abort_leaves_active_config_untouch
         config_content: bad_content.to_string(),
         enable: true,
         nginx_base_dir: Some(base_dir.to_string_lossy().to_string()),
+        log_context: None,
         test_config: true,
         reload: false,
     });
@@ -134,6 +136,7 @@ async fn test_chaos_scenario_3_disk_full_enospc_error_handling() {
         config_content: "server {}".to_string(),
         enable: false,
         nginx_base_dir: Some(base_dir.to_string_lossy().to_string()),
+        log_context: None,
         test_config: false,
         reload: false,
     });

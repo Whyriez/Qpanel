@@ -36,6 +36,7 @@ struct TestContext {
     admin_session: String,
     admin_csrf: String,
     alice_id: i64,
+    runner: Arc<MockSystemRunner>,
 }
 
 fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
@@ -241,7 +242,60 @@ async fn setup_test_context() -> TestContext {
         admin_session,
         admin_csrf,
         alice_id: alice_user.id,
+        runner,
     }
+}
+
+#[tokio::test]
+async fn create_site_log_failure_rolls_back_records_and_preserves_docroot() {
+    let ctx = setup_test_context().await;
+    ctx.runner.set_response("setfacl", 1, b"", b"ACL denied");
+    let payload = CreateStaticSiteRequest {
+        domain: "failed-log.test".into(),
+        user_id: Some(ctx.alice_id),
+        ..Default::default()
+    };
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/v1/sites")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(
+            header::COOKIE,
+            format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+        )
+        .header(CSRF_HEADER_NAME, &ctx.admin_csrf)
+        .body(Body::from(serde_json::to_string(&payload).unwrap()))
+        .unwrap();
+    let response = ctx.app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&bytes).contains("Persiapan direktori log situs gagal"));
+    let sites: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sites")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    let domains: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM domains")
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!((sites, domains), (0, 0));
+    let placeholder = ctx
+        .runner
+        .recorded_actions()
+        .iter()
+        .find_map(|action| match action {
+            panel_agent::system::MockAction::WriteFile { path, .. }
+                if path.ends_with("index.html") =>
+            {
+                Some(path.clone())
+            }
+            _ => None,
+        })
+        .expect("docroot was provisioned before log preparation");
+    assert!(
+        !ctx.runner.read_file(&placeholder).unwrap().is_empty(),
+        "rollback must preserve tenant data"
+    );
 }
 
 #[tokio::test]
@@ -283,6 +337,29 @@ async fn test_static_site_crud_and_lifecycle() {
     assert_eq!(created_site.domains.len(), 1);
     assert_eq!(created_site.domains[0].name, "hello-static.test");
     assert!(created_site.domains[0].is_primary);
+
+    // The router must pass authoritative tenant/domain context through RPC.
+    // Successful mock syntax alone used to hide missing log directories.
+    let log_dir = std::path::Path::new("/var/log/panel/p_alice/hello-static.test");
+    assert!(ctx.runner.path_exists(log_dir));
+    let actions = ctx.runner.recorded_actions();
+    let log_prepared = actions
+        .iter()
+        .position(|action| {
+            matches!(action,
+        panel_agent::system::MockAction::CreateDir { path, uid: 0, gid: 0, mode: 0o750 }
+        if path == log_dir)
+        })
+        .expect("root-owned site log directory");
+    let nginx_test = actions
+        .iter()
+        .position(|action| {
+            matches!(action,
+        panel_agent::system::MockAction::Command { binary, args }
+        if binary == "nginx" && args.first().is_some_and(|arg| arg == "-t"))
+        })
+        .expect("syntax check");
+    assert!(log_prepared < nginx_test, "prepare logs before nginx -t");
 
     let site_id = created_site.id;
 

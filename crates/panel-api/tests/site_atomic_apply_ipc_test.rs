@@ -118,6 +118,7 @@ async fn test_site_atomic_apply_and_rollback_over_ipc() {
         config_content: valid_conf.clone(),
         enable: true,
         nginx_base_dir: Some(nginx_dir.to_string_lossy().to_string()),
+        log_context: None,
         test_config: true,
         reload: true,
     };
@@ -151,6 +152,7 @@ async fn test_site_atomic_apply_and_rollback_over_ipc() {
         config_content: broken_conf.to_string(),
         enable: true,
         nginx_base_dir: Some(nginx_dir.to_string_lossy().to_string()),
+        log_context: None,
         test_config: true,
         reload: true,
     };

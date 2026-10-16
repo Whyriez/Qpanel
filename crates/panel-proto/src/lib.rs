@@ -1016,12 +1016,22 @@ pub struct NginxBaselineAppliedResponse {
     pub reloaded: bool,
 }
 
+/// Validated again by the agent; log paths are derived internally, never supplied.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SiteLogContext {
+    pub username: String,
+    pub domain: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SiteApplyRequest {
     pub site_id: String,
     pub config_content: String,
     pub enable: bool,
     pub nginx_base_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_context: Option<SiteLogContext>,
     pub test_config: bool,
     pub reload: bool,
 }
@@ -2657,6 +2667,21 @@ pub struct SystemBackupRestoreResponse {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn site_log_context_is_additive_and_does_not_accept_raw_paths() {
+        let legacy = serde_json::json!({ "site_id": "site_1", "config_content": "server {}", "enable": true, "nginx_base_dir": null, "test_config": true, "reload": false });
+        let request: SiteApplyRequest = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(request.log_context.is_none());
+        assert_eq!(serde_json::to_value(request).unwrap(), legacy);
+        let mut current = legacy;
+        current["log_context"] =
+            serde_json::json!({ "username": "p_alice", "domain": "example.com" });
+        let request: SiteApplyRequest = serde_json::from_value(current.clone()).unwrap();
+        assert_eq!(request.log_context.unwrap().domain, "example.com");
+        current["log_context"]["log_dir"] = serde_json::json!("/etc/nginx");
+        assert!(serde_json::from_value::<SiteApplyRequest>(current).is_err());
+    }
 
     #[tokio::test]
     async fn test_rpc_serialization_ping() {
