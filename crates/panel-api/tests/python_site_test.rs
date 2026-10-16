@@ -365,9 +365,10 @@ async fn test_python_site_full_lifecycle_and_security() {
     let ctx = setup_test_context().await;
 
     // 1. Create a Python site under Alice (Django preset)
+    let app_dir = "/home/p_alice/sites/pyapp.example.com/app";
     let create_payload = CreateStaticSiteRequest {
         domain: "pyapp.example.com".to_string(),
-        docroot: Some("/home/p_alice/apps/pyapp".to_string()),
+        docroot: Some(app_dir.to_string()),
         spa_fallback: Some(false),
         force_https: Some(false),
         user_id: Some(ctx.alice_id),
@@ -378,12 +379,12 @@ async fn test_python_site_full_lifecycle_and_security() {
         entrypoint_type: Some("wsgi".to_string()),
         entrypoint_value: Some("myproject.wsgi:application".to_string()),
         workers: Some(3),
-        app_dir: Some("/home/p_alice/apps/pyapp".to_string()),
-        venv_dir: Some("/home/p_alice/apps/pyapp/.venv".to_string()),
+        app_dir: Some(app_dir.to_string()),
+        venv_dir: Some(format!("{app_dir}/.venv")),
         static_url: Some("/static/".to_string()),
-        static_dir: Some("/home/p_alice/apps/pyapp/static".to_string()),
+        static_dir: Some(format!("{app_dir}/static")),
         media_url: Some("/media/".to_string()),
-        media_dir: Some("/home/p_alice/apps/pyapp/media".to_string()),
+        media_dir: Some(format!("{app_dir}/media")),
         auto_restart: Some(true),
         env_vars: Some(BTreeMap::from([(
             "DJANGO_SETTINGS_MODULE".to_string(),
@@ -405,11 +406,17 @@ async fn test_python_site_full_lifecycle_and_security() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
+    let status = res.status();
     let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "Python site creation failed: {}",
+        String::from_utf8_lossy(&body_bytes)
+    );
     let site_res: SiteResponse = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(site_res.kind, "python");
+    assert_eq!(site_res.docroot, app_dir);
     assert_eq!(site_res.runtime.as_deref(), Some("python"));
     assert_eq!(site_res.version.as_deref(), Some("3.12.9"));
 
@@ -511,6 +518,10 @@ async fn test_python_site_full_lifecycle_and_security() {
     assert_eq!(s_dto.framework_preset, "django");
     assert_eq!(s_dto.workers, 3);
     assert_eq!(s_dto.static_url.as_deref(), Some("/static/"));
+    assert_eq!(s_dto.app_dir, app_dir);
+    assert_eq!(s_dto.venv_dir, format!("{app_dir}/.venv"));
+    assert_eq!(s_dto.static_dir, Some(format!("{app_dir}/static")));
+    assert_eq!(s_dto.media_dir, Some(format!("{app_dir}/media")));
 
     // Update settings
     let update_settings_payload = serde_json::json!({

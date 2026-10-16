@@ -322,16 +322,17 @@ async fn test_node_site_full_lifecycle_and_security() {
     let ctx = setup_test_context().await;
 
     // 1. Create a Node.js site under Alice
+    let app_dir = "/home/p_alice/sites/node-app.example.com/app";
     let create_payload = CreateStaticSiteRequest {
         domain: "node-app.example.com".to_string(),
-        docroot: Some("/home/p_alice/apps/node-app".to_string()),
+        docroot: Some(app_dir.to_string()),
         spa_fallback: Some(false),
         force_https: Some(false),
         user_id: Some(ctx.alice_id),
         kind: Some("nodejs".to_string()),
         node_version: Some("22.14.0".to_string()),
         port: Some(20050),
-        app_dir: Some("/home/p_alice/apps/node-app".to_string()),
+        app_dir: Some(app_dir.to_string()),
         entrypoint_type: Some("script".to_string()),
         entrypoint_value: Some("server.js".to_string()),
         auto_restart: Some(true),
@@ -355,11 +356,17 @@ async fn test_node_site_full_lifecycle_and_security() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-
+    let status = res.status();
     let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "Node site creation failed: {}",
+        String::from_utf8_lossy(&body_bytes)
+    );
     let site_res: SiteResponse = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(site_res.kind, "nodejs");
+    assert_eq!(site_res.docroot, app_dir);
     assert_eq!(site_res.runtime.as_deref(), Some("nodejs"));
     assert_eq!(site_res.version.as_deref(), Some("22.14.0"));
 
@@ -450,6 +457,7 @@ async fn test_node_site_full_lifecycle_and_security() {
     let s_json: Value = serde_json::from_slice(&s_bytes).unwrap();
     assert_eq!(s_json["port"], 20050);
     assert_eq!(s_json["entrypoint_type"], "script");
+    assert_eq!(s_json["app_dir"], app_dir);
 
     // Update settings
     let update_settings_payload = serde_json::json!({
