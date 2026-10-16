@@ -5,6 +5,14 @@ import { AuthProvider } from "../../../context/AuthContext";
 import "../../../i18n";
 
 describe("Hosting console shell", () => {
+  it('uses a readable breadcrumb for an unknown page', () => {
+    const html = renderToString(<AuthProvider>
+      <Shell theme="light" onThemeChange={vi.fn()} activeNav="missing-page"><p>404</p></Shell>
+    </AuthProvider>);
+    expect(html).toContain('Halaman tidak ditemukan.');
+    expect(html).not.toContain('nav.missing-page');
+  });
+
   it("renders accessible navigation, search and theme controls without placeholder server identity", () => {
     const html = renderToString(
       <AuthProvider>

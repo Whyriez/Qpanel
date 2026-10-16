@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/soak-test.sh: Multi-Day & Accelerated Soak Testing Harness for Nusa Panel (P10-T8)
+# scripts/soak-test.sh: Multi-Day & Accelerated Soak Testing Harness for Qpanel (P10-T8)
 # Continuously tests for memory leaks, file descriptor exhaustion, background job stability,
 # and verifies control-plane vs data-plane decoupling under long-running workloads.
 
@@ -12,7 +12,7 @@ OUTPUT_DIR="docs/benchmarks/results"
 DRY_RUN=false
 
 print_help() {
-    echo "Nusa Panel Soak Testing Runner (P10-T8)"
+    echo "Qpanel Soak Testing Runner (P10-T8)"
     echo ""
     echo "Usage: $0 [options]"
     echo ""
@@ -64,7 +64,7 @@ mkdir -p "${OUTPUT_DIR}"
 SOAK_LOG="${OUTPUT_DIR}/soak_metrics.csv"
 
 echo "======================================================================"
-echo "    Nusa Panel Soak Testing & Memory Leak Verification (P10-T8)       "
+echo "    Qpanel Soak Testing & Memory Leak Verification (P10-T8)       "
 echo "======================================================================"
 echo "Iterations   : ${ITERATIONS}"
 echo "Interval     : ${INTERVAL_SEC} seconds"

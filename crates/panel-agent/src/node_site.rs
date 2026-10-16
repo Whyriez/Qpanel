@@ -364,7 +364,7 @@ pub fn probe_http(port: u16, path: &str) -> (bool, Option<u16>, String) {
     let _ = stream.set_write_timeout(Some(Duration::from_millis(1500)));
 
     let req_str = format!(
-        "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nUser-Agent: NusaPanel-Probe/1.0\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nUser-Agent: Qpanel-Probe/1.0\r\nConnection: close\r\n\r\n",
         if path.is_empty() { "/" } else { path },
         port
     );

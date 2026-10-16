@@ -515,7 +515,7 @@ export const ProxySettingsCard: React.FC<ProxySettingsCardProps> = ({
                     type="text"
                     value={hdr.value}
                     onChange={(e) => updateResponseHeader(idx, 'value', e.target.value)}
-                    placeholder="Nilai (e.g. NusaPanel-Proxy)"
+                    placeholder="Nilai (e.g. Qpanel-Proxy)"
                     className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-teal-500"
                   />
                   <button

@@ -1,4 +1,4 @@
-//! Cross-Tenant Isolation Test Suite for Nusa Panel (P2-T7).
+//! Cross-Tenant Isolation Test Suite for Qpanel (P2-T7).
 //!
 //! This suite validates all isolation boundaries defined in PRD Section 5:
 //! 1. Cross-tenant filesystem read/write/list rejection (`0700` home directory permissions).

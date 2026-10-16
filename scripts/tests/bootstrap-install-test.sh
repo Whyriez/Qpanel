@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Nusa Panel - Bootstrap Installer Test Suite
+# Qpanel - Bootstrap Installer Test Suite
 # Tests all requirements specified in BOOTSTRAP_INSTALLER.md Section 24
 # ==============================================================================
 
@@ -45,7 +45,7 @@ report_test() {
     fi
 }
 
-echo -e "${C_BOLD}Running Nusa Panel Bootstrap Installer Tests${C_RESET}"
+echo -e "${C_BOLD}Running Qpanel Bootstrap Installer Tests${C_RESET}"
 echo "================================================="
 
 # Source the bootstrap script in test mode
@@ -324,7 +324,7 @@ if [[ -n "${PYTHON_BIN}" ]]; then
     mkdir -p "${MOCK_PKG_DIR}"
     cat << 'EOF' > "${MOCK_PKG_DIR}/install.sh"
 #!/usr/bin/env bash
-echo "=== Mock Nusa Panel Installer ==="
+echo "=== Mock Qpanel Installer ==="
 echo "Arguments: $@"
 exit 0
 EOF
@@ -348,7 +348,7 @@ EOF
     kill "${MOCK_PID}" 2>/dev/null || true
     rm -rf "${MOCK_ROOT}"
 
-    if echo "${e2e_output}" | grep -q "Mock Nusa Panel Installer" && echo "${e2e_output}" | grep -q -- "--port 9090 --unattended"; then
+    if echo "${e2e_output}" | grep -q "Mock Qpanel Installer" && echo "${e2e_output}" | grep -q -- "--port 9090 --unattended"; then
         report_test "end-to-end download, verify, extract, and execution with arguments" "PASS"
     else
         report_test "end-to-end download, verify, extract, and execution with arguments" "FAIL" "Output: ${e2e_output}"

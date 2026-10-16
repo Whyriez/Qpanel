@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Nusa Panel - Clean Uninstallation Script
+# Qpanel - Clean Uninstallation Script
 # https://github.com/nusa-panel/panel
 # ==============================================================================
 
@@ -59,7 +59,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 if [[ "$ASSUME_YES" == "false" ]]; then
-    echo -e "${YELLOW}PERINGATAN: Skrip ini akan menghentikan dan mencopot layanan Nusa Panel.${NC}"
+    echo -e "${YELLOW}PERINGATAN: Skrip ini akan menghentikan dan mencopot layanan Qpanel.${NC}"
     if [[ "$PURGE" == "true" ]]; then
         echo -e "${RED}Mode --purge aktif: SEMUA basis data (/var/lib/panel), cadangan, dan konfigurasi AKAN DIHAPUS.${NC}"
     else
@@ -96,7 +96,7 @@ echo -e "${BLUE}[2/4] Menghapus unit file systemd...${NC}"
 rm -f /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service /etc/systemd/system/panel-proc-hardening.service
 systemctl daemon-reload
 
-echo -e "${BLUE}[3/4] Menghapus biner Nusa Panel dari /usr/local/bin...${NC}"
+echo -e "${BLUE}[3/4] Menghapus biner Qpanel dari /usr/local/bin...${NC}"
 rm -f /usr/local/bin/panel-api /usr/local/bin/panel-agent /usr/local/bin/panelctl
 rm -rf /run/panel
 
@@ -112,5 +112,5 @@ fi
 
 echo ""
 echo "================================================================================"
-echo -e "         ${GREEN}[SUKSES] Pencopotan pemasangan Nusa Panel telah selesai.${NC}       "
+echo -e "         ${GREEN}[SUKSES] Pencopotan pemasangan Qpanel telah selesai.${NC}       "
 echo "================================================================================"

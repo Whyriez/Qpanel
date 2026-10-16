@@ -995,40 +995,44 @@ export interface ValidateCronResponse {
 export type RedirectMatchType = 'exact' | 'prefix' | 'regex';
 
 export interface StructuredRedirect {
-  source_path: string;
-  target_url: string;
+  id: string;
+  source: string;
+  target: string;
   status_code: number;
   match_type: RedirectMatchType;
-  preserve_query: boolean;
+  enabled: boolean;
 }
 
 export interface CustomHeader {
+  id: string;
   name: string;
   value: string;
   always: boolean;
+  enabled: boolean;
 }
 
 export interface SecurityHeadersConfig {
   hsts_enabled: boolean;
-  hsts_max_age_seconds: number;
   hsts_subdomains: boolean;
   hsts_preload: boolean;
-  frame_options: string;
-  content_type_options_nosniff: boolean;
-  referrer_policy: string;
-  permissions_policy?: string | null;
-  content_security_policy?: string | null;
+  x_frame_options: string | null;
+  x_content_type_options: boolean;
+  referrer_policy: string | null;
+  permissions_policy: string | null;
+  csp: string | null;
 }
 
 export type CorsPreset = 'disabled' | 'allow_all' | 'same_origin' | 'custom';
 
 export interface CorsConfig {
+  enabled: boolean;
   preset: CorsPreset;
-  custom_origins: string[];
+  allowed_origins: string[];
   allow_credentials: boolean;
   allowed_methods: string[];
   allowed_headers: string[];
-  max_age_seconds?: number | null;
+  exposed_headers: string[];
+  max_age_secs: number;
 }
 
 export type HotlinkAction = 'deny' | 'redirect';
@@ -1057,12 +1061,15 @@ export interface BasicAuthConfig {
 export type IpAction = 'allow' | 'deny';
 
 export interface IpAccessRule {
-  ip_or_cidr: string;
+  id: string;
+  cidr_or_ip: string;
   action: IpAction;
   description?: string | null;
 }
 
 export interface IpAccessConfig {
+  enabled: boolean;
+  scope: 'global' | 'path';
   default_action: IpAction;
   path?: string | null;
   rules: IpAccessRule[];
@@ -1071,13 +1078,13 @@ export interface IpAccessConfig {
 export interface MaintenanceConfig {
   enabled: boolean;
   bypass_ips: string[];
-  retry_after_seconds?: number | null;
-  custom_message?: string | null;
+  retry_after_secs: number;
+  custom_message: string;
 }
 
 export interface CustomErrorPage {
   status_code: number;
-  target_path: string;
+  target: string;
 }
 
 export interface NginxSnippetConfig {
@@ -1090,7 +1097,7 @@ export interface SiteRulesConfig {
   custom_headers: CustomHeader[];
   security_headers: SecurityHeadersConfig;
   cors: CorsConfig;
-  hotlink: HotlinkConfig;
+  hotlink_protection: HotlinkConfig;
   basic_auth: BasicAuthConfig;
   ip_access: IpAccessConfig;
   maintenance: MaintenanceConfig;

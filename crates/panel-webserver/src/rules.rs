@@ -22,6 +22,13 @@ pub fn generate_site_rules_nginx_block(
     append_cors_block(&mut out, rules);
     append_global_ip_access(&mut out, rules);
     append_global_basic_auth(&mut out, rules, &auth_file);
+    if !rules
+        .custom_error_pages
+        .iter()
+        .any(|page| page.status_code == 404)
+    {
+        out.push_str(&crate::error_pages::render_default_not_found());
+    }
     append_custom_error_pages(&mut out, rules);
     append_structured_redirects(&mut out, rules);
     append_hotlink_protection(&mut out, rules);
@@ -442,6 +449,30 @@ fn regex_escape_origin(origin: &str) -> String {
 mod tests {
     use super::*;
     use panel_core::site_rules::*;
+
+    #[test]
+    fn default_404_is_preserved_with_other_custom_errors_and_replaced_by_custom_404() {
+        for custom_code in [500, 404] {
+            let rules = SiteRulesConfig {
+                custom_error_pages: vec![CustomErrorPage {
+                    status_code: custom_code,
+                    target: "/errors/custom.html".into(),
+                }],
+                ..SiteRulesConfig::default()
+            };
+            let conf = generate_site_rules_nginx_block(&rules, "1", None);
+            assert!(conf.contains(&format!("error_page {custom_code} /errors/custom.html;")));
+            assert_eq!(
+                conf.contains("error_page 404 @qpanel_not_found;"),
+                custom_code != 404
+            );
+            assert_eq!(
+                conf.contains("location @qpanel_not_found"),
+                custom_code != 404
+            );
+            assert!(!conf.contains("=200"));
+        }
+    }
 
     #[test]
     fn test_generate_site_rules_redirects_and_headers() {

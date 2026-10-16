@@ -19,7 +19,7 @@
 use crate::cross_fs::{AccessDecision, SimulatedUser, evaluate_posix_access};
 use std::collections::HashSet;
 
-/// Categorization of the 5 supported sample applications in Nusa Panel Phase 7.
+/// Categorization of the 5 supported sample applications in Qpanel Phase 7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SampleAppKind {
     Express,

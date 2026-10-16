@@ -10,8 +10,8 @@ fn test_export_openapi_specification() {
         .expect("ApiDoc openapi specification should serialize to pretty JSON");
 
     assert!(
-        json_str.contains("Nusa Panel API"),
-        "OpenAPI spec must contain Nusa Panel API title"
+        json_str.contains("Qpanel API"),
+        "OpenAPI spec must contain Qpanel API title"
     );
     assert!(
         json_str.contains("/api/v1/system/info"),

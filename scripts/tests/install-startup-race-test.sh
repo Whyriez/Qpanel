@@ -124,7 +124,7 @@ for scenario in delayed sqlite-slow loopback duplicate existing-nginx timeout re
     [[ "$output" != *'curl: Connection refused'* ]]
     case "$scenario" in
         delayed|sqlite-slow|loopback|duplicate|existing-nginx)
-            [[ "$status" == 0 && "$output" == *'NUSA PANEL INSTALLED'* ]]
+            [[ "$status" == 0 && "$output" == *'QPANEL INSTALLED'* ]]
             ! grep -qx rollback "$trace"
             # Exactly one binding probe, after internal readiness and before proxy activation.
             [[ "$(grep -c '^binding:checked$' "$trace")" == 1 ]]
@@ -142,7 +142,7 @@ for scenario in delayed sqlite-slow loopback duplicate existing-nginx timeout re
             fi
             ;;
         *)
-            [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'NUSA PANEL INSTALLED'* ]]
+            [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'QPANEL INSTALLED'* ]]
             [[ "$(grep -c '^rollback$' "$trace")" == 1 ]]
             case "$scenario" in
                 timeout|redirect)

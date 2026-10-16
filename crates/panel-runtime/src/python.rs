@@ -141,8 +141,7 @@ pub fn get_curated_python_catalog() -> Vec<PythonVersionEntry> {
             release_date: Some("2025-02-04".to_string()),
             is_default: true,
             is_lts_or_stable: true,
-            description: "Python 3.12 (Rekomendasi / Default Nusa Panel, stabil & cepat)"
-                .to_string(),
+            description: "Python 3.12 (Rekomendasi / Default Qpanel, stabil & cepat)".to_string(),
         },
         PythonVersionEntry {
             version: "3.13.2".to_string(),

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nusa Panel production install/upgrade. Never run on a development host.
+# Qpanel production install/upgrade. Never run on a development host.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -Eeuo pipefail
 
@@ -194,7 +194,7 @@ on_error() {
 setup_identity() {
     getent group panel >/dev/null || groupadd -r panel
     if ! id panel-api >/dev/null 2>&1; then
-        useradd -r -g panel -d /var/lib/panel -s /usr/sbin/nologin -c 'Nusa Panel API' panel-api
+        useradd -r -g panel -d /var/lib/panel -s /usr/sbin/nologin -c 'Qpanel API' panel-api
     else
         [[ "$(id -u panel-api)" != 0 ]] || { fail 'panel-api tidak boleh memiliki UID 0'; return 1; }
         usermod -g panel panel-api
@@ -293,7 +293,7 @@ activate_nginx_proxy() {
 configure_firewall() {
     [[ "$SKIP_FIREWALL" == false ]] || return 0
     if command -v ufw >/dev/null && LC_ALL=C ufw status | grep -q '^Status: active'; then
-        ufw allow "${PANEL_PUBLIC_PORT}/tcp" comment 'Nusa Panel public proxy'
+        ufw allow "${PANEL_PUBLIC_PORT}/tcp" comment 'Qpanel public proxy'
     elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
         firewall-cmd --permanent --add-port="${PANEL_PUBLIC_PORT}/tcp"
         firewall-cmd --add-port="${PANEL_PUBLIC_PORT}/tcp"
@@ -405,7 +405,7 @@ main() {
     server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')" || server_ip="127.0.0.1"
     server_ip="${server_ip:-127.0.0.1}"
     [[ "$server_ip" != *:* ]] || server_ip="[$server_ip]"
-    printf '\nNUSA PANEL INSTALLED\nPanel: http://%s:%s\nInternal API: 127.0.0.1:7700\n' "$server_ip" "$PANEL_PUBLIC_PORT"
+    printf '\nQPANEL INSTALLED\nPanel: http://%s:%s\nInternal API: 127.0.0.1:7700\n' "$server_ip" "$PANEL_PUBLIC_PORT"
     printf 'Services: panel-agent active, panel-api active, nginx active\nHealth: SQLite OK, IPC Agent OK, Internal API OK, Web Proxy OK\n'
     [[ -z "$SETUP_TOKEN" ]] || printf 'Token pengaturan: %s\n' "$SETUP_TOKEN"
     printf 'Snapshot sebelum perubahan: %s\n' "$BACKUP_DIR"

@@ -56,4 +56,14 @@ describe('SiteRulesTab Component', () => {
     expect(html).toContain('Tambah Redirect');
     expect(html).toContain('Belum ada aturan redirect yang dibuat');
   });
+
+  it('renders redirect source and target from the Rust API contract', () => {
+    const html = renderToString(<SiteRulesTab site={mockSite} initialRules={{
+      ...DEFAULT_RULES,
+      redirects: [{ id: 'saved-id', source: '/old', target: '/new', status_code: 302, match_type: 'exact', enabled: false }],
+    }} />);
+    expect(html).toContain('/old');
+    expect(html).toContain('/new');
+    expect(html).toContain('302');
+  });
 });

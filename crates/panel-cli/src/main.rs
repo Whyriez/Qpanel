@@ -23,7 +23,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(
     name = "panelctl",
-    about = "Nusa Panel Control Tool - Admin bootstrap and management",
+    about = "Qpanel Control Tool - Admin bootstrap and management",
     version
 )]
 struct Cli {
@@ -125,7 +125,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Clean uninstallation of Nusa Panel services and optional data purge (P10-T6)
+    /// Clean uninstallation of Qpanel services and optional data purge (P10-T6)
     Uninstall {
         /// Purge all panel databases, configuration files, and backup snapshots
         #[arg(long)]
@@ -395,7 +395,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Uninstall { purge, yes, json } => {
             if !yes && !json {
                 print!(
-                    "Peringatan: Tindakan ini akan menghentikan dan mencopot instalasi Nusa Panel. Lanjutkan? (y/N): "
+                    "Peringatan: Tindakan ini akan menghentikan dan mencopot instalasi Qpanel. Lanjutkan? (y/N): "
                 );
                 io::stdout().flush()?;
                 let mut input = String::new();
@@ -498,7 +498,7 @@ async fn handle_setup_token_command(
                 SetupStatus::Uninitialized => {
                     let token = generate_setup_token(pool).await?;
                     println!("==================================================");
-                    println!("Nusa Panel First-Run Setup Token Generated:");
+                    println!("Qpanel First-Run Setup Token Generated:");
                     println!("  {}", token);
                     println!("==================================================");
                     println!("Use this token in the web setup wizard or run:");
@@ -545,7 +545,7 @@ async fn handle_benchmark_command(command: BenchmarkCommands) -> Result<(), Box<
         BenchmarkCommands::Tools => {
             let (has_oha, has_wrk, has_k6) = detect_available_tools();
             println!("==================================================");
-            println!("Nusa Panel Benchmark Tools Detection:");
+            println!("Qpanel Benchmark Tools Detection:");
             println!("==================================================");
             println!(
                 "  - oha (Rust HTTP load generator): {}",

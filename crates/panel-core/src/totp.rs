@@ -4,8 +4,8 @@ use crate::CoreError;
 use crate::auth::hash_token;
 use totp_rs::{Algorithm, Secret, TOTP};
 
-/// Default issuer name for Nusa Panel TOTP tokens.
-pub const DEFAULT_TOTP_ISSUER: &str = "Nusa Panel";
+/// Default issuer name for Qpanel TOTP tokens.
+pub const DEFAULT_TOTP_ISSUER: &str = "Qpanel";
 
 /// Generates a random base32 encoded TOTP secret (160 bits / 20 bytes standard).
 pub fn generate_totp_secret() -> String {

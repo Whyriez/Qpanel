@@ -21,6 +21,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { createSiteRuleId } from '../../lib/siteRuleIds';
 import {
   fetchSiteRules,
   updateSiteRules,
@@ -64,24 +65,25 @@ export const DEFAULT_RULES: SiteRulesConfig = {
   custom_headers: [],
   security_headers: {
     hsts_enabled: false,
-    hsts_max_age_seconds: 31536000,
     hsts_subdomains: false,
     hsts_preload: false,
-    frame_options: 'SAMEORIGIN',
-    content_type_options_nosniff: true,
+    x_frame_options: 'SAMEORIGIN',
+    x_content_type_options: true,
     referrer_policy: 'strict-origin-when-cross-origin',
     permissions_policy: null,
-    content_security_policy: null,
+    csp: null,
   },
   cors: {
+    enabled: false,
     preset: 'disabled',
-    custom_origins: [],
+    allowed_origins: [],
     allow_credentials: true,
     allowed_methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowed_headers: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    max_age_seconds: 86400,
+    exposed_headers: [],
+    max_age_secs: 86400,
   },
-  hotlink: {
+  hotlink_protection: {
     enabled: false,
     allowed_domains: [],
     file_extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'mp4'],
@@ -96,6 +98,8 @@ export const DEFAULT_RULES: SiteRulesConfig = {
     users: [],
   },
   ip_access: {
+    enabled: false,
+    scope: 'global',
     default_action: 'allow',
     path: null,
     rules: [],
@@ -103,7 +107,7 @@ export const DEFAULT_RULES: SiteRulesConfig = {
   maintenance: {
     enabled: false,
     bypass_ips: ['127.0.0.1'],
-    retry_after_seconds: 300,
+    retry_after_secs: 300,
     custom_message: 'Situs sedang dalam pemeliharaan terjadwal. Silakan kembali beberapa saat lagi.',
   },
   custom_error_pages: [],
@@ -121,6 +125,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
   const [activeSection, setActiveSection] = useState<RuleSection>('redirects');
   const [isLoading, setIsLoading] = useState(!initialRules);
   const [isSaving, setIsSaving] = useState(false);
+  const [hasLoadedRules, setHasLoadedRules] = useState(Boolean(initialRules));
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Snippet validation state
@@ -159,6 +164,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
   // Load initial rules
   const loadRules = useCallback(async () => {
     setIsLoading(true);
+    setHasLoadedRules(false);
     setFeedback(null);
     try {
       const data = await fetchSiteRules(site.id);
@@ -173,9 +179,9 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
           ...DEFAULT_RULES.cors,
           ...(data.cors || {}),
         },
-        hotlink: {
-          ...DEFAULT_RULES.hotlink,
-          ...(data.hotlink || {}),
+        hotlink_protection: {
+          ...DEFAULT_RULES.hotlink_protection,
+          ...(data.hotlink_protection || {}),
         },
         basic_auth: {
           ...DEFAULT_RULES.basic_auth,
@@ -194,6 +200,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
           ...(data.nginx_snippet || {}),
         },
       });
+      setHasLoadedRules(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setFeedback({ type: 'error', message: `Gagal memuat aturan situs: ${msg}` });
@@ -208,6 +215,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
 
   // Save rules
   const handleSave = async () => {
+    if (!hasLoadedRules || isLoading || isSaving) return;
     setIsSaving(true);
     setFeedback(null);
     try {
@@ -236,11 +244,12 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
     e.preventDefault();
     if (!redirSource.trim() || !redirTarget.trim()) return;
     const newRedir: StructuredRedirect = {
-      source_path: redirSource.trim(),
-      target_url: redirTarget.trim(),
+      id: createSiteRuleId('redirect'),
+      source: redirSource.trim(),
+      target: redirTarget.trim(),
       status_code: redirCode,
       match_type: redirType,
-      preserve_query: true,
+      enabled: true,
     };
     setRules((prev) => ({
       ...prev,
@@ -263,6 +272,8 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
     e.preventDefault();
     if (!hdrName.trim() || !hdrValue.trim()) return;
     const newHdr: CustomHeader = {
+      id: createSiteRuleId('header'),
+      enabled: true,
       name: hdrName.trim(),
       value: hdrValue.trim(),
       always: hdrAlways,
@@ -327,7 +338,8 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
     e.preventDefault();
     if (!ipCidr.trim()) return;
     const newRule: IpAccessRule = {
-      ip_or_cidr: ipCidr.trim(),
+      id: createSiteRuleId('ip'),
+      cidr_or_ip: ipCidr.trim(),
       action: ipAction,
       description: ipDesc.trim() || null,
     };
@@ -359,7 +371,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
     if (!errorPath.trim()) return;
     const newErr: CustomErrorPage = {
       status_code: errorCode,
-      target_path: errorPath.trim(),
+      target: errorPath.trim(),
     };
     setRules((prev) => ({
       ...prev,
@@ -443,7 +455,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
           </button>
           <button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || isLoading || !hasLoadedRules}
             className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-white hover:opacity-90 transition-opacity flex items-center gap-2 shadow-sm disabled:opacity-50"
           >
             {isSaving ? (
@@ -519,7 +531,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
       {/* SECTION 1: REDIRECTS */}
       {activeSection === 'redirects' && (
         <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-[var(--ink)]">
                 Redirect Terstruktur (301 / 302)
@@ -555,14 +567,14 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 </thead>
                 <tbody className="divide-y divide-[var(--line)]">
                   {rules.redirects.map((r, idx) => (
-                    <tr key={idx} className="hover:bg-[var(--card-hover)] transition-colors">
+                    <tr key={r.id} className="hover:bg-[var(--card-hover)] transition-colors">
                       <td className="px-3 py-2 font-mono uppercase text-[var(--primary)] font-semibold">
                         {r.match_type}
                       </td>
                       <td className="px-3 py-2 font-mono font-medium text-[var(--ink)]">
-                        {r.source_path}
+                        {r.source}
                       </td>
-                      <td className="px-3 py-2 font-mono text-[var(--ink)]">{r.target_url}</td>
+                      <td className="px-3 py-2 font-mono text-[var(--ink)]">{r.target}</td>
                       <td className="px-3 py-2">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -573,6 +585,19 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                         >
                           {r.status_code}
                         </span>
+                        <label className="mt-2 flex items-center gap-1.5 text-[var(--ink-muted)]">
+                          <input
+                            type="checkbox"
+                            aria-label={`Aktifkan redirect ${r.source}`}
+                            checked={r.enabled}
+                            onChange={(e) => setRules((prev) => ({
+                              ...prev,
+                              redirects: prev.redirects.map((rule) => rule.id === r.id
+                                ? { ...rule, enabled: e.target.checked } : rule),
+                            }))}
+                          />
+                          Aktif
+                        </label>
                       </td>
                       <td className="px-3 py-2 text-right">
                         <button
@@ -629,23 +654,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 </div>
                 {rules.security_headers.hsts_enabled && (
                   <div className="space-y-2 pt-1 border-t border-[var(--line)]">
-                    <div className="flex items-center justify-between gap-2">
-                      <label className="text-[var(--ink-muted)]">Max-Age (Detik):</label>
-                      <input
-                        type="number"
-                        value={rules.security_headers.hsts_max_age_seconds}
-                        onChange={(e) =>
-                          setRules((prev) => ({
-                            ...prev,
-                            security_headers: {
-                              ...prev.security_headers,
-                              hsts_max_age_seconds: Number(e.target.value),
-                            },
-                          }))
-                        }
-                        className="w-28 px-2 py-1 rounded border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] font-mono text-xs"
-                      />
-                    </div>
+                    <p className="text-[var(--ink-muted)]">Max-age: 31536000 detik (1 tahun).</p>
                     <label className="flex items-center gap-2 cursor-pointer text-[var(--ink-muted)]">
                       <input
                         type="checkbox"
@@ -688,13 +697,13 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
               <div className="p-3.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)] space-y-2">
                 <span className="font-semibold text-[var(--ink)] block">X-Frame-Options (Proteksi Clickjacking)</span>
                 <select
-                  value={rules.security_headers.frame_options}
+                  value={rules.security_headers.x_frame_options || ''}
                   onChange={(e) =>
                     setRules((prev) => ({
                       ...prev,
                       security_headers: {
                         ...prev.security_headers,
-                        frame_options: e.target.value,
+                        x_frame_options: e.target.value || null,
                       },
                     }))
                   }
@@ -716,13 +725,13 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 </div>
                 <input
                   type="checkbox"
-                  checked={rules.security_headers.content_type_options_nosniff}
+                  checked={rules.security_headers.x_content_type_options}
                   onChange={(e) =>
                     setRules((prev) => ({
                       ...prev,
                       security_headers: {
                         ...prev.security_headers,
-                        content_type_options_nosniff: e.target.checked,
+                        x_content_type_options: e.target.checked,
                       },
                     }))
                   }
@@ -734,13 +743,13 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
               <div className="p-3.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg)] space-y-1.5">
                 <span className="font-semibold text-[var(--ink)] block">Referrer-Policy</span>
                 <select
-                  value={rules.security_headers.referrer_policy}
+                  value={rules.security_headers.referrer_policy || ''}
                   onChange={(e) =>
                     setRules((prev) => ({
                       ...prev,
                       security_headers: {
                         ...prev.security_headers,
-                        referrer_policy: e.target.value,
+                        referrer_policy: e.target.value || null,
                       },
                     }))
                   }
@@ -751,6 +760,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                   <option value="same-origin">same-origin</option>
                   <option value="strict-origin">strict-origin</option>
                   <option value="origin-when-cross-origin">origin-when-cross-origin</option>
+                  <option value="">Nonaktifkan</option>
                 </select>
               </div>
             </div>
@@ -780,13 +790,13 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 <input
                   type="text"
                   placeholder="default-src 'self'; script-src 'self' 'unsafe-inline'"
-                  value={rules.security_headers.content_security_policy || ''}
+                  value={rules.security_headers.csp || ''}
                   onChange={(e) =>
                     setRules((prev) => ({
                       ...prev,
                       security_headers: {
                         ...prev.security_headers,
-                        content_security_policy: e.target.value.trim() ? e.target.value : null,
+                        csp: e.target.value.trim() ? e.target.value : null,
                       },
                     }))
                   }
@@ -798,7 +808,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
 
           {/* Custom Key-Value Headers Card */}
           <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-[var(--ink)]">Header Respons Kustom (add_header)</h3>
                 <p className="text-xs text-[var(--ink-muted)] mt-0.5">
@@ -831,7 +841,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                   </thead>
                   <tbody className="divide-y divide-[var(--line)] font-mono">
                     {rules.custom_headers.map((h, idx) => (
-                      <tr key={idx} className="hover:bg-[var(--card-hover)] transition-colors">
+                      <tr key={h.id} className="hover:bg-[var(--card-hover)] transition-colors">
                         <td className="px-3 py-2 font-semibold text-[var(--ink)]">{h.name}</td>
                         <td className="px-3 py-2 text-[var(--ink-muted)]">{h.value}</td>
                         <td className="px-3 py-2">
@@ -844,8 +854,19 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                           )}
                         </td>
                         <td className="px-3 py-2 text-right font-sans">
+                          <input
+                            type="checkbox"
+                            aria-label={`Aktifkan header ${h.name}`}
+                            checked={h.enabled}
+                            onChange={(e) => setRules((prev) => ({
+                              ...prev,
+                              custom_headers: prev.custom_headers.map((header) => header.id === h.id
+                                ? { ...header, enabled: e.target.checked } : header),
+                            }))}
+                          />
                           <button
                             onClick={() => handleRemoveHeader(idx)}
+                            aria-label={`Hapus header ${h.name}`}
                             className="p-1 rounded text-[var(--danger)] hover:bg-[var(--danger)]/10 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -888,7 +909,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                   onClick={() =>
                     setRules((prev) => ({
                       ...prev,
-                      cors: { ...prev.cors, preset: p.id as CorsPreset },
+                      cors: { ...prev.cors, preset: p.id as CorsPreset, enabled: p.id !== 'disabled' },
                     }))
                   }
                   className={`p-3.5 rounded-[var(--radius-md)] border cursor-pointer transition-all ${
@@ -922,7 +943,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 <textarea
                   rows={2}
                   placeholder="https://app.example.com, https://admin.example.com"
-                  value={rules.cors.custom_origins.join(', ')}
+                  value={rules.cors.allowed_origins.join(', ')}
                   onChange={(e) => {
                     const list = e.target.value
                       .split(/[,\n]/)
@@ -930,7 +951,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                       .filter(Boolean);
                     setRules((prev) => ({
                       ...prev,
-                      cors: { ...prev.cors, custom_origins: list },
+                      cors: { ...prev.cors, allowed_origins: list },
                     }));
                   }}
                   className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] font-mono text-xs"
@@ -956,11 +977,11 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                   <span className="text-[var(--ink-muted)]">Max-Age Preflight:</span>
                   <input
                     type="number"
-                    value={rules.cors.max_age_seconds || 86400}
+                    value={rules.cors.max_age_secs}
                     onChange={(e) =>
                       setRules((prev) => ({
                         ...prev,
-                        cors: { ...prev.cors, max_age_seconds: Number(e.target.value) },
+                        cors: { ...prev.cors, max_age_secs: Number(e.target.value) },
                       }))
                     }
                     className="w-24 px-2 py-1 rounded border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] font-mono text-xs"
@@ -989,11 +1010,11 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
             <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[var(--ink)]">
               <input
                 type="checkbox"
-                checked={rules.hotlink.enabled}
+                checked={rules.hotlink_protection.enabled}
                 onChange={(e) =>
                   setRules((prev) => ({
                     ...prev,
-                    hotlink: { ...prev.hotlink, enabled: e.target.checked },
+                    hotlink_protection: { ...prev.hotlink_protection, enabled: e.target.checked },
                   }))
                 }
                 className="rounded text-[var(--primary)] w-4 h-4"
@@ -1002,7 +1023,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
             </label>
           </div>
 
-          {rules.hotlink.enabled && (
+          {rules.hotlink_protection.enabled && (
             <div className="space-y-4 pt-2 border-t border-[var(--line)] text-xs">
               <div>
                 <label className="font-semibold text-[var(--ink)] block mb-1">
@@ -1011,7 +1032,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 <textarea
                   rows={2}
                   placeholder="cdn.example.com, partner.org"
-                  value={rules.hotlink.allowed_domains.join(', ')}
+                  value={rules.hotlink_protection.allowed_domains.join(', ')}
                   onChange={(e) => {
                     const list = e.target.value
                       .split(/[,\n]/)
@@ -1019,7 +1040,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                       .filter(Boolean);
                     setRules((prev) => ({
                       ...prev,
-                      hotlink: { ...prev.hotlink, allowed_domains: list },
+                      hotlink_protection: { ...prev.hotlink_protection, allowed_domains: list },
                     }));
                   }}
                   className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono text-xs"
@@ -1033,7 +1054,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 <input
                   type="text"
                   placeholder="jpg, png, webp, gif, mp4"
-                  value={rules.hotlink.file_extensions.join(', ')}
+                  value={rules.hotlink_protection.file_extensions.join(', ')}
                   onChange={(e) => {
                     const list = e.target.value
                       .split(',')
@@ -1041,7 +1062,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                       .filter(Boolean);
                     setRules((prev) => ({
                       ...prev,
-                      hotlink: { ...prev.hotlink, file_extensions: list },
+                      hotlink_protection: { ...prev.hotlink_protection, file_extensions: list },
                     }));
                   }}
                   className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono text-xs"
@@ -1052,11 +1073,11 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 <label className="flex items-center gap-2 cursor-pointer text-[var(--ink)]">
                   <input
                     type="checkbox"
-                    checked={rules.hotlink.allow_empty_referer}
+                    checked={rules.hotlink_protection.allow_empty_referer}
                     onChange={(e) =>
                       setRules((prev) => ({
                         ...prev,
-                        hotlink: { ...prev.hotlink, allow_empty_referer: e.target.checked },
+                        hotlink_protection: { ...prev.hotlink_protection, allow_empty_referer: e.target.checked },
                       }))
                     }
                     className="rounded text-[var(--primary)]"
@@ -1067,11 +1088,11 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-[var(--ink)]">Tindakan:</span>
                   <select
-                    value={rules.hotlink.action}
+                    value={rules.hotlink_protection.action}
                     onChange={(e) =>
                       setRules((prev) => ({
                         ...prev,
-                        hotlink: { ...prev.hotlink, action: e.target.value as HotlinkAction },
+                        hotlink_protection: { ...prev.hotlink_protection, action: e.target.value as HotlinkAction },
                       }))
                     }
                     className="px-2.5 py-1 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] text-xs"
@@ -1082,7 +1103,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 </div>
               </div>
 
-              {rules.hotlink.action === 'redirect' && (
+              {rules.hotlink_protection.action === 'redirect' && (
                 <div>
                   <label className="font-semibold text-[var(--ink)] block mb-1">
                     URL Gambar Peringatan / Placeholder:
@@ -1090,11 +1111,11 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                   <input
                     type="text"
                     placeholder="https://example.com/images/no-hotlink.png"
-                    value={rules.hotlink.redirect_url || ''}
+                    value={rules.hotlink_protection.redirect_url || ''}
                     onChange={(e) =>
                       setRules((prev) => ({
                         ...prev,
-                        hotlink: { ...prev.hotlink, redirect_url: e.target.value },
+                        hotlink_protection: { ...prev.hotlink_protection, redirect_url: e.target.value },
                       }))
                     }
                     className="w-full px-2.5 py-1.5 rounded border border-[var(--line)] bg-[var(--bg)] text-[var(--ink)] font-mono text-xs"
@@ -1226,7 +1247,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
       {/* SECTION 6: IP ACCESS */}
       {activeSection === 'ip' && (
         <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
                 <Filter className="w-4 h-4 text-[var(--primary)]" />
@@ -1244,6 +1265,18 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
               Tambah Aturan IP
             </button>
           </div>
+
+          <label className="flex items-center gap-2 text-xs text-[var(--ink)]">
+            <input
+              type="checkbox"
+              checked={rules.ip_access.enabled}
+              onChange={(e) => setRules((prev) => ({
+                ...prev,
+                ip_access: { ...prev.ip_access, enabled: e.target.checked },
+              }))}
+            />
+            Aktifkan kontrol akses IP
+          </label>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div>
@@ -1281,6 +1314,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                     ...prev,
                     ip_access: {
                       ...prev.ip_access,
+                      scope: e.target.value.trim() ? 'path' : 'global',
                       path: e.target.value.trim() ? e.target.value.trim() : null,
                     },
                   }))
@@ -1307,7 +1341,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 </thead>
                 <tbody className="divide-y divide-[var(--line)]">
                   {rules.ip_access.rules.map((rule, idx) => (
-                    <tr key={idx} className="hover:bg-[var(--card-hover)]">
+                    <tr key={rule.id} className="hover:bg-[var(--card-hover)]">
                       <td className="px-3 py-2">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -1320,7 +1354,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                         </span>
                       </td>
                       <td className="px-3 py-2 font-mono font-semibold text-[var(--ink)]">
-                        {rule.ip_or_cidr}
+                        {rule.cidr_or_ip}
                       </td>
                       <td className="px-3 py-2 text-[var(--ink-muted)]">
                         {rule.description || '-'}
@@ -1411,13 +1445,13 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                 </label>
                 <input
                   type="number"
-                  value={rules.maintenance.retry_after_seconds || 300}
+                  value={rules.maintenance.retry_after_secs}
                   onChange={(e) =>
                     setRules((prev) => ({
                       ...prev,
                       maintenance: {
                         ...prev.maintenance,
-                        retry_after_seconds: Number(e.target.value),
+                        retry_after_secs: Number(e.target.value),
                       },
                     }))
                   }
@@ -1452,7 +1486,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
       {/* SECTION 8: ERROR PAGES */}
       {activeSection === 'errors' && (
         <div className="bg-[var(--card)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-[var(--ink)] flex items-center gap-2">
                 <FileText className="w-4 h-4 text-[var(--primary)]" />
@@ -1471,9 +1505,14 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
             </button>
           </div>
 
+          <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
+            Untuk memakai desain sendiri, unggah HTML ke docroot situs (misalnya /errors/404.html), lalu tambahkan kode 404 dan path tersebut.
+            {' '}<a href="/errors/404.html" download="qpanel-404.html" className="font-medium text-[var(--primary)] underline underline-offset-4">Unduh contoh 404 Qpanel</a>.
+          </p>
+
           {rules.custom_error_pages.length === 0 ? (
             <div className="py-6 text-center border border-dashed border-[var(--line)] rounded text-[var(--ink-muted)] text-xs">
-              Belum ada halaman error kustom. Server akan menggunakan halaman error bawaan Nginx.
+              Belum ada halaman error kustom. Error 404 dari server memakai halaman bawaan Qpanel.
             </div>
           ) : (
             <div className="overflow-x-auto border border-[var(--line)] rounded text-xs">
@@ -1491,7 +1530,7 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
                       <td className="px-3 py-2 font-bold text-[var(--primary)]">
                         {ep.status_code}
                       </td>
-                      <td className="px-3 py-2 text-[var(--ink)]">{ep.target_path}</td>
+                      <td className="px-3 py-2 text-[var(--ink)]">{ep.target}</td>
                       <td className="px-3 py-2 text-right font-sans">
                         <button
                           onClick={() => handleRemoveErrorPage(ep.status_code)}

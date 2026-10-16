@@ -1,4 +1,4 @@
-//! SSL/TLS and ACME Certificate Management for Nusa Panel.
+//! SSL/TLS and ACME Certificate Management for Qpanel.
 //!
 //! Provides automated Let's Encrypt issuance (HTTP-01 challenge),
 //! fallback self-signed certificate generation, custom certificate upload and validation,
@@ -91,7 +91,7 @@ pub fn generate_self_signed_cert(
 
     let mut dn = DistinguishedName::new();
     dn.push(DnType::CommonName, primary_domain);
-    dn.push(DnType::OrganizationName, "Nusa Panel Self-Signed");
+    dn.push(DnType::OrganizationName, "Qpanel Self-Signed");
     params.distinguished_name = dn;
 
     let mut sans = vec![SanType::DnsName(

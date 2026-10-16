@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# tests/isolation/vm_runner.sh: Real-kernel cross-tenant isolation test suite for Nusa Panel (P2-T7)
+# tests/isolation/vm_runner.sh: Real-kernel cross-tenant isolation test suite for Qpanel (P2-T7)
 # Run inside Ubuntu 24.04 dev VM as root (sudo ./tests/isolation/vm_runner.sh).
 
 set -euo pipefail
 
 echo "============================================================"
-echo "    Nusa Panel Cross-Tenant Isolation Test Suite (P2-T7)     "
+echo "    Qpanel Cross-Tenant Isolation Test Suite (P2-T7)     "
 echo "============================================================"
 
 # Ensure script is running as root
@@ -44,7 +44,7 @@ fi
 useradd -u "$UID_A" -g "$GROUP_TENANTS" -m -s /bin/bash "$USER_A"
 useradd -u "$UID_B" -g "$GROUP_TENANTS" -m -s /bin/bash "$USER_B"
 
-# Apply Nusa Panel mode 0700 + ACL
+# Apply Qpanel mode 0700 + ACL
 chmod 0700 "/home/$USER_A"
 chmod 0700 "/home/$USER_B"
 if command -v setfacl &>/dev/null; then

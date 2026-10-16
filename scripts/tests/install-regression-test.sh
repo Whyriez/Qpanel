@@ -150,7 +150,7 @@ for failing in validate_health install_nginx_proxy; do
         fi
         main --unattended
     ' test "$REPO" "$failing" 2>&1)" || status=$?
-    [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'NUSA PANEL INSTALLED'* ]]
+    [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'QPANEL INSTALLED'* ]]
     pass "$failing failure invokes rollback and suppresses success"
 done
 

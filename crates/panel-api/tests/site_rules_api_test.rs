@@ -295,6 +295,85 @@ async fn setup_test_context() -> TestContext {
 }
 
 #[tokio::test]
+async fn test_frontend_site_rules_json_round_trip_and_invalid_redirect_preserves_rules() {
+    let ctx = setup_test_context().await;
+    // Shared with the browser test: do not serialize Rust structs to create this input.
+    let vhost_path = ctx
+        ._temp
+        .path()
+        .join(format!("etc/nginx/sites-enabled/site_{}.conf", ctx.site_id));
+    let initial_vhost = fs::read_to_string(&vhost_path).unwrap();
+    assert!(initial_vhost.contains("location @qpanel_not_found"));
+    assert!(initial_vhost.contains("Qpanel"));
+    let mut payload: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../web/scripts/fixtures/site-rules.json"
+    ))
+    .expect("frontend JSON fixture");
+    payload["redirects"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "redirect_new", "source": "/old-blog", "target": "/new-blog",
+            "status_code": 301, "match_type": "exact", "enabled": true
+        }));
+
+    for invalid in [false, true] {
+        let mut request_payload = payload.clone();
+        if invalid {
+            request_payload["redirects"][1]["status_code"] = serde_json::json!(307);
+        }
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/api/v1/sites/{}/rules", ctx.site_id))
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(
+                header::COOKIE,
+                format!("{SESSION_COOKIE_NAME}={}", ctx.alice_session),
+            )
+            .header(CSRF_HEADER_NAME, &ctx.alice_csrf)
+            .body(Body::from(serde_json::to_vec(&request_payload).unwrap()))
+            .unwrap();
+        let response = ctx.app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            status,
+            if invalid {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::OK
+            },
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        if !invalid {
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                payload
+            );
+            let vhost = fs::read_to_string(&vhost_path).unwrap();
+            assert!(vhost.contains("error_page 404 /errors/404.html;"));
+            assert!(!vhost.contains("location @qpanel_not_found"));
+        }
+        let get = Request::builder()
+            .uri(format!("/api/v1/sites/{}/rules", ctx.site_id))
+            .header(
+                header::COOKIE,
+                format!("{SESSION_COOKIE_NAME}={}", ctx.alice_session),
+            )
+            .body(Body::empty())
+            .unwrap();
+        let response = ctx.app.clone().oneshot(get).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            payload
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_site_rules_full_lifecycle_and_security() {
     let ctx = setup_test_context().await;
 

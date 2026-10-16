@@ -1,4 +1,4 @@
-//! Site logs retrieval and WebSocket live tail streaming for Nusa Panel.
+//! Site logs retrieval and WebSocket live tail streaming for Qpanel.
 //!
 //! Provides:
 //! - REST API endpoint `GET /api/v1/sites/{id}/logs` with pagination/tail limit and search filters.

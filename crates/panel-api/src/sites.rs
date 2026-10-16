@@ -3131,7 +3131,7 @@ pub async fn set_force_https_handler(
 fn render_php_placeholder(domain: &str, php_version: &str, preset: &str) -> String {
     format!(
         r#"<?php
-// Nusa Panel - Welcome Page
+// Qpanel - Welcome Page
 // Domain: {domain}
 // PHP Version: {php_version}
 // Preset: {preset}
@@ -3141,7 +3141,7 @@ fn render_php_placeholder(domain: &str, php_version: &str, preset: &str) -> Stri
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Selamat Datang di <?= htmlspecialchars("{domain}") ?> - Nusa Panel</title>
+    <title>Selamat Datang di <?= htmlspecialchars("{domain}") ?> - Qpanel</title>
     <style>
         :root {{
             --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
@@ -3208,7 +3208,7 @@ fn render_php_placeholder(domain: &str, php_version: &str, preset: &str) -> Stri
             <span>●</span> PHP <?= htmlspecialchars(PHP_VERSION) ?> Berjalan
         </div>
         <h1><?= htmlspecialchars("{domain}") ?></h1>
-        <p>Situs PHP Anda berhasil diprovisi dan berjalan aktif di bawah Nusa Panel dengan preset <strong><?= htmlspecialchars("{preset}") ?></strong>.</p>
+        <p>Situs PHP Anda berhasil diprovisi dan berjalan aktif di bawah Qpanel dengan preset <strong><?= htmlspecialchars("{preset}") ?></strong>.</p>
         <div class="meta">
             <div>PHP: <?= htmlspecialchars(PHP_VERSION) ?></div>
             <div>Preset: <?= htmlspecialchars("{preset}") ?></div>
@@ -3244,7 +3244,7 @@ const server = http.createServer((req, res) => {{
     <div class="card">
         <div class="badge"><span>●</span> Node.js ${{process.version}} Berjalan</div>
         <h1>{domain}</h1>
-        <p>Aplikasi Node.js Anda aktif berjalan di Nusa Panel pada port ${{port}}.</p>
+        <p>Aplikasi Node.js Anda aktif berjalan di Qpanel pada port ${{port}}.</p>
     </div>
 </body>
 </html>`);
@@ -3280,7 +3280,7 @@ fn render_python_placeholder(domain: &str) -> String {
     <div class="card">
         <div class="badge"><span>●</span> Python WSGI Berjalan</div>
         <h1>{domain}</h1>
-        <p>Aplikasi Python Anda aktif berjalan di Nusa Panel via Unix domain socket.</p>
+        <p>Aplikasi Python Anda aktif berjalan di Qpanel via Unix domain socket.</p>
     </div>
 </body>
 </html>"""]

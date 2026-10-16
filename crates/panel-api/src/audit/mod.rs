@@ -1,4 +1,4 @@
-//! Audit log module for Nusa Panel.
+//! Audit log module for Qpanel.
 //!
 //! Provides `AuditWriter` service for recording actions, and HTTP API endpoints
 //! for listing, filtering, and retrieving audit logs with RBAC policy enforcement.

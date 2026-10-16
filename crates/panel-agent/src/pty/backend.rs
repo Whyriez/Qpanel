@@ -442,7 +442,7 @@ pub struct MockPtyHandle {
 
 impl MockPtyHandle {
     pub fn new(pid: u32, rows: u16, cols: u16) -> Self {
-        let initial_banner = b"Welcome to Nusa Shell (Simulated PTY)\n$ ".to_vec();
+        let initial_banner = b"Welcome to Qpanel Shell (Simulated PTY)\n$ ".to_vec();
         Self {
             pid,
             rows: Mutex::new(rows),

@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .init();
 
-    info!("Starting Nusa Panel API daemon...");
+    info!("Starting Qpanel API daemon...");
 
     let config = PanelConfig::load(None)?;
 

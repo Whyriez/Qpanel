@@ -72,7 +72,7 @@ impl ReliabilityManager {
             remediation_hint: if is_linux {
                 None
             } else {
-                Some("Jalankan Nusa Panel pada VM Linux Ubuntu 24.04 LTS".to_string())
+                Some("Jalankan Qpanel pada VM Linux Ubuntu 24.04 LTS".to_string())
             },
             fixable: false,
         });

@@ -739,7 +739,7 @@ pub fn generate_markdown_report(
 ) -> String {
     let mut out = String::new();
 
-    out.push_str("# Laporan Benchmark & Validasi Kinerja Nusa Panel\n\n");
+    out.push_str("# Laporan Benchmark & Validasi Kinerja Qpanel\n\n");
     out.push_str("> Dokumen ini mencatat baseline performa, throughput (RPS), distribusi latensi p50/p95/p99,\n");
     out.push_str("> perbandingan profil tuning (OPcache, FastCGI Cache, kompresi, HTTP/2/3),\n");
     out.push_str("> dan pembuktian target non-fungsional PRD Bagian 9.\n\n");

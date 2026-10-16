@@ -343,7 +343,7 @@ use panel_db::pool::DbPool;
         (name = "analytics", description = "Deep traffic analytics, runtime metrics, and timeseries endpoints")
     ),
     info(
-        title = "Nusa Panel API",
+        title = "Qpanel API",
         version = "0.1.0",
         description = "Lightweight, secure, tenant-isolated web hosting control panel API"
     )

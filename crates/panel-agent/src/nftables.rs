@@ -64,7 +64,7 @@ impl NftablesManager {
     pub fn render_rules(&self, bindings: &[TenantPortBinding]) -> String {
         let mut out = String::new();
         out.push_str("#!/usr/sbin/nft -f\n");
-        out.push_str("# Nusa Panel Loopback Per-UID Isolation Guard (P10-T4)\n");
+        out.push_str("# Qpanel Loopback Per-UID Isolation Guard (P10-T4)\n");
         out.push_str("# Prevents tenant B from connecting to tenant A's local loopback port.\n\n");
 
         out.push_str(&format!("table inet {} {{\n", self.table_name));

@@ -18,8 +18,8 @@ members = [
 version = "0.1.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-authors = ["Nusa Panel Contributors"]
-repository = "https://github.com/nusa-panel/panel"
+authors = ["Qpanel Contributors"]
+repository = "https://github.com/Whyriez/Vpanel"
 
 [workspace.dependencies]
 # Internal workspace crates

@@ -137,12 +137,15 @@ impl NginxManager {
 
         let http_conf = config.base_dir.join("http.conf");
         let bridge_content = format!(
-            "# Managed by Nusa Panel: tenant websites.\ninclude {};\n",
+            "# Managed by Qpanel: tenant websites.\ninclude {};\n",
             http_conf.to_string_lossy().replace('\\', "/")
         );
-        if self.runner.path_exists(bridge)
-            && self.runner.read_file(bridge)? != bridge_content.as_bytes()
-        {
+        let legacy_bridge =
+            bridge_content.replacen("Managed by Qpanel", "Managed by Nusa Panel", 1);
+        if self.runner.path_exists(bridge) && {
+            let existing = self.runner.read_file(bridge)?;
+            existing != bridge_content.as_bytes() && existing != legacy_bridge.as_bytes()
+        } {
             return Err(AgentError::InvalidInput(format!(
                 "{} sudah ada dengan isi berbeda; periksa integrasi Nginx panel. Berkas tidak ditimpa.",
                 bridge.display()
@@ -1376,6 +1379,18 @@ mod tests {
             Path::new(HOST_MAIN),
             Path::new(HOST_BRIDGE),
         )
+    }
+
+    #[test]
+    fn host_baseline_accepts_legacy_brand_bridge_without_rewriting_it() {
+        let (runner, manager) = host_fixture();
+        let legacy =
+            b"# Managed by Nusa Panel: tenant websites.\ninclude /etc/panel/nginx/http.conf;\n";
+        runner.set_file_content(Path::new(HOST_BRIDGE), legacy);
+        prepare_host(&manager).unwrap();
+        assert_eq!(runner.read_file(Path::new(HOST_BRIDGE)).unwrap(), legacy);
+        prepare_host(&manager).unwrap();
+        assert_eq!(runner.read_file(Path::new(HOST_BRIDGE)).unwrap(), legacy);
     }
 
     #[test]

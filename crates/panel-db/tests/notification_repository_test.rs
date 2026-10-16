@@ -31,6 +31,31 @@ async fn create_test_user(pool: &panel_db::DbPool, username: &str, uid: i64) -> 
 }
 
 #[tokio::test]
+async fn qpanel_brand_migration_updates_legacy_defaults_and_preserves_customer_settings() {
+    let pool = setup_test_db().await;
+    let repo = SqliteNotificationRepository::new(pool.clone());
+    assert_eq!(repo.get_settings().await.unwrap().from_name, "Qpanel");
+    for (before, after) in [
+        ("Nusa Panel", "Qpanel"),
+        ("Nusa Panel Alerts", "Qpanel Alerts"),
+        ("Customer Hosting", "Customer Hosting"),
+    ] {
+        sqlx::query("UPDATE notification_settings SET from_name = ?, smtp_host = 'smtp.customer.test', smtp_enabled = 1 WHERE id = 1")
+            .bind(before).execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!(
+            "../migrations/20261016000001_qpanel_branding.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let saved = repo.get_settings().await.unwrap();
+        assert_eq!(saved.from_name, after);
+        assert_eq!(saved.smtp_host.as_deref(), Some("smtp.customer.test"));
+        assert!(saved.smtp_enabled);
+    }
+}
+
+#[tokio::test]
 async fn test_notification_crud_and_filtering() {
     let pool = setup_test_db().await;
     let user = create_test_user(&pool, "notifuser", 10007).await;

@@ -273,7 +273,7 @@ pub async fn run_upgrade(
         binaries_updated: Vec::new(),
         services_restarted: false,
         message: format!(
-            "Peningkatan Nusa Panel ke versi {} berhasil diselesaikan.",
+            "Peningkatan Qpanel ke versi {} berhasil diselesaikan.",
             to_version
         ),
         error: None,

@@ -9,6 +9,7 @@ import './i18n';
 import { navigate, pagePath, useBrowserRoute } from './lib/router';
 import { isAdminOnlyRoute, postLoginDestination } from './lib/routeAccess';
 import { parseSiteRoute, sitePath } from './lib/siteRoutes';
+import { NotFoundPage } from './pages/NotFoundPage';
 
 const FirstRunWizardPage = lazy(() =>
   import('./pages/FirstRunWizardPage').then((m) => ({ default: m.FirstRunWizardPage }))
@@ -200,7 +201,7 @@ const MainApp: React.FC = () => {
           {activeNav === 'terminal' && <TerminalPage />}
           {activeNav === 'analytics' && <AnalyticsPage />}
           {activeNav === 'settings' && <SettingsPage />}
-          {!['dashboard','audit','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','login','setup'].includes(activeNav) && <div role="alert">Halaman tidak ditemukan. <a href="/dashboard">Buka dashboard</a></div>}
+          {!['dashboard','audit','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','login','setup'].includes(activeNav) && <NotFoundPage />}
         </Suspense>
       </Shell>
       <ToastProvider />

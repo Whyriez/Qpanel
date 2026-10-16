@@ -294,9 +294,9 @@ export const Shell: React.FC<ShellProps> = ({
             <Menu size={20} />
           </button>
           <div className="workspace-breadcrumb">
-            <span>Nusa Panel</span>
+            <span>Qpanel</span>
             <span aria-hidden="true">/</span>
-            <strong>{t(`nav.${activeNav}`)}</strong>
+            <strong>{t(`nav.${activeNav}`, { defaultValue: t('notFound.title') })}</strong>
           </div>
           <button
             className="workspace-search"

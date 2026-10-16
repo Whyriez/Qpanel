@@ -35,7 +35,7 @@
     }
   },
   "common": {
-    "appName": "Nusa Panel",
+    "appName": "Qpanel",
     "loading": "Loading...",
     "search": "Search or type a command...",
     "refresh": "Refresh",
@@ -721,6 +721,11 @@
     "exportCsv": "Export CSV",
     "autoRefresh": "Auto-Refresh (30s)",
     "comparePrevious": "Compare Previous Period"
+  },
+  "notFound": {
+    "title": "Page not found.",
+    "description": "This page may have moved, been removed, or the address may be incorrect. Continue managing your hosting from one of these pages.",
+    "dashboard": "Go to dashboard",
+    "sites": "View sites"
   }
 }
-

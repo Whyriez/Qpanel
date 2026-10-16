@@ -1,6 +1,6 @@
 [Unit]
 Description=Vpanel Management API Service
-Documentation=https://github.com/nusa-panel/panel
+Documentation=https://github.com/Whyriez/Vpanel
 After=network.target panel-agent.service
 Wants=panel-agent.service
 

@@ -220,7 +220,7 @@ pub fn format_alert_email_body(
     action_url: Option<&str>,
 ) -> String {
     let mut body = format!(
-        "Pemberitahuan Sistem Nusa Panel\n\
+        "Pemberitahuan Sistem Qpanel\n\
         ================================\n\n\
         Kategori : {}\n\
         Judul    : {}\n\n\
@@ -237,7 +237,7 @@ pub fn format_alert_email_body(
         ));
     }
 
-    body.push_str("--\nDikirim secara otomatis oleh Nusa Panel.\n");
+    body.push_str("--\nDikirim secara otomatis oleh Qpanel.\n");
     body
 }
 

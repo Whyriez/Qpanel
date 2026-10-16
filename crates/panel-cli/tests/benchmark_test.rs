@@ -237,7 +237,7 @@ fn test_markdown_and_json_report_generation() {
 
     let md = generate_markdown_report(std::slice::from_ref(&run), &[], Some(&target_rep));
     assert!(
-        md.contains("# Laporan Benchmark &amp; Validasi Kinerja Nusa Panel")
+        md.contains("# Laporan Benchmark &amp; Validasi Kinerja Qpanel")
             || md.contains("# Laporan Benchmark")
     );
     assert!(md.contains("Static Assets / HTML"));

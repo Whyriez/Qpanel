@@ -539,7 +539,7 @@ async fn test_x509_parser_and_self_signed_cert_generation() {
 
     assert_eq!(parsed_nb, not_before);
     assert_eq!(parsed_na, not_after);
-    assert!(issuer.contains("Nusa Panel Self-Signed"));
+    assert!(issuer.contains("Qpanel Self-Signed"));
     assert!(parsed_sans.contains(&"example.id".to_string()));
     assert!(parsed_sans.contains(&"www.example.id".to_string()));
     assert!(parsed_sans.contains(&"api.example.id".to_string()));

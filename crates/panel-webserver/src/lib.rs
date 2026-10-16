@@ -2,6 +2,7 @@
 
 pub mod baseline;
 pub mod error;
+pub mod error_pages;
 pub mod pipeline;
 pub mod rules;
 pub mod template;

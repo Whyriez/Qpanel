@@ -35,7 +35,7 @@
     }
   },
   "common": {
-    "appName": "Nusa Panel",
+    "appName": "Qpanel",
     "loading": "Memuat...",
     "search": "Cari atau jalankan perintah...",
     "refresh": "Segarkan",
@@ -161,7 +161,7 @@
     "viewAll": "Buka antrean tugas"
   },
   "wizard": {
-    "title": "Setup Awal Nusa Panel",
+    "title": "Setup Awal Qpanel",
     "step1Title": "Verifikasi Token Setup",
     "step1Desc": "Masukkan token setup sekali pakai dari server",
     "tokenLabel": "Token Setup",
@@ -721,5 +721,11 @@
     "exportCsv": "Ekspor CSV",
     "autoRefresh": "Auto-Refresh (30s)",
     "comparePrevious": "Bandingkan Periode Lalu"
+  },
+  "notFound": {
+    "title": "Halaman tidak ditemukan.",
+    "description": "Halaman ini mungkin sudah dipindahkan, dihapus, atau alamatnya tidak tepat. Lanjutkan pengelolaan hosting Anda dari halaman berikut.",
+    "dashboard": "Ke beranda",
+    "sites": "Lihat situs"
   }
 }

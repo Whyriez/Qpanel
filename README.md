@@ -1,4 +1,4 @@
-# Nusa Panel
+# Qpanel
 
 Panel hosting Rust dengan API non-root, agent privileged dan isolasi tenant.
 

@@ -213,7 +213,7 @@ export const SshKeyManager: React.FC<SshKeyManagerProps> = ({
               </span>
             </h3>
             <p className="text-xs text-[var(--ink-muted)] mt-1 max-w-xl">
-              Gunakan kunci publik OpenSSH untuk login aman tanpa password ke shell terminal atau transfer SFTP. Berkas authorized_keys dikelola secara root-owned oleh sistem Nusa Panel.
+              Gunakan kunci publik OpenSSH untuk login aman tanpa password ke shell terminal atau transfer SFTP. Berkas authorized_keys dikelola secara root-owned oleh sistem Qpanel.
             </p>
           </div>
         </div>
@@ -490,7 +490,7 @@ export const SshKeyManager: React.FC<SshKeyManagerProps> = ({
                 <div className="p-3 rounded-[var(--radius-md)] bg-[var(--surface-sunken)] border border-[var(--line)] text-[11px] text-[var(--ink-muted)] flex items-start gap-2">
                   <ShieldCheck className="w-4 h-4 text-[var(--accent)] shrink-0 mt-0.5" />
                   <span>
-                    Sistem Nusa Panel menyimpan authorized_keys di lokasi root-owned dengan proteksi ketat agar kunci
+                    Sistem Qpanel menyimpan authorized_keys di lokasi root-owned dengan proteksi ketat agar kunci
                     tidak dapat dimanipulasi dari dalam direktori tenant.
                   </span>
                 </div>

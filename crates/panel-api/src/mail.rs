@@ -262,7 +262,7 @@ mod tests {
                 let (r, mut w) = stream.split();
                 let mut reader = BufReader::new(r);
                 let _ = w
-                    .write_all(b"220 mock.smtp.local Nusa Panel SMTP Test\r\n")
+                    .write_all(b"220 mock.smtp.local Qpanel SMTP Test\r\n")
                     .await;
 
                 let mut line = String::new();
@@ -311,7 +311,7 @@ mod tests {
             password: Some("password".to_string()),
             encryption: "none".to_string(),
             from_address: "panel@local".to_string(),
-            from_name: "Nusa Panel".to_string(),
+            from_name: "Qpanel".to_string(),
         };
 
         // Test connection

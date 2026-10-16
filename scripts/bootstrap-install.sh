@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Nusa Panel - Public Bootstrap Installer
+# Qpanel - Public Bootstrap Installer
 # Repository: Whyriez/Vpanel
 # ==============================================================================
 
@@ -85,7 +85,7 @@ detect_os() {
     local os
     os="$(uname -s)"
     if [[ "${os}" != "Linux" ]]; then
-        log_error "Nusa Panel can only be installed on Linux."
+        log_error "Qpanel can only be installed on Linux."
         exit 1
     fi
 }
@@ -153,7 +153,7 @@ resolve_latest_version() {
     local api_response
     if api_response="$(curl --fail --location --silent --show-error \
         -H "Accept: application/vnd.github.v3+json" \
-        -H "User-Agent: NusaPanel-Bootstrap" \
+        -H "User-Agent: Qpanel-Bootstrap" \
         "${api_url}" 2>/dev/null)"; then
         tag="$(printf '%s\n' "${api_response}" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
     fi
@@ -169,12 +169,12 @@ resolve_latest_version() {
     fi
 
     if [[ -z "${tag}" ]]; then
-        log_error "Failed to resolve latest Nusa Panel release from GitHub."
+        log_error "Failed to resolve latest Qpanel release from GitHub."
         exit 1
     fi
 
     if ! validate_version "${tag}"; then
-        log_error "Failed to resolve latest Nusa Panel release from GitHub."
+        log_error "Failed to resolve latest Qpanel release from GitHub."
         exit 1
     fi
 
@@ -328,7 +328,7 @@ main() {
     trap cleanup EXIT INT TERM
     setup_colors
 
-    echo "Nusa Panel Installer"
+    echo "Qpanel Installer"
     echo ""
 
     check_root
@@ -385,14 +385,14 @@ main() {
     fi
     log_sub "OK"
 
-    log_step "[7/7] Starting Nusa Panel installer..."
+    log_step "[7/7] Starting Qpanel installer..."
     echo ""
 
     local exit_code=0
     run_installer "${extracted_dir}" "$@" || exit_code=$?
 
     if [[ ${exit_code} -ne 0 ]]; then
-        log_error "Nusa Panel installation failed."
+        log_error "Qpanel installation failed."
         exit "${exit_code}"
     fi
 

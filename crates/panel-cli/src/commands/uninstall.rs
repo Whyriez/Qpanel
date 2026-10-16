@@ -165,7 +165,7 @@ fn purge_data_and_users(purge: bool) -> bool {
         return false;
     }
 
-    info!("Membersihkan seluruh direktori data dan konfigurasi Nusa Panel (--purge)...");
+    info!("Membersihkan seluruh direktori data dan konfigurasi Qpanel (--purge)...");
     let mut purged = false;
     for dir_path in &[
         "/var/lib/panel",
@@ -189,11 +189,11 @@ fn purge_data_and_users(purge: bool) -> bool {
     purged
 }
 
-/// Executes clean uninstallation of Nusa Panel.
+/// Executes clean uninstallation of Qpanel.
 pub async fn run_uninstall(
     options: &UninstallCliOptions,
 ) -> Result<UninstallResult, Box<dyn Error>> {
-    info!("Memulai proses pencopotan pemasangan (uninstall) Nusa Panel...");
+    info!("Memulai proses pencopotan pemasangan (uninstall) Qpanel...");
 
     remove_panel_proxy(options.purge)?;
     let (services_stopped, unit_files_removed) = stop_and_remove_systemd_services();
@@ -207,10 +207,9 @@ pub async fn run_uninstall(
         binaries_removed,
         data_purged,
         message: if options.purge {
-            "Nusa Panel berhasil dicopot sepenuhnya beserta seluruh data dan konfigurasi."
-                .to_string()
+            "Qpanel berhasil dicopot sepenuhnya beserta seluruh data dan konfigurasi.".to_string()
         } else {
-            "Nusa Panel berhasil dicopot. Berkas basis data dan cadangan dipertahankan.".to_string()
+            "Qpanel berhasil dicopot. Berkas basis data dan cadangan dipertahankan.".to_string()
         },
     };
 
@@ -221,9 +220,7 @@ pub async fn run_uninstall(
         println!(
             "================================================================================"
         );
-        println!(
-            "                     HASIL PENCAPUTAN NUSA PANEL                                "
-        );
+        println!("                     HASIL PENCAPUTAN QPANEL                                ");
         println!(
             "================================================================================"
         );

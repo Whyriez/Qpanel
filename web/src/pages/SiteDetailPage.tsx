@@ -185,6 +185,18 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
     loadSiteData();
   }, [loadSiteData]);
 
+  // Keep the rules editor mounted after saving, including its selected section and feedback.
+  const refreshSiteAfterRules = useCallback(async () => {
+    try {
+      setSite(await fetchSite(siteId));
+    } catch {
+      setToastMessage({
+        text: 'Aturan tersimpan, tetapi detail situs gagal diperbarui. Segarkan halaman.',
+        type: 'error',
+      });
+    }
+  }, [siteId]);
+
   // Handle site enable/disable
   const handleToggleSiteStatus = async () => {
     if (!site) return;
@@ -1430,7 +1442,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         <SiteRulesTab
           site={site}
           userRole={user?.role}
-          onSiteUpdated={loadSiteData}
+          onSiteUpdated={refreshSiteAfterRules}
         />
       )}
 
