@@ -9,7 +9,7 @@
 //!    - Service of Tenant A CANNOT connect to or write to Tenant B's Unix domain socket (`/run/panel/python/site_2.sock`, mode `0770`).
 //!    - Process isolation prevents Tenant A from inspecting Tenant B's processes under `/proc` (`hidepid=2`).
 //! 4. Nginx virtual host HTTPS generation:
-//!    - All 5 applications generate valid virtual host configurations with `listen 443 ssl`, `http2 on`, `ssl_certificate`, and `ssl_certificate_key`.
+//!    - All 5 applications generate HTTPS virtual hosts with IPv4/IPv6 `listen ... ssl http2`, `ssl_certificate`, and `ssl_certificate_key`, without the standalone `http2` directive.
 //!    - Automatic 301 redirection from HTTP (80) to HTTPS (443) when `force_https = true`.
 //! 5. SSRF upstream guard enforcement:
 //!    - External upstream requests rejected for plans with `allow_external_upstream = false`.
@@ -408,13 +408,7 @@ mod tests {
         let express_conf = renderer
             .render_nodejs(&express_ctx)
             .expect("render express https vhost");
-        assert!(express_conf.contains("listen 443 ssl;"));
-        assert!(express_conf.contains("listen [::]:443 ssl;"));
-        assert!(express_conf.contains("http2 on;"));
-        assert!(express_conf.contains("ssl_certificate /etc/panel/ssl/certs/site_101.crt;"));
-        assert!(express_conf.contains("ssl_certificate_key /etc/panel/ssl/certs/site_101.key;"));
         assert!(express_conf.contains("proxy_pass http://127.0.0.1:20051;"));
-        assert!(express_conf.contains("return 301 https://$host$request_uri;"));
 
         // 2. Next.js standalone (Node.js) with HTTPS
         let nextjs_ctx = NodejsVhostContext {
@@ -443,7 +437,6 @@ mod tests {
         let nextjs_conf = renderer
             .render_nodejs(&nextjs_ctx)
             .expect("render nextjs https vhost");
-        assert!(nextjs_conf.contains("listen 443 ssl;"));
         assert!(nextjs_conf.contains("proxy_pass http://127.0.0.1:20052;"));
 
         // 3. Django (Python WSGI) with static/media mappings & HTTPS
@@ -475,8 +468,6 @@ mod tests {
         let django_conf = renderer
             .render_python(&django_ctx)
             .expect("render django https vhost");
-        assert!(django_conf.contains("listen 443 ssl;"));
-        assert!(django_conf.contains("http2 on;"));
         assert!(django_conf.contains("proxy_pass http://unix:/run/panel/python/site_103.sock;"));
         assert!(django_conf.contains("location /static/ {"));
         assert!(django_conf.contains("location /media/ {"));
@@ -510,7 +501,6 @@ mod tests {
         let fastapi_conf = renderer
             .render_python(&fastapi_ctx)
             .expect("render fastapi https vhost");
-        assert!(fastapi_conf.contains("listen 443 ssl;"));
         assert!(fastapi_conf.contains("proxy_pass http://unix:/run/panel/python/site_104.sock;"));
 
         // 5. Flask (Python WSGI) with static mapping & HTTPS
@@ -542,9 +532,35 @@ mod tests {
         let flask_conf = renderer
             .render_python(&flask_ctx)
             .expect("render flask https vhost");
-        assert!(flask_conf.contains("listen 443 ssl;"));
         assert!(flask_conf.contains("proxy_pass http://unix:/run/panel/python/site_105.sock;"));
         assert!(flask_conf.contains("location /static/ {"));
+
+        // Enforce the distro-compatible HTTPS contract for every sample app.
+        for (app, config, site_id) in [
+            ("Express", &express_conf, 101),
+            ("Next.js", &nextjs_conf, 102),
+            ("Django", &django_conf, 103),
+            ("FastAPI", &fastapi_conf, 104),
+            ("Flask", &flask_conf, 105),
+        ] {
+            let directives: Vec<_> = config.lines().map(str::trim).collect();
+            for expected in [
+                "listen 443 ssl http2;".to_string(),
+                "listen [::]:443 ssl http2;".to_string(),
+                format!("ssl_certificate /etc/panel/ssl/certs/site_{site_id}.crt;"),
+                format!("ssl_certificate_key /etc/panel/ssl/certs/site_{site_id}.key;"),
+                "return 301 https://$host$request_uri;".to_string(),
+            ] {
+                assert!(
+                    directives.contains(&expected.as_str()),
+                    "{app}: missing HTTPS directive {expected}"
+                );
+            }
+            assert!(
+                !directives.iter().any(|line| line.starts_with("http2 ")),
+                "{app}: standalone http2 directive must not be emitted"
+            );
+        }
     }
 
     #[test]
