@@ -83,6 +83,16 @@ grep -qx 'Group=panel' "$agent"
 grep -qx 'RuntimeDirectory=panel' "$agent"
 grep -qx 'RuntimeDirectoryMode=0750' "$agent"
 pass 'agent alone owns boot-time runtime directory'
+
+# Root inside the service is still restricted by its capability bounding set.
+# nginx -t must be able to validate HTTP/HTTPS listeners without broadening
+# the API identity or disabling the agent's remaining sandbox restrictions.
+agent_caps="$(sed -n 's/^CapabilityBoundingSet=//p' "$agent")"
+[[ " $agent_caps " == *' CAP_NET_BIND_SERVICE '* ]]
+[[ " $agent_caps " != *' CAP_SYS_ADMIN '* && "$agent_caps" != '~'* && -n "$agent_caps" ]]
+! grep -q '^AmbientCapabilities=.*CAP_NET_BIND_SERVICE' "$api"
+grep -qx 'NoNewPrivileges=true' "$agent"
+pass 'root agent may validate privileged nginx listeners with a bounded capability set; API gets no ambient bind capability'
 proc_helper="$REPO/templates/systemd/panel-proc-hardening.service"
 grep -qx 'Type=oneshot' "$proc_helper"
 grep -qx 'User=root' "$proc_helper"
