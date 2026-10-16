@@ -170,6 +170,8 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [terminalOpenRequest, setTerminalOpenRequest] = useState(0);
+  const terminalTrigger = useRef<HTMLButtonElement>(null);
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
   const [activeSshPath, setActiveSshPath] = useState(currentPath);
 
@@ -181,6 +183,28 @@ export const FileManager: React.FC<FileManagerProps> = ({
     currentX: number;
     currentY: number;
   } | null>(null);
+  const marqueeDrag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const stopMarquee = useCallback(() => {
+    const drag = marqueeDrag.current;
+    marqueeDrag.current = null;
+    setRubberBandBox(null);
+    const container = fileContainerRef.current;
+    if (drag && container?.hasPointerCapture(drag.pointerId)) {
+      container.releasePointerCapture(drag.pointerId);
+    }
+  }, []);
+
+  useEffect(() => {
+    stopMarquee();
+    window.addEventListener('blur', stopMarquee);
+    return () => window.removeEventListener('blur', stopMarquee);
+  }, [currentPath, viewMode, stopMarquee]);
 
   // File Input Ref for Upload Button
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -760,40 +784,33 @@ export const FileManager: React.FC<FileManagerProps> = ({
   // ----------------------------------------------------
   // Rubber Band Marquee Drag Selection
   // ----------------------------------------------------
-  const handleMouseDownForMarquee = (e: React.MouseEvent) => {
-    // Only trigger marquee on left click when clicking directly on container background
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('[data-file-item]') || target.closest('button') || target.closest('input')) {
-      return;
-    }
-
-    const rect = fileContainerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
+  const updateMarquee = (clientX: number, clientY: number) => {
+    const drag = marqueeDrag.current;
+    const container = fileContainerRef.current;
+    if (!drag || !container) return;
+    drag.clientX = clientX;
+    drag.clientY = clientY;
+    const rect = container.getBoundingClientRect();
+    // The absolute overlay uses scroll-content coordinates, not viewport coordinates.
+    const originX = rect.left + container.clientLeft - container.scrollLeft;
+    const originY = rect.top + container.clientTop - container.scrollTop;
     setRubberBandBox({
-      startX: e.clientX,
-      startY: e.clientY,
-      currentX: e.clientX,
-      currentY: e.clientY,
+      startX: drag.startX,
+      startY: drag.startY,
+      currentX: clientX - originX,
+      currentY: clientY - originY,
     });
-  };
 
-  const handleMouseMoveForMarquee = (e: React.MouseEvent) => {
-    if (!rubberBandBox) return;
-
-    setRubberBandBox((prev) => (prev ? { ...prev, currentX: e.clientX, currentY: e.clientY } : null));
-
-    // Calculate bounding box in viewport coordinates
-    const left = Math.min(rubberBandBox.startX, e.clientX);
-    const top = Math.min(rubberBandBox.startY, e.clientY);
-    const right = Math.max(rubberBandBox.startX, e.clientX);
-    const bottom = Math.max(rubberBandBox.startY, e.clientY);
+    // Convert the fixed content anchor back to the viewport for item hit testing.
+    const left = Math.min(drag.startX + originX, clientX);
+    const top = Math.min(drag.startY + originY, clientY);
+    const right = Math.max(drag.startX + originX, clientX);
+    const bottom = Math.max(drag.startY + originY, clientY);
 
     // Check intersecting items
     const nextSelected = new Set<string>();
-    const itemElements = fileContainerRef.current?.querySelectorAll('[data-file-item]');
-    itemElements?.forEach((el) => {
+    const itemElements = container.querySelectorAll('[data-file-item]');
+    itemElements.forEach((el) => {
       const itemRect = el.getBoundingClientRect();
       const intersects =
         left < itemRect.right &&
@@ -809,10 +826,39 @@ export const FileManager: React.FC<FileManagerProps> = ({
     setSelectedPaths(nextSelected);
   };
 
-  const handleMouseUpForMarquee = () => {
-    if (rubberBandBox) {
-      setRubberBandBox(null);
-    }
+  const handlePointerDownForMarquee = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Leave touch scrolling, controls and native file dragging to the browser.
+    if (e.button !== 0 || e.pointerType === 'touch' || marqueeDrag.current) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-file-item], button, input, select, textarea, a, thead, [role="button"]')) return;
+    const container = e.currentTarget;
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left - container.clientLeft;
+    const y = e.clientY - rect.top - container.clientTop;
+    // Do not capture clicks on the scrollbars.
+    if (x < 0 || y < 0 || x >= container.clientWidth || y >= container.clientHeight) return;
+    e.preventDefault();
+    container.setPointerCapture(e.pointerId);
+    marqueeDrag.current = {
+      pointerId: e.pointerId,
+      startX: x + container.scrollLeft,
+      startY: y + container.scrollTop,
+      clientX: e.clientX,
+      clientY: e.clientY,
+    };
+    updateMarquee(e.clientX, e.clientY);
+  };
+
+  const handlePointerMoveForMarquee = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (marqueeDrag.current?.pointerId !== e.pointerId) return;
+    if ((e.buttons & 1) === 0) { stopMarquee(); return; }
+    updateMarquee(e.clientX, e.clientY);
+  };
+
+  const handlePointerUpForMarquee = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (marqueeDrag.current?.pointerId !== e.pointerId) return;
+    updateMarquee(e.clientX, e.clientY);
+    stopMarquee();
   };
 
   // ----------------------------------------------------
@@ -821,8 +867,6 @@ export const FileManager: React.FC<FileManagerProps> = ({
   return (
     <div
       className="flex flex-col h-[calc(100vh-4rem)] border border-[var(--line)] rounded-[var(--radius-lg)] bg-[var(--surface)] text-[var(--foreground)] overflow-hidden shadow-xs"
-      onMouseMove={handleMouseMoveForMarquee}
-      onMouseUp={handleMouseUpForMarquee}
     >
       {/* Hidden File Upload Input */}
       <input
@@ -906,10 +950,12 @@ export const FileManager: React.FC<FileManagerProps> = ({
                   onNavigateTerminal(currentPath);
                 } else {
                   setIsTerminalOpen(true);
+                  setTerminalOpenRequest(previous => previous + 1);
                 }
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface-hover)] hover:bg-[var(--surface-active)] text-[var(--foreground)] transition-colors text-xs font-medium cursor-pointer"
               title="Buka terminal di folder ini"
+              ref={terminalTrigger}
             >
               <Terminal className="h-3.5 w-3.5 text-emerald-500" />
               <span>Terminal di sini</span>
@@ -1132,7 +1178,15 @@ export const FileManager: React.FC<FileManagerProps> = ({
         {/* Right: Files Container (with Dropzone & Rubber Band) */}
         <div
           ref={fileContainerRef}
-          onMouseDown={handleMouseDownForMarquee}
+          onPointerDown={handlePointerDownForMarquee}
+          onPointerMove={handlePointerMoveForMarquee}
+          onPointerUp={handlePointerUpForMarquee}
+          onPointerCancel={stopMarquee}
+          onLostPointerCapture={stopMarquee}
+          onScrollCapture={() => {
+            const drag = marqueeDrag.current;
+            if (drag) updateMarquee(drag.clientX, drag.clientY);
+          }}
           onContextMenu={(e) => handleContextMenu(e)}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -2145,7 +2199,8 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
       <TerminalDrawer
         isOpen={isTerminalOpen}
-        onClose={() => setIsTerminalOpen(false)}
+        openRequest={terminalOpenRequest}
+        onClose={() => { setIsTerminalOpen(false); terminalTrigger.current?.focus(); }}
         initialCwd={currentPath}
         tenant={tenant}
       />

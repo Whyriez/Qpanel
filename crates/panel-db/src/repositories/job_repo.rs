@@ -127,7 +127,7 @@ impl SqliteJobRepository {
         Ok(())
     }
 
-    /// Atomically claims the oldest 'queued' job and updates its status to 'running'.
+    /// Atomically claims the oldest queued job and clears the previous attempt's error.
     pub async fn claim_next_queued(&self) -> Result<Option<Job>, DbError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -137,7 +137,7 @@ impl SqliteJobRepository {
         let job = sqlx::query_as::<_, Job>(
             r#"
             UPDATE jobs
-            SET status = 'running', updated_at = ?
+            SET status = 'running', error_message = NULL, updated_at = ?
             WHERE id = (
                 SELECT id FROM jobs
                 WHERE status = 'queued'

@@ -59,6 +59,7 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
 
 fn php_runtime_runner() -> Arc<MockSystemRunner> {
     let runner = Arc::new(MockSystemRunner::new());
+    runner.set_file_content("/etc/os-release", b"ID=ubuntu\nVERSION_ID=\"24.04\"\n");
     runner.set_response("nginx", 0, b"syntax is ok", b"");
     runner.set_response("systemctl", 0, b"masked\n", b"");
     runner.set_response("apt-get", 0, b"Reading package lists... Done\n", b"");

@@ -200,7 +200,7 @@ pub async fn setup_php_repo_handler(
         "system:apt".to_string(),
         "success",
         None,
-        Some("Setup Sury PHP PPA repository".to_string()),
+        Some("Setup OS-specific Sury PHP repository".to_string()),
     );
 
     (StatusCode::ACCEPTED, Json(JobItem::from(job))).into_response()

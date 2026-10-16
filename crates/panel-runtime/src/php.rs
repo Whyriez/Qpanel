@@ -175,7 +175,7 @@ impl PhpVersionInfo {
     }
 }
 
-/// Helper that checks whether Sury PPA repository files exist in apt sources.
+/// Checks known Ubuntu PPA and Debian Sury repository files in APT sources.
 pub fn is_sury_repo_installed(path_checker: impl Fn(&Path) -> bool) -> bool {
     let candidates = [
         Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php-jammy.list"),
@@ -186,6 +186,8 @@ pub fn is_sury_repo_installed(path_checker: impl Fn(&Path) -> bool) -> bool {
         Path::new("/etc/apt/sources.list.d/ondrej-ubuntu-php.sources"),
         Path::new("/etc/apt/sources.list.d/php.list"),
         Path::new("/etc/apt/sources.list.d/php.sources"),
+        Path::new("/etc/apt/sources.list.d/nusa-php.sources"),
+        Path::new("/etc/apt/sources.list.d/sury-php.sources"),
     ];
     candidates.iter().any(|p| path_checker(p))
 }
@@ -449,6 +451,9 @@ mod tests {
             == Path::new(
                 "/etc/apt/sources.list.d/ondrej-ubuntu-php-noble.list"
             )));
+        assert!(is_sury_repo_installed(
+            |path| path == Path::new("/etc/apt/sources.list.d/nusa-php.sources")
+        ));
         assert!(!is_sury_repo_installed(|_| false));
     }
 

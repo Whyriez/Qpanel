@@ -1,250 +1,169 @@
 import { ModalOverlay } from './ModalOverlay';
-import React, { useEffect, useState } from "react";
-import { Command } from "cmdk";
-import { useTranslation } from "react-i18next";
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Command } from 'cmdk';
+import { useTranslation } from 'react-i18next';
 import {
-  LayoutDashboard,
-  Globe,
-  ListTodo,
-  ShieldCheck,
-  UserCheck,
-  Settings,
-  Sun,
-  Moon,
-  Monitor,
-  Languages,
-  LogOut,
-  FolderTree,
-  Terminal,
-} from "lucide-react";
-import { ThemeMode } from "../../types/api";
-import { useAuth } from "../../context/AuthContext";
+  ArrowDown, ArrowUp, BarChart3, Check, CornerDownLeft, Cpu, FolderTree,
+  Globe, Languages, Layers, LayoutDashboard, ListTodo, LogOut, Monitor,
+  Moon, Search, Settings, ShieldCheck, Sun, Terminal, UserCheck, Users, X,
+} from 'lucide-react';
+import { ThemeMode } from '../../types/api';
+import { useAuth } from '../../context/AuthContext';
+import { isAdminOnlyRoute } from '../../lib/routeAccess';
+import { filterMenuCommands } from './commandFilter';
+
+const navigation = [
+  { id: 'dashboard', icon: LayoutDashboard },
+  { id: 'sites', icon: Globe },
+  { id: 'files', icon: FolderTree },
+  { id: 'terminal', icon: Terminal },
+  { id: 'analytics', icon: BarChart3 },
+  { id: 'jobs', icon: ListTodo },
+  { id: 'profile', icon: UserCheck },
+  { id: 'tenants', icon: Users },
+  { id: 'plans', icon: Layers },
+  { id: 'runtime', icon: Cpu },
+  { id: 'audit', icon: ShieldCheck },
+  { id: 'settings', icon: Settings },
+];
+const themes = [
+  { id: 'light', icon: Sun },
+  { id: 'dark', icon: Moon },
+  { id: 'system', icon: Monitor },
+] as const;
 
 export interface CommandPaletteProps {
   isOpen?: boolean;
   onClose?: () => void;
   onOpen?: () => void;
   onNavigate: (nav: string) => void;
+  activeNav?: string;
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
 }
 
-export const CommandPalette: React.FC<CommandPaletteProps> = ({
-  isOpen: controlledOpen,
-  onClose,
-  onOpen,
-  onNavigate,
-  theme,
-  onThemeChange,
-}) => {
+export function CommandPalette({ isOpen: controlledOpen, onClose, onOpen, onNavigate, activeNav, theme, onThemeChange }: CommandPaletteProps) {
   const { t, i18n } = useTranslation();
   const { logout, user } = useAuth();
   const [open, setOpen] = useState(false);
-
+  const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const descriptionId = useId();
   const isControlled = controlledOpen !== undefined;
   const isVisible = isControlled ? controlledOpen : open;
+  const isAdmin = user?.role === 'admin';
+  const nextLanguage = i18n.language.startsWith('id') ? 'en' : 'id';
+  const clearSearch = () => { setSearch(''); inputRef.current?.focus(); };
 
-  const handleClose = () => {
-    if (onClose) onClose();
+  const handleClose = useCallback(() => {
+    setSearch('');
+    onClose?.();
     if (!isControlled) setOpen(false);
-  };
+  }, [onClose, isControlled]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        if (isControlled) {
-          if (isVisible && onClose) onClose();
-          else if (!isVisible && onOpen) onOpen();
-        } else {
-          setOpen((prev) => !prev);
-        }
-      }
-      if (e.key === "Escape" && isVisible) {
-        handleClose();
-      }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k' || event.repeat) return;
+      event.preventDefault();
+      if (isVisible) handleClose();
+      else if (isControlled) onOpen?.();
+      else setOpen(true);
     };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isVisible, isControlled, onClose, onOpen]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isVisible, isControlled, handleClose, onOpen]);
 
   if (!isVisible) return null;
 
-  const handleSelectNav = (page: string) => {
-    onNavigate(page);
-    handleClose();
-  };
-
-  const handleToggleLang = () => {
-    const nextLang = i18n.language === "id" ? "en" : "id";
-    i18n.changeLanguage(nextLang);
-    handleClose();
-  };
-
-  const handleLogout = async () => {
-    handleClose();
-    await logout();
-  };
+  const selectPage = (page: string) => { onNavigate(page); handleClose(); };
+  const renderNavigation = (admin: boolean) => navigation
+    .filter(item => isAdminOnlyRoute(`/${item.id}`) === admin)
+    .map(({ id, icon: Icon }) => (
+      <Command.Item
+        key={id}
+        value={`page-${id}`}
+        keywords={[t(`nav.${id}`), t(`palette.descriptions.${id}`), id]}
+        onSelect={() => selectPage(id)}
+        className="command-item"
+      >
+        <Icon className="command-item-icon" aria-hidden="true" />
+        <span className="command-item-copy">
+          <span className="command-item-title">{t(`nav.${id}`)}</span>
+          <span className="command-item-description">{t(`palette.descriptions.${id}`)}</span>
+        </span>
+        {activeNav === id && <span className="command-item-meta"><Check size={13} aria-hidden="true" />{t('palette.currentPage')}</span>}
+        <CornerDownLeft className="command-item-enter" aria-hidden="true" />
+      </Command.Item>
+    ));
 
   return (
-    <ModalOverlay
-      className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4 bg-black/50 backdrop-blur-sm transition-opacity"
-      onClick={handleClose}
-      onDismiss={handleClose}
-      aria-label="Pencarian dan perintah"
-    >
-      <div
-        className="w-full max-w-xl bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] shadow-[var(--shadow-floating)] overflow-hidden dialog-panel"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Command label="Command Palette" className="flex flex-col dialog-form">
-          <div className="flex items-center px-4 border-b border-[var(--line)]">
-            <Command.Input
-              autoFocus
-              placeholder={t('common.search')}
-              className="w-full h-12 bg-transparent text-sm text-[var(--ink)] placeholder-[var(--ink-muted)] outline-none"
-            />
-            <kbd className="text-[10px] font-mono px-1.5 py-0.5 border border-[var(--line)] rounded bg-[var(--raised)] text-[var(--ink-muted)]">
-              ESC
-            </kbd>
+    <ModalOverlay className="command-overlay" onClick={handleClose} onDismiss={handleClose} aria-label={t('palette.title')} aria-describedby={descriptionId}>
+      <div className="dialog-panel command-palette" onClick={event => event.stopPropagation()}>
+        <Command label={t('palette.title')} filter={filterMenuCommands} loop className="dialog-form">
+          <div className="command-caption">
+            <div>
+              <h2>{t('palette.title')}</h2>
+              <p id={descriptionId}>{t('palette.subtitle')}</p>
+            </div>
+            <button type="button" className="command-control" onClick={handleClose} aria-label={t('palette.close')} title={t('palette.close')}>
+              <X size={18} aria-hidden="true" />
+            </button>
           </div>
-
-          <Command.List className="max-h-80 overflow-y-auto p-2 space-y-1">
-            <Command.Empty className="py-6 text-center text-xs text-[var(--ink-muted)]">
-              Tidak ada hasil yang cocok.
+          <div className="command-search-row">
+            <Search size={20} aria-hidden="true" />
+            <Command.Input
+              ref={inputRef}
+              autoFocus
+              value={search}
+              onValueChange={setSearch}
+              placeholder={t('palette.placeholder')}
+              aria-label={t('palette.placeholder')}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {search && <button type="button" className="command-control" aria-label={t('palette.clear')} onClick={clearSearch}><X size={16} aria-hidden="true" /></button>}
+          </div>
+          <Command.List className="command-results" label={t('palette.results')}>
+            <Command.Empty className="command-empty">
+              <Search size={24} aria-hidden="true" />
+              <strong>{t('palette.noResults')}</strong>
+              <p>{t('palette.noResultsHint', { query: search })}</p>
+              <button type="button" className="command-reset" onClick={clearSearch}>{t('palette.clear')}</button>
             </Command.Empty>
-
-            <Command.Group
-              heading="Navigasi"
-              className="text-[11px] font-semibold text-[var(--ink-muted)] uppercase tracking-wider px-2 py-1"
-            >
-              <Command.Item
-                onSelect={() => handleSelectNav('dashboard')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <LayoutDashboard className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.dashboard')}</span>
-              </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelectNav('sites')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <Globe className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.sites')}</span>
-              </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelectNav('files')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <FolderTree className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.files')}</span>
-              </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelectNav('terminal')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <Terminal className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.terminal')}</span>
-              </Command.Item>
-              <Command.Item
-                onSelect={() => handleSelectNav('jobs')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <ListTodo className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.jobs')}</span>
-              </Command.Item>
-              {user?.role === 'admin' && (
-                <Command.Item
-                  onSelect={() => handleSelectNav('audit')}
-                  className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-                >
-                  <ShieldCheck className="w-4 h-4 text-[var(--ink-muted)]" />
-                  <span>{t('nav.audit')}</span>
-                </Command.Item>
-              )}
-              <Command.Item
-                onSelect={() => handleSelectNav('profile')}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-              >
-                <UserCheck className="w-4 h-4 text-[var(--ink-muted)]" />
-                <span>{t('nav.profile')}</span>
-              </Command.Item>
-              {user?.role === 'admin' && (
-                <Command.Item
-                  onSelect={() => handleSelectNav('settings')}
-                  className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer aria-selected:bg-[var(--primary)]/10 aria-selected:text-[var(--primary)]"
-                >
-                  <Settings className="w-4 h-4 text-[var(--ink-muted)]" />
-                  <span>{t('nav.settings')}</span>
-                </Command.Item>
-              )}
+            <Command.Group heading={t('palette.navigation')} className="command-group">
+              {renderNavigation(false)}
             </Command.Group>
-
-            <Command.Group
-              heading="Pengaturan Cepat"
-              className="text-[11px] font-semibold text-[var(--ink-muted)] uppercase tracking-wider px-2 py-1 pt-2 border-t border-[var(--line)]"
-            >
-              <Command.Item
-                onSelect={() => {
-                  onThemeChange('light');
-                  handleClose();
-                }}
-                className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <Sun className="w-4 h-4 text-[var(--accent)]" />
-                  <span>Tema: Terang</span>
-                </div>
-                {theme === 'light' && <span className="text-[10px] text-[var(--primary)] font-bold">Aktif</span>}
+            {isAdmin && <Command.Group heading={t('palette.administration')} className="command-group">{renderNavigation(true)}</Command.Group>}
+            <Command.Group heading={t('palette.preferences')} className="command-group">
+              {themes.map(({ id, icon: Icon }) => (
+                <Command.Item key={id} value={`theme-${id}`} keywords={[t('palette.theme', { theme: t(`common.theme.${id}`) }), id]} onSelect={() => { onThemeChange(id); handleClose(); }} className="command-item">
+                  <Icon className="command-item-icon" aria-hidden="true" />
+                  <span className="command-item-title">{t('palette.theme', { theme: t(`common.theme.${id}`) })}</span>
+                  {theme === id && <span className="command-item-meta command-active"><Check size={14} aria-hidden="true" />{t('palette.active')}</span>}
+                  <CornerDownLeft className="command-item-enter" aria-hidden="true" />
+                </Command.Item>
+              ))}
+              <Command.Item value="language" keywords={[t('palette.language'), 'language', 'English', 'Indonesia']} onSelect={() => { void i18n.changeLanguage(nextLanguage); handleClose(); }} className="command-item">
+                <Languages className="command-item-icon" aria-hidden="true" />
+                <span className="command-item-title">{t('palette.language')}: {nextLanguage === 'en' ? 'English' : 'Indonesia'}</span>
+                <CornerDownLeft className="command-item-enter" aria-hidden="true" />
               </Command.Item>
-              <Command.Item
-                onSelect={() => {
-                  onThemeChange('dark');
-                  handleClose();
-                }}
-                className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <Moon className="w-4 h-4 text-[var(--primary)]" />
-                  <span>Tema: Gelap</span>
-                </div>
-                {theme === 'dark' && <span className="text-[10px] text-[var(--primary)] font-bold">Aktif</span>}
-              </Command.Item>
-              <Command.Item
-                onSelect={() => {
-                  onThemeChange('system');
-                  handleClose();
-                }}
-                className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <Monitor className="w-4 h-4 text-[var(--ink-muted)]" />
-                  <span>Tema: Sistem</span>
-                </div>
-                {theme === 'system' && <span className="text-[10px] text-[var(--primary)] font-bold">Aktif</span>}
-              </Command.Item>
-              <Command.Item
-                onSelect={handleToggleLang}
-                className="flex items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--ink)] hover:bg-[var(--raised)] cursor-pointer"
-              >
-                <div className="flex items-center gap-3">
-                  <Languages className="w-4 h-4 text-[var(--ink-muted)]" />
-                  <span>Ganti Bahasa: {i18n.language === 'id' ? 'English' : 'Indonesia'}</span>
-                </div>
-                <span className="font-mono text-[10px] uppercase text-[var(--ink-muted)]">{i18n.language}</span>
-              </Command.Item>
-              <Command.Item
-                onSelect={handleLogout}
-                className="flex items-center gap-3 px-3 py-2 rounded-[var(--radius-sm)] text-xs text-[var(--danger)] hover:bg-[var(--raised)] cursor-pointer"
-              >
-                <LogOut className="w-4 h-4 text-[var(--danger)]" />
-                <span>{t('auth.logout')}</span>
+            </Command.Group>
+            <Command.Group heading={t('palette.account')} className="command-group">
+              <Command.Item value="logout" keywords={[t('auth.logout')]} onSelect={() => { handleClose(); void logout(); }} className="command-item command-item-danger">
+                <LogOut className="command-item-icon" aria-hidden="true" />
+                <span className="command-item-title">{t('auth.logout')}</span>
+                <CornerDownLeft className="command-item-enter" aria-hidden="true" />
               </Command.Item>
             </Command.Group>
           </Command.List>
+          <div className="command-footer">
+            <span><kbd><ArrowUp size={12} aria-hidden="true" /><ArrowDown size={12} aria-hidden="true" /></kbd>{t('palette.move')}</span>
+            <span><kbd><CornerDownLeft size={13} aria-hidden="true" /></kbd>{t('palette.select')}</span>
+            <span className="command-footer-close"><kbd>Esc</kbd>{t('palette.dismiss')}</span>
+          </div>
         </Command>
       </div>
     </ModalOverlay>
   );
-};
+}

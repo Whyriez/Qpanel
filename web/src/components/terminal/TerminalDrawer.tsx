@@ -5,6 +5,7 @@ import { TerminalTabs } from './TerminalTabs';
 import { TerminalInstance } from './TerminalInstance';
 import { toast } from 'sonner';
 import { TerminalAccessNotice, useTerminalAccess } from './TerminalAccess';
+import { FloatingTerminalWindow } from './FloatingTerminalWindow';
 
 interface TerminalDrawerProps {
   tenant?: string;
@@ -12,6 +13,7 @@ interface TerminalDrawerProps {
   onClose: () => void;
   initialCwd?: string;
   title?: string;
+  openRequest?: number;
 }
 
 export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
@@ -19,6 +21,8 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
   onClose,
   initialCwd,
   tenant,
+  title = 'Terminal berkas',
+  openRequest,
 }) => {
   const { state: access, refresh: refreshAccess, canOpenTerminal } = useTerminalAccess(tenant, isOpen);
   const initialized = React.useRef(false);
@@ -38,9 +42,10 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
 
   const [tabs, setTabs] = useState<TerminalTabItem[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('');
-  const [isMaximized, setIsMaximized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [isSpawning, setIsSpawning] = useState(false);
   const [sessionError, setSessionError] = useState('');
+  useEffect(() => { if (isOpen) setIsMinimized(false); }, [isOpen, openRequest]);
 
   // Helper to spawn a new session tab
   const spawnTab = useCallback(
@@ -148,12 +153,12 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      className={`fixed z-50 transition-all duration-200 flex flex-col bg-[var(--surface)] border border-[var(--line)] shadow-2xl overflow-hidden ${
-        isMaximized
-          ? 'inset-2 rounded-[var(--radius-lg)]'
-          : 'bottom-0 left-0 right-0 md:left-64 h-[420px] rounded-t-[var(--radius-lg)] border-b-0'
-      }`}
+    <FloatingTerminalWindow
+      title={title}
+      cwd={tabs.find(tab => tab.id === activeTabId)?.cwd || initialCwd || '~'}
+      minimized={isMinimized}
+      onMinimizedChange={setIsMinimized}
+      onClose={onClose}
     >
       {/* Tab bar header */}
       <TerminalTabs
@@ -163,13 +168,11 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
         onNewTab={() => spawnTab()}
         newTabDisabled={!canOpenTerminal || isSpawning}
         onCloseTab={handleCloseTab}
-        isMaximized={isMaximized}
-        onToggleMaximize={() => setIsMaximized(!isMaximized)}
-        onCloseAll={onClose}
+        fillWidth
       />
 
       {/* Terminal Viewports Container */}
-      <div className="flex-1 w-full h-full relative overflow-hidden bg-[var(--surface)]">
+      <div className="min-h-0 flex-1 w-full relative overflow-hidden bg-[var(--surface)]">
         {!canOpenTerminal ? <TerminalAccessNotice state={access} onRefresh={refreshAccess} /> : tabs.length === 0 ? <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm">
           <p role={sessionError ? 'alert' : undefined}>{sessionError || 'Tidak ada sesi terminal aktif saat ini.'}</p>
           <button type="button" onClick={() => spawnTab()} disabled={isSpawning} className="rounded border border-[var(--line)] px-3 py-2">Buka sesi terminal</button>
@@ -192,12 +195,12 @@ export const TerminalDrawer: React.FC<TerminalDrawerProps> = ({
             <TerminalInstance
               key={tab.session.session_id}
               session={tab.session}
-              isActive={tab.id === activeTabId}
+              isActive={!isMinimized && tab.id === activeTabId}
               onStatusChange={(st) => handleStatusChange(tab.id, st)}
             />
           );
         })}
       </div>
-    </div>
+    </FloatingTerminalWindow>
   );
 };

@@ -260,7 +260,12 @@ pub fn extract_node_tarball(archive_data: &[u8], target_dir: &Path) -> Result<us
 
         // Strip the first component (the top-level `node-vX.Y.Z-arch` directory)
         let mut components = entry_path.components();
-        let _root_comp = components.next(); // Skip root folder
+        if !matches!(components.next(), Some(Component::Normal(_))) {
+            return Err(RuntimeError::ExtractionFailed(format!(
+                "Root entri arsip tidak valid: {}",
+                entry_path.display()
+            )));
+        }
         let relative_stripped: PathBuf = components.as_path().to_path_buf();
 
         if relative_stripped.as_os_str().is_empty() {
@@ -282,6 +287,22 @@ pub fn extract_node_tarball(archive_data: &[u8], target_dir: &Path) -> Result<us
         }
 
         let destination = canonical_target.join(&relative_stripped);
+
+        validate_node_entry_destination(&canonical_target, &relative_stripped)?;
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() {
+            let link = entry
+                .link_name()
+                .map_err(|e| RuntimeError::ExtractionFailed(e.to_string()))?
+                .ok_or_else(|| RuntimeError::ExtractionFailed("Symlink tanpa tujuan".into()))?;
+            let resolved = validate_node_symlink(&relative_stripped, &link)?;
+            validate_node_entry_destination(&canonical_target, &resolved)?;
+        } else if !entry_type.is_dir() && !entry_type.is_file() {
+            return Err(RuntimeError::ExtractionFailed(format!(
+                "Tipe entri arsip Node.js tidak didukung: {}",
+                entry_path.display()
+            )));
+        }
 
         // Security check: destination must stay strictly inside canonical_target
         if !destination.starts_with(&canonical_target) {
@@ -320,18 +341,7 @@ pub fn extract_node_tarball(archive_data: &[u8], target_dir: &Path) -> Result<us
                 ))
             })?;
 
-            // On Unix, ensure executable bit for files in `bin/`
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if relative_stripped.starts_with("bin") {
-                    let mut perms = fs::metadata(&destination)
-                        .map_err(|e| RuntimeError::Io(e.to_string()))?
-                        .permissions();
-                    perms.set_mode(0o755);
-                    let _ = fs::set_permissions(&destination, perms);
-                }
-            }
+            set_node_bin_permissions(&destination, &relative_stripped, entry_type)?;
 
             extracted_count += 1;
         }
@@ -344,6 +354,92 @@ pub fn extract_node_tarball(archive_data: &[u8], target_dir: &Path) -> Result<us
     );
 
     Ok(extracted_count)
+}
+
+/// Archive links may precede their targets; chmod must never follow a symlink.
+fn set_node_bin_permissions(
+    destination: &Path,
+    relative: &Path,
+    entry_type: tar::EntryType,
+) -> Result<(), RuntimeError> {
+    if !entry_type.is_file() || !relative.starts_with("bin") {
+        return Ok(());
+    }
+    let permissions = fs::metadata(destination)
+        .map_err(|e| {
+            RuntimeError::Io(format!("Gagal membaca izin {}: {e}", destination.display()))
+        })?
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = permissions;
+        permissions.set_mode(0o755);
+        fs::set_permissions(destination, permissions).map_err(|e| {
+            RuntimeError::Io(format!(
+                "Gagal mengatur izin {}: {e}",
+                destination.display()
+            ))
+        })?;
+    }
+    #[cfg(not(unix))]
+    let _ = permissions;
+    Ok(())
+}
+
+/// Do not traverse existing symlinks when writing archive entries, even if dangling.
+fn validate_node_entry_destination(root: &Path, relative: &Path) -> Result<(), RuntimeError> {
+    let mut destination = root.to_path_buf();
+    for component in relative.components() {
+        destination.push(component);
+        match fs::symlink_metadata(&destination) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(RuntimeError::ExtractionFailed(format!(
+                    "Entri arsip melewati symlink: {}",
+                    destination.display()
+                )));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(RuntimeError::Io(format!(
+                    "Gagal memeriksa {}: {e}",
+                    destination.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Resolve links lexically: their destination need not have been extracted yet.
+fn validate_node_symlink(relative: &Path, link: &Path) -> Result<PathBuf, RuntimeError> {
+    let mut resolved = relative.parent().unwrap_or(Path::new("")).to_path_buf();
+    let mut saw_normal = false;
+    if link.as_os_str().is_empty() {
+        return Err(RuntimeError::ExtractionFailed(
+            "Tujuan symlink kosong".into(),
+        ));
+    }
+    for component in link.components() {
+        match component {
+            Component::Normal(part) => {
+                saw_normal = true;
+                resolved.push(part);
+            }
+            Component::CurDir => {}
+            // Only allow a parent prefix. A later `..` could climb through
+            // another symlink and escape despite lexical normalization.
+            Component::ParentDir if !saw_normal && resolved.pop() => {}
+            _ => {
+                return Err(RuntimeError::ExtractionFailed(format!(
+                    "Tujuan symlink keluar dari direktori runtime: {}",
+                    link.display()
+                )));
+            }
+        }
+    }
+    Ok(resolved)
 }
 
 /// Enables corepack shims (`pnpm`, `pnpx`, `yarn`, `yarnpkg`) in the runtime's `bin/` directory.
@@ -610,6 +706,198 @@ mod tests {
     use flate2::Compression;
     use flate2::write::GzEncoder;
     use tempfile::tempdir;
+
+    fn package_archive(entries: &[(&str, tar::EntryType, &str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+        let mut builder = tar::Builder::new(Vec::new());
+        for (path, kind, link, data) in entries {
+            let mut header = tar::Header::new_gnu();
+            header
+                .set_path(format!("node-v24.22.0-linux-x64/{path}"))
+                .unwrap();
+            header.set_entry_type(*kind);
+            header.set_mode(0o755);
+            header.set_size(data.len() as u64);
+            if !link.is_empty() {
+                header.set_link_name(link).unwrap();
+            }
+            header.set_cksum();
+            builder.append(&header, *data).unwrap();
+        }
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&builder.into_inner().unwrap()).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn bin_symlink_permissions_do_not_require_an_existing_target() {
+        let temp = tempdir().unwrap();
+        let missing = temp.path().join("not-extracted-yet");
+        assert!(
+            set_node_bin_permissions(&missing, Path::new("bin/npm"), tar::EntryType::Symlink)
+                .is_ok()
+        );
+        let error =
+            set_node_bin_permissions(&missing, Path::new("bin/node"), tar::EntryType::Regular)
+                .unwrap_err();
+        assert!(error.to_string().contains("not-extracted-yet"));
+    }
+
+    #[test]
+    fn package_links_allow_internal_forward_targets_and_reject_escape() {
+        for (path, link) in [
+            ("bin/npm", "../lib/node_modules/npm/bin/npm-cli.js"),
+            ("bin/npx", "../lib/node_modules/npm/bin/npx-cli.js"),
+            (
+                "bin/corepack",
+                "../lib/node_modules/corepack/dist/corepack.js",
+            ),
+        ] {
+            assert!(validate_node_symlink(Path::new(path), Path::new(link)).is_ok());
+        }
+        for link in [
+            "../../outside",
+            "/etc/passwd",
+            "../lib/alias/../outside",
+            "",
+        ] {
+            assert!(validate_node_symlink(Path::new("bin/npm"), Path::new(link)).is_err());
+        }
+    }
+
+    #[test]
+    fn unsafe_archive_links_and_special_entries_are_rejected() {
+        for (kind, link) in [
+            (tar::EntryType::Symlink, "../../outside"),
+            (tar::EntryType::Symlink, "/etc/passwd"),
+            (tar::EntryType::Link, "../outside"),
+            (tar::EntryType::Fifo, ""),
+        ] {
+            let archive = package_archive(&[("bin/npm", kind, link, b"")]);
+            let temp = tempdir().unwrap();
+            let target = temp.path().join("24.22.0");
+            let error = extract_node_tarball(&archive, &target).unwrap_err();
+            assert!(
+                matches!(error, RuntimeError::ExtractionFailed(_)),
+                "{error}"
+            );
+            assert!(!target.join("bin/npm").exists());
+            assert!(!temp.path().join("outside").exists());
+        }
+    }
+
+    // Linux regression: no daemon, binary execution or network. Windows test
+    // hosts may not have permission to create file symlinks.
+    #[cfg(unix)]
+    #[test]
+    fn extracts_npm_npx_and_corepack_links_before_their_targets() {
+        use std::os::unix::fs::PermissionsExt;
+        let archive = package_archive(&[
+            (
+                "bin/npm",
+                tar::EntryType::Symlink,
+                "../lib/node_modules/npm/bin/npm-cli.js",
+                b"",
+            ),
+            (
+                "bin/npx",
+                tar::EntryType::Symlink,
+                "../lib/node_modules/npm/bin/npx-cli.js",
+                b"",
+            ),
+            (
+                "bin/corepack",
+                tar::EntryType::Symlink,
+                "../lib/node_modules/corepack/dist/corepack.js",
+                b"",
+            ),
+            ("bin/node", tar::EntryType::Regular, "", b"node fixture"),
+            (
+                "lib/node_modules/npm/bin/npm-cli.js",
+                tar::EntryType::Regular,
+                "",
+                b"npm fixture",
+            ),
+            (
+                "lib/node_modules/npm/bin/npx-cli.js",
+                tar::EntryType::Regular,
+                "",
+                b"npx fixture",
+            ),
+            (
+                "lib/node_modules/corepack/dist/corepack.js",
+                tar::EntryType::Regular,
+                "",
+                b"corepack fixture",
+            ),
+        ]);
+        let temp = tempdir().unwrap();
+        let target = temp.path().join("24.22.0");
+        assert_eq!(extract_node_tarball(&archive, &target).unwrap(), 7);
+        for (binary, content) in [
+            ("npm", "npm fixture"),
+            ("npx", "npx fixture"),
+            ("corepack", "corepack fixture"),
+        ] {
+            assert!(
+                fs::symlink_metadata(target.join("bin").join(binary))
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            assert_eq!(
+                fs::read_to_string(target.join("bin").join(binary)).unwrap(),
+                content
+            );
+        }
+        assert_eq!(
+            fs::metadata(target.join("bin/node"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+        assert!(enable_corepack_shims(&target.join("bin")).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extraction_rejects_writes_through_existing_or_archived_symlink() {
+        use std::os::unix::fs::symlink;
+        let temp = tempdir().unwrap();
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let target = temp.path().join("runtime");
+        fs::create_dir(&target).unwrap();
+        symlink(&outside, target.join("bin")).unwrap();
+        let archive =
+            package_archive(&[("bin/node", tar::EntryType::Regular, "", b"must not escape")]);
+        assert!(extract_node_tarball(&archive, &target).is_err());
+        assert!(!outside.join("node").exists());
+
+        let archive = package_archive(&[
+            ("bin/alias", tar::EntryType::Symlink, "../lib", b""),
+            (
+                "bin/alias/escape",
+                tar::EntryType::Regular,
+                "",
+                b"must not follow link",
+            ),
+        ]);
+        assert!(extract_node_tarball(&archive, &temp.path().join("fresh-runtime")).is_err());
+
+        let target = temp.path().join("target-link-runtime");
+        fs::create_dir_all(target.join("lib")).unwrap();
+        symlink(&outside, target.join("lib/alias")).unwrap();
+        let archive = package_archive(&[(
+            "bin/npm",
+            tar::EntryType::Symlink,
+            "../lib/alias/missing",
+            b"",
+        )]);
+        assert!(extract_node_tarball(&archive, &target).is_err());
+    }
 
     #[test]
     fn test_normalize_node_version() {

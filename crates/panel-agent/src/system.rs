@@ -76,6 +76,17 @@ pub const ALLOWED_BINARIES: &[&str] = &[
 /// Trait abstracting underlying operating system commands and filesystem operations.
 pub trait SystemRunner: Send + Sync {
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError>;
+    /// Node downloads can be cancelled without interrupting package-manager operations.
+    fn run_cancellable_download(
+        &self,
+        args: &[&str],
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<std::process::Output, AgentError> {
+        if cancel.is_cancelled() {
+            return Err(AgentError::Internal("Unduhan Node.js dibatalkan".into()));
+        }
+        self.run_command("curl", args)
+    }
     fn create_dir_all(&self, path: &Path, mode: u32, uid: u32, gid: u32) -> Result<(), AgentError>;
     fn set_permissions(&self, path: &Path, mode: u32) -> Result<(), AgentError>;
     fn set_ownership(&self, path: &Path, uid: u32, gid: u32) -> Result<(), AgentError>;
@@ -94,7 +105,87 @@ pub trait SystemRunner: Send + Sync {
 /// Real system runner executing actual Linux system binaries and system calls.
 pub struct RealSystemRunner;
 
+/// Kill and reap the download process before reporting cancellation. Concurrent
+/// pipe readers prevent a full stderr buffer from blocking cancellation.
+fn run_cancellable_curl(
+    mut command: std::process::Command,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<std::process::Output, AgentError> {
+    use std::io::Read;
+    use std::process::Stdio;
+    if cancel.is_cancelled() {
+        return Err(AgentError::Internal("Unduhan Node.js dibatalkan".into()));
+    }
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    std::thread::scope(|scope| {
+        let read = |stream: Option<Box<dyn Read + Send>>| -> std::io::Result<Vec<u8>> {
+            let mut bytes = Vec::new();
+            if let Some(mut stream) = stream {
+                stream.read_to_end(&mut bytes)?;
+            }
+            Ok(bytes)
+        };
+        let out =
+            scope.spawn(move || read(stdout.map(|pipe| Box::new(pipe) as Box<dyn Read + Send>)));
+        let err =
+            scope.spawn(move || read(stderr.map(|pipe| Box::new(pipe) as Box<dyn Read + Send>)));
+        let status = wait_for_download(&mut child, cancel);
+        if status.is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let stdout = out
+            .join()
+            .map_err(|_| AgentError::Internal("Pembaca stdout unduhan gagal".into()))??;
+        let stderr = err
+            .join()
+            .map_err(|_| AgentError::Internal("Pembaca stderr unduhan gagal".into()))??;
+        let status = status?;
+        if !status.success() {
+            return Err(AgentError::CommandFailed {
+                binary: "curl".into(),
+                code: status.code(),
+                stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            });
+        }
+        Ok(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        })
+    })
+}
+
+fn wait_for_download(
+    child: &mut std::process::Child,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<std::process::ExitStatus, AgentError> {
+    loop {
+        if cancel.is_cancelled() {
+            return Err(AgentError::Internal("Unduhan Node.js dibatalkan".into()));
+        }
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 impl SystemRunner for RealSystemRunner {
+    fn run_cancellable_download(
+        &self,
+        args: &[&str],
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<std::process::Output, AgentError> {
+        let mut command = panel_core::production::system_command("curl");
+        command.args(args);
+        run_cancellable_curl(command, cancel)
+    }
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError> {
         if !ALLOWED_BINARIES.contains(&binary) {
             return Err(AgentError::SecurityViolation(format!(
@@ -671,5 +762,49 @@ impl SystemRunner for MockSystemRunner {
             }
         }
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::*;
+    use tokio_util::sync::CancellationToken;
+
+    // This is a child test fixture, never the panel-agent daemon or a system command.
+    #[test]
+    fn download_child_fixture() {
+        if let Ok(marker) = std::env::var("PANEL_DOWNLOAD_CHILD_MARKER") {
+            std::fs::write(marker, b"started").unwrap();
+            eprintln!("fixture download started");
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
+    }
+
+    #[test]
+    fn cancelling_download_kills_and_reaps_child_without_waiting_for_completion() {
+        let temp = tempfile::tempdir().unwrap();
+        let marker = temp.path().join("child-started");
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "system::download_tests::download_child_fixture",
+                "--nocapture",
+            ])
+            .env("PANEL_DOWNLOAD_CHILD_MARKER", &marker);
+        let cancel = CancellationToken::new();
+        let child_cancel = cancel.clone();
+        let handle = std::thread::spawn(move || run_cancellable_curl(command, &child_cancel));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !marker.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let started = marker.exists();
+        let stop = std::time::Instant::now();
+        cancel.cancel();
+        let result = handle.join().unwrap();
+        assert!(started, "child fixture must have started");
+        assert!(result.unwrap_err().to_string().contains("dibatalkan"));
+        assert!(stop.elapsed() < std::time::Duration::from_secs(3));
     }
 }

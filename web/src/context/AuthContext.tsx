@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { User, LoginResponse } from '../types/api';
 import { fetchMe, getCsrfToken, setCsrfToken, fetchCsrfToken, login as apiLogin, logout as apiLogout } from '../api/client';
+import { navigate } from '../lib/router';
 
 interface AuthContextType {
   user: User | null;
@@ -67,6 +68,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setCsrfTokenState(null);
       setCsrfToken(null);
+      // An explicit sign-out starts a fresh login; expiry still retains deep links.
+      navigate('/login', true);
     }
   };
 

@@ -7,6 +7,7 @@ import { ThemeMode } from './types/api';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import './i18n';
 import { navigate, pagePath, useBrowserRoute } from './lib/router';
+import { isAdminOnlyRoute, postLoginDestination } from './lib/routeAccess';
 
 const FirstRunWizardPage = lazy(() =>
   import('./pages/FirstRunWizardPage').then((m) => ({ default: m.FirstRunWizardPage }))
@@ -78,10 +79,9 @@ const MainApp: React.FC = () => {
     if (!isAuthenticated && !['/login', '/setup'].includes(route.pathname)) {
       navigate(`/login?returnTo=${encodeURIComponent(route.url)}`, true);
     } else if (isAuthenticated && ['/login', '/setup'].includes(route.pathname)) {
-      const target = route.search.get('returnTo') || '/dashboard';
-      navigate(target.startsWith('/') && !target.startsWith('//') && !/^\/(login|setup)/.test(target) ? target : '/dashboard', true);
+      navigate(postLoginDestination(route.search.get('returnTo'), user?.role), true);
     }
-  }, [isLoading, isAuthenticated, route.url, route.pathname, route.search]);
+  }, [isLoading, isAuthenticated, user?.role, route.url, route.pathname, route.search]);
 
   useEffect(() => {
     localStorage.setItem('nusa_theme', theme);
@@ -139,8 +139,8 @@ const MainApp: React.FC = () => {
     return <LoginPage onOpenWizard={() => navigate(`/setup?${route.search.toString()}`)} />;
   }
 
-  if (user?.role !== 'admin' && ['tenants', 'users', 'tenant-detail', 'plans', 'runtime', 'settings', 'audit', 'analytics'].includes(activeNav)) {
-    return <Shell activeNav="dashboard" onNavigate={setActiveNav} theme={theme} onThemeChange={setTheme}><div role="alert">Anda tidak memiliki akses ke halaman ini. <a href="/dashboard">Buka dashboard</a></div></Shell>;
+  if (user?.role !== 'admin' && isAdminOnlyRoute(route.pathname)) {
+    return <Shell activeNav={activeNav} onNavigate={setActiveNav} theme={theme} onThemeChange={setTheme}><div role="alert">Anda tidak memiliki akses ke halaman ini. <a href="/dashboard">Buka dashboard</a></div></Shell>;
   }
 
   // Authenticated: render Shell and active page

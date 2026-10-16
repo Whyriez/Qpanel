@@ -153,6 +153,17 @@ pub async fn process_one_job(runner: &Arc<JobRunner>) -> Result<bool, DbError> {
         .await
         .insert(job.id.clone(), cancel_token.clone());
 
+    // Cancellation can race with token registration after the atomic DB claim.
+    if !runner
+        .job_repo
+        .find_by_id(&job.id)
+        .await?
+        .is_some_and(|current| current.status == "running")
+    {
+        runner.cancellation_tokens.write().await.remove(&job.id);
+        return Ok(true);
+    }
+
     let _ = runner.event_tx.send(JobProgressEvent {
         job_id: job.id.clone(),
         status: "running".to_string(),

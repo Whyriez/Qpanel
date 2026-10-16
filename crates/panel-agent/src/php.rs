@@ -24,15 +24,74 @@ use panel_runtime::php::{
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-/// Sets up the Ondřej Surý PHP PPA repository on Debian/Ubuntu systems.
+const DEBIAN_PHP_SOURCE: &str = "/etc/apt/sources.list.d/nusa-php.sources";
+const DEBIAN_PHP_SOURCE_CONTENT: &[u8] = b"Types: deb\nURIs: https://packages.sury.org/php/\nSuites: bookworm\nComponents: main\nSigned-By: /usr/share/keyrings/debsuryorg-archive-keyring.gpg\n";
+
+#[derive(Debug, PartialEq, Eq)]
+enum PhpRepository {
+    UbuntuPpa,
+    DebianSury,
+}
+
+fn os_release_value<'a>(content: &'a str, key: &str) -> &'a str {
+    let value = content
+        .lines()
+        .filter_map(|line| line.trim().split_once('='))
+        .find(|(name, _)| name.trim() == key)
+        .map(|(_, value)| value.trim())
+        .unwrap_or("");
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .or_else(|| {
+            value
+                .strip_prefix('\'')
+                .and_then(|value| value.strip_suffix('\''))
+        })
+        .unwrap_or(value)
+}
+
+fn php_repository(runner: &dyn SystemRunner) -> Result<PhpRepository, AgentError> {
+    // Read a fixed local file; never source shell code or accept a caller's suite/URL.
+    let release = runner.read_file(Path::new("/etc/os-release"))?;
+    let content = std::str::from_utf8(&release)
+        .map_err(|_| AgentError::InvalidInput("Isi /etc/os-release tidak valid".to_string()))?;
+    let id = os_release_value(content, "ID");
+    let version = os_release_value(content, "VERSION_ID");
+    match (id, version) {
+        ("ubuntu", "22.04" | "24.04") => Ok(PhpRepository::UbuntuPpa),
+        ("debian", "12") => Ok(PhpRepository::DebianSury),
+        _ => Err(AgentError::InvalidInput(format!(
+            "Repositori PHP belum mendukung OS {id} {version}. Gunakan Ubuntu 22.04/24.04 atau Debian 12; PPA Ubuntu tidak dipakai pada Debian."
+        ))),
+    }
+}
+
+/// Sets up the OS-specific Ondřej Surý PHP repository.
 pub fn setup_php_repository(runner: &dyn SystemRunner) -> Result<PhpRepoSetupResponse, AgentError> {
-    info!("Setting up Ondřej Surý PHP PPA repository");
+    let repository = php_repository(runner)?;
+    info!(?repository, "Setting up Ondřej Surý PHP repository");
 
     // A source filename alone does not prove that it is enabled or that its
     // package index was downloaded. Refresh bootstrap sources, then idempotently
-    // re-enable the fixed PPA and refresh again before installing versioned PHP.
+    // configure the fixed OS-specific source and refresh before versioned PHP.
     refresh_php_package_index(runner)?;
 
+    match repository {
+        PhpRepository::UbuntuPpa => setup_ubuntu_php_repository(runner)?,
+        PhpRepository::DebianSury => setup_debian_php_repository(runner)?,
+    }
+    refresh_php_package_index(runner)?;
+
+    Ok(PhpRepoSetupResponse {
+        success: true,
+        // Retained protocol field: also represents the Debian Sury repository.
+        ppa_configured: true,
+        message: "Repositori PHP Ondřej Surý berhasil dikonfigurasi".to_string(),
+    })
+}
+
+fn setup_ubuntu_php_repository(runner: &dyn SystemRunner) -> Result<(), AgentError> {
     // Step 1: Install prerequisite packages
     runner.run_command(
         "apt-get",
@@ -41,6 +100,7 @@ pub fn setup_php_repository(runner: &dyn SystemRunner) -> Result<PhpRepoSetupRes
             "-y",
             "--no-install-recommends",
             "software-properties-common",
+            "python3-launchpadlib",
             "ca-certificates",
             "lsb-release",
             "apt-transport-https",
@@ -53,15 +113,70 @@ pub fn setup_php_repository(runner: &dyn SystemRunner) -> Result<PhpRepoSetupRes
         &["-y", "--no-update", "ppa:ondrej/php"],
     )?;
 
-    // Step 3: Refresh apt package index
-    refresh_php_package_index(runner)?;
+    Ok(())
+}
 
-    info!("Ondřej Surý PHP PPA repository configured successfully");
-    Ok(PhpRepoSetupResponse {
-        success: true,
-        ppa_configured: true,
-        message: "Repositori PPA PHP Ondřej Surý berhasil dikonfigurasi".to_string(),
-    })
+fn setup_debian_php_repository(runner: &dyn SystemRunner) -> Result<(), AgentError> {
+    runner.run_command(
+        "apt-get",
+        &[
+            "install",
+            "-y",
+            "--no-install-recommends",
+            "ca-certificates",
+            "curl",
+        ],
+    )?;
+    install_debian_php_keyring(runner)?;
+
+    // APT only sees the complete managed deb822 source after the rename.
+    let staged_source = PathBuf::from(format!(
+        "/etc/apt/sources.list.d/.nusa-php-{}.tmp",
+        uuid::Uuid::new_v4()
+    ));
+    runner.write_file(&staged_source, DEBIAN_PHP_SOURCE_CONTENT, 0o644)?;
+    let result = runner.move_path(&staged_source, Path::new(DEBIAN_PHP_SOURCE));
+    if result.is_err() {
+        let _ = runner.remove_file(&staged_source);
+    }
+    result
+}
+
+fn install_debian_php_keyring(runner: &dyn SystemRunner) -> Result<(), AgentError> {
+    let staging =
+        PathBuf::from("/var/cache/panel/php-repository").join(uuid::Uuid::new_v4().to_string());
+    runner.create_dir_all(&staging, 0o700, 0, 0)?;
+    let package = staging.join("debsuryorg-archive-keyring.deb");
+    let package_path = package.to_string_lossy();
+    let result = (|| {
+        runner.run_command(
+            "curl",
+            &[
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--proto",
+                "=https",
+                "--proto-redir",
+                "=https",
+                "--connect-timeout",
+                "20",
+                "--max-time",
+                "60",
+                "--output",
+                &package_path,
+                "https://packages.sury.org/debsuryorg-archive-keyring.deb",
+            ],
+        )?;
+        runner.run_command(
+            "apt-get",
+            &["install", "-y", "--no-install-recommends", &package_path],
+        )?;
+        Ok(())
+    })();
+    let _ = runner.remove_dir_all(&staging);
+    result
 }
 
 fn refresh_php_package_index(runner: &dyn SystemRunner) -> Result<(), AgentError> {
@@ -141,8 +256,8 @@ pub fn install_php_runtime(
     let missing = missing_php_package_candidates(version, &policy_text);
     if !missing.is_empty() {
         return Err(AgentError::InvalidInput(format!(
-            "Paket PHP {} belum tersedia setelah konfigurasi PPA dan pembaruan indeks APT. \
-             Tidak ada kandidat instalasi untuk: {}. Periksa sumber PPA yang aktif, \
+            "Paket PHP {} belum tersedia setelah konfigurasi repositori dan pembaruan indeks APT. \
+             Tidak ada kandidat instalasi untuk: {}. Periksa sumber repositori yang aktif, \
              codename OS, arsitektur, dan aturan pinning APT pada server.\n\
              apt-cache policy:\n{}\n{}",
             version.as_str(),
@@ -1175,8 +1290,43 @@ pub fn check_php_fpm_health(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::system::MockSystemRunner;
+    use crate::system::{MockAction, MockSystemRunner};
     use std::path::PathBuf;
+
+    fn ubuntu_php_runner() -> MockSystemRunner {
+        let runner = MockSystemRunner::new();
+        runner.set_file_content("/etc/os-release", b"ID=ubuntu\nVERSION_ID=\"24.04\"\n");
+        runner
+    }
+
+    fn debian_php_runner() -> MockSystemRunner {
+        let runner = MockSystemRunner::new();
+        runner.set_file_content(
+            "/etc/os-release",
+            b"ID=debian\nVERSION_ID=\"12\"\nVERSION_CODENAME=bookworm\n",
+        );
+        runner
+    }
+
+    fn assert_keyring_staging_cleanup(runner: &MockSystemRunner, expected_count: usize) {
+        let actions = runner.recorded_actions();
+        let staging: Vec<_> = actions
+            .iter()
+            .filter_map(|action| match action {
+                MockAction::CreateDir {
+                    path,
+                    mode: 0o700,
+                    uid: 0,
+                    gid: 0,
+                } if path.starts_with("/var/cache/panel/php-repository") => Some(path),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(staging.len(), expected_count);
+        for path in staging {
+            assert!(actions.iter().any(|action| matches!(action, MockAction::RemoveDir { path: removed } if removed == path)));
+        }
+    }
 
     fn available_php_candidates(runner: &MockSystemRunner, version: PhpVersion) {
         let policy: String = version
@@ -1189,7 +1339,7 @@ mod tests {
 
     #[test]
     fn test_setup_php_repository_installs_and_updates() {
-        let runner = MockSystemRunner::new();
+        let runner = ubuntu_php_runner();
         let res = setup_php_repository(&runner).unwrap();
 
         assert!(res.success);
@@ -1216,12 +1366,161 @@ mod tests {
     }
 
     #[test]
+    fn test_ubuntu_installs_launchpad_dependency_before_adding_ppa() {
+        for version in ["22.04", "24.04"] {
+            let runner = ubuntu_php_runner();
+            runner.set_file_content(
+                "/etc/os-release",
+                format!("ID=\"ubuntu\"\nVERSION_ID='{version}'\n").as_bytes(),
+            );
+            setup_php_repository(&runner).unwrap();
+            let commands = runner.get_commands();
+            let prerequisite = commands
+                .iter()
+                .position(|cmd| cmd.contains("python3-launchpadlib"))
+                .unwrap();
+            let ppa = commands
+                .iter()
+                .position(|cmd| cmd.starts_with("add-apt-repository "))
+                .unwrap();
+            assert!(prerequisite < ppa);
+            assert!(!commands.iter().any(|cmd| cmd.contains("packages.sury.org")));
+        }
+    }
+
+    #[test]
+    fn test_debian_php84_uses_signed_sury_repository_without_ubuntu_ppa() {
+        let runner = debian_php_runner();
+        available_php_candidates(&runner, PhpVersion::Php84);
+        runner.set_response("systemctl", 0, b"masked\n", b"");
+        let response = install_php_runtime(&runner, "8.4").unwrap();
+        assert!(response.success);
+        assert!(response.masked);
+        assert_eq!(
+            runner.read_file(Path::new(DEBIAN_PHP_SOURCE)).unwrap(),
+            DEBIAN_PHP_SOURCE_CONTENT
+        );
+        assert!(list_php_runtimes(&runner).unwrap().ppa_configured);
+        let commands = runner.get_commands();
+        assert!(
+            !commands.iter().any(|cmd| cmd.contains("add-apt-repository")
+                || cmd.contains("ondrej/php")
+                || cmd.contains("python3-launchpadlib"))
+        );
+        let download = commands
+            .iter()
+            .position(|cmd| cmd.starts_with("curl "))
+            .unwrap();
+        let keyring = commands
+            .iter()
+            .position(|cmd| {
+                cmd.starts_with("apt-get install ")
+                    && cmd.ends_with("debsuryorg-archive-keyring.deb")
+            })
+            .unwrap();
+        let lookup = commands
+            .iter()
+            .position(|cmd| cmd.starts_with("apt-cache policy "))
+            .unwrap();
+        let install = commands
+            .iter()
+            .position(|cmd| {
+                cmd.starts_with("apt-get install -y --no-install-recommends php8.4-fpm ")
+            })
+            .unwrap();
+        assert!(download < keyring && keyring < lookup && lookup < install);
+        assert!(commands[download].contains("--proto =https --proto-redir =https"));
+        assert!(
+            commands[download]
+                .ends_with("https://packages.sury.org/debsuryorg-archive-keyring.deb")
+        );
+        assert_eq!(
+            commands[keyring + 1],
+            "apt-get -o APT::Update::Error-Mode=any update"
+        );
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|cmd| cmd.as_str() == "apt-get -o APT::Update::Error-Mode=any update")
+                .count(),
+            2
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|cmd| cmd == "systemctl mask php8.4-fpm.service")
+        );
+    }
+
+    #[test]
+    fn test_debian_repository_setup_is_idempotent() {
+        let runner = debian_php_runner();
+        for _ in 0..2 {
+            assert!(setup_php_repository(&runner).unwrap().ppa_configured);
+            assert_eq!(
+                runner.read_file(Path::new(DEBIAN_PHP_SOURCE)).unwrap(),
+                DEBIAN_PHP_SOURCE_CONTENT
+            );
+        }
+        assert_keyring_staging_cleanup(&runner, 2);
+    }
+
+    #[test]
+    fn test_debian_download_failure_stops_before_source_or_php_install() {
+        let runner = debian_php_runner();
+        runner.set_response("curl", 22, b"", b"Sury keyring download failed");
+        let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
+        assert!(error.contains("Sury keyring download failed"));
+        assert!(!runner.path_exists(Path::new(DEBIAN_PHP_SOURCE)));
+        assert_keyring_staging_cleanup(&runner, 1);
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|cmd| cmd.contains("php8.4-fpm")
+                    || cmd.starts_with("systemctl")
+                    || cmd.starts_with("add-apt-repository"))
+        );
+    }
+
+    #[test]
+    fn test_debian_missing_candidates_still_prevent_version_install_and_masking() {
+        let runner = debian_php_runner();
+        let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
+        assert!(error.contains("Tidak ada kandidat instalasi"));
+        assert!(!runner.get_commands().iter().any(|cmd| {
+            cmd.starts_with("apt-get install -y --no-install-recommends php8.4")
+                || cmd.starts_with("systemctl")
+        }));
+    }
+
+    #[test]
+    fn test_unknown_or_invalid_os_is_rejected_before_apt_mutation() {
+        for release in [
+            "ID=debian\nVERSION_ID=\"13\"\n",
+            "ID=ubuntu\nVERSION_ID=\"20.04\"\n",
+            "ID=mint\nID_LIKE=ubuntu\nVERSION_ID=\"24.04\"\n",
+            "ID=debian\nVERSION_ID=\"12; touch /tmp/injected\"\n",
+            "ID=debian\nVERSION_ID=\"12\n",
+            "",
+        ] {
+            let runner = MockSystemRunner::new();
+            runner.set_file_content("/etc/os-release", release.as_bytes());
+            assert!(setup_php_repository(&runner).is_err(), "{release}");
+            assert!(runner.get_commands().is_empty());
+        }
+        let runner = MockSystemRunner::new();
+        assert!(setup_php_repository(&runner).is_err());
+        assert!(runner.get_commands().is_empty());
+    }
+
+    #[test]
     fn test_php84_prepares_repository_even_when_source_file_exists() {
         for source in [
             "ondrej-ubuntu-php-noble.list",
             "ondrej-ubuntu-php-noble.sources",
         ] {
-            let runner = MockSystemRunner::new();
+            let runner = ubuntu_php_runner();
             available_php_candidates(&runner, PhpVersion::Php84);
             runner.add_existing_path(PathBuf::from("/etc/apt/sources.list.d").join(source));
             runner.set_response(
@@ -1259,7 +1558,7 @@ mod tests {
 
     #[test]
     fn test_php_install_stops_on_package_index_error() {
-        let runner = MockSystemRunner::new();
+        let runner = ubuntu_php_runner();
         runner.set_response(
             "apt-get -o APT::Update::Error-Mode=any update",
             100,
@@ -1278,7 +1577,7 @@ mod tests {
 
     #[test]
     fn test_php_install_stops_on_repository_setup_error() {
-        let runner = MockSystemRunner::new();
+        let runner = ubuntu_php_runner();
         runner.set_response("add-apt-repository", 1, b"", b"PPA signing key unavailable");
         let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
         assert!(error.contains("signing key unavailable"));
@@ -1292,7 +1591,7 @@ mod tests {
 
     #[test]
     fn test_php_install_rejects_missing_candidate_after_successful_update() {
-        let runner = MockSystemRunner::new();
+        let runner = ubuntu_php_runner();
         runner.set_response(
             "apt-cache",
             0,
@@ -1317,7 +1616,7 @@ mod tests {
 
     #[test]
     fn test_php_install_preserves_candidate_lookup_failure() {
-        let runner = MockSystemRunner::new();
+        let runner = ubuntu_php_runner();
         runner.set_response("apt-cache", 100, b"", b"Package cache is corrupt");
         let error = install_php_runtime(&runner, "8.4").unwrap_err().to_string();
         assert!(error.contains("Package cache is corrupt"));
@@ -1328,7 +1627,7 @@ mod tests {
 
     #[test]
     fn test_install_php_runtime_installs_and_masks_service() {
-        let runner = MockSystemRunner::new();
+        let runner = ubuntu_php_runner();
         available_php_candidates(&runner, PhpVersion::Php83);
         let res = install_php_runtime(&runner, "8.3").unwrap();
 

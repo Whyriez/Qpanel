@@ -116,6 +116,8 @@ export interface JobProgressEvent {
   timestamp: number;
 }
 
+export type ShellPolicy = 'none' | 'sftp' | 'full';
+
 export interface Plan {
   id: number;
   name: string;
@@ -133,7 +135,7 @@ export interface Plan {
   max_cron_jobs: number;
   max_terminal_sessions: number;
   max_upload_bytes: number;
-  shell_policy: string;
+  shell_policy: ShellPolicy;
   allow_external_upstream: boolean;
   created_at: number;
   updated_at: number;
@@ -155,7 +157,7 @@ export interface CreatePlanRequest {
   max_cron_jobs?: number;
   max_terminal_sessions?: number;
   max_upload_bytes?: number;
-  shell_policy?: string;
+  shell_policy?: ShellPolicy;
   allow_external_upstream?: boolean;
 }
 
@@ -175,7 +177,7 @@ export interface UpdatePlanRequest {
   max_cron_jobs?: number;
   max_terminal_sessions?: number;
   max_upload_bytes?: number;
-  shell_policy?: string;
+  shell_policy?: ShellPolicy;
   allow_external_upstream?: boolean;
 }
 

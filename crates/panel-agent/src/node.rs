@@ -14,7 +14,58 @@ use panel_runtime::node::{
     raw_node_version_tag, verify_sha256,
 };
 use std::path::Path;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
+
+pub(crate) static NODE_INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A disconnected Node installer must stop its download before releasing the
+/// installation lock. This runs no blocking download on an async executor thread.
+pub async fn install_node_runtime_connected<T>(
+    runner: std::sync::Arc<dyn SystemRunner>,
+    req: NodeRuntimeInstallRequest,
+    rpc: &mut panel_proto::RpcStream<T>,
+) -> Result<NodeRuntimeActionResponse, AgentError>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    run_node_operation_connected(rpc, move |cancel| {
+        install_node_runtime_cancellable(runner.as_ref(), &req, &cancel)
+    })
+    .await
+}
+
+async fn run_node_operation_connected<T, F>(
+    rpc: &mut panel_proto::RpcStream<T>,
+    operation: F,
+) -> Result<NodeRuntimeActionResponse, AgentError>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    F: FnOnce(CancellationToken) -> Result<NodeRuntimeActionResponse, AgentError> + Send + 'static,
+{
+    let cancel = CancellationToken::new();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    let operation_cancel = cancel.clone();
+    let work = async move {
+        let guard = NODE_INSTALL_LOCK.lock().await;
+        tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            operation(operation_cancel)
+        })
+        .await
+        .map_err(|e| AgentError::Internal(format!("Worker instalasi Node.js gagal: {e}")))?
+    };
+    tokio::pin!(work);
+    tokio::select! {
+        result = &mut work => result,
+        _ = rpc.recv_request() => {
+            cancel.cancel();
+            // Do not drop the blocking task or its installation lock mid-cleanup.
+            let _ = work.await;
+            Err(AgentError::Internal("Instalasi Node.js dibatalkan karena koneksi pemanggil ditutup".into()))
+        }
+    }
+}
 
 /// Resolves the base installation directory for Node.js runtimes.
 /// Priority:
@@ -105,6 +156,15 @@ pub fn install_node_runtime(
     runner: &dyn SystemRunner,
     req: &NodeRuntimeInstallRequest,
 ) -> Result<NodeRuntimeActionResponse, AgentError> {
+    install_node_runtime_cancellable(runner, req, &CancellationToken::new())
+}
+
+fn install_node_runtime_cancellable(
+    runner: &dyn SystemRunner,
+    req: &NodeRuntimeInstallRequest,
+    cancel: &CancellationToken,
+) -> Result<NodeRuntimeActionResponse, AgentError> {
+    ensure_node_install_active(cancel)?;
     let base_dir = get_node_base_dir(req.base_dir.as_deref());
 
     let norm_ver = normalize_node_version(&req.version);
@@ -143,7 +203,8 @@ pub fn install_node_runtime(
     );
 
     // Acquire tarball data and verify SHA256
-    let tarball_bytes = fetch_tarball_payload(runner, req, &norm_ver)?;
+    let tarball_bytes = fetch_tarball_payload(runner, req, &norm_ver, cancel)?;
+    ensure_node_install_active(cancel)?;
 
     // Ensure parent directory exists
     runner.create_dir_all(&base_dir, 0o755, 0, 0)?;
@@ -157,6 +218,11 @@ pub fn install_node_runtime(
             e
         ))
     })?;
+
+    if let Err(error) = ensure_node_install_active(cancel) {
+        let _ = runner.remove_dir_all(&target_dir);
+        return Err(error);
+    }
 
     // Enable corepack shims if requested
     if req.enable_corepack {
@@ -227,6 +293,7 @@ fn fetch_tarball_payload(
     runner: &dyn SystemRunner,
     req: &NodeRuntimeInstallRequest,
     norm_ver: &str,
+    cancel: &CancellationToken,
 ) -> Result<Vec<u8>, AgentError> {
     if let Some(offline_path) = &req.offline_tarball_path {
         read_offline_tarball(runner, offline_path, req.offline_checksum.as_deref())
@@ -237,7 +304,7 @@ fn fetch_tarball_payload(
             .unwrap_or(DEFAULT_NODE_MIRROR)
             .trim_end_matches('/');
         let raw_tag = raw_node_version_tag(norm_ver);
-        download_mirror_tarball(runner, mirror_base, &raw_tag)
+        download_mirror_tarball(runner, mirror_base, &raw_tag, cancel)
     }
 }
 
@@ -268,6 +335,7 @@ fn download_mirror_tarball(
     runner: &dyn SystemRunner,
     mirror_base: &str,
     raw_tag: &str,
+    cancel: &CancellationToken,
 ) -> Result<Vec<u8>, AgentError> {
     let arch = if cfg!(target_arch = "aarch64") {
         "arm64"
@@ -279,7 +347,7 @@ fn download_mirror_tarball(
     let tarball_url = format!("{}/{}/{}", mirror_base, raw_tag, tarball_filename);
 
     let tmp_dir = std::env::temp_dir().join(format!("node-install-{}", uuid::Uuid::new_v4()));
-    let _ = runner.create_dir_all(&tmp_dir, 0o700, 0, 0);
+    runner.create_dir_all(&tmp_dir, 0o700, 0, 0)?;
 
     let manifest_path = tmp_dir.join("SHASUMS256.txt");
     let download_tarball_path = tmp_dir.join(&tarball_filename);
@@ -288,8 +356,7 @@ fn download_mirror_tarball(
         "Downloading Node.js checksum manifest from {}",
         manifest_url
     );
-    if let Err(e) = runner.run_command(
-        "curl",
+    if let Err(e) = runner.run_cancellable_download(
         &[
             "-fsSL",
             "--max-time",
@@ -298,6 +365,7 @@ fn download_mirror_tarball(
             &manifest_path.to_string_lossy(),
             &manifest_url,
         ],
+        cancel,
     ) {
         let _ = runner.remove_dir_all(&tmp_dir);
         return Err(AgentError::Internal(format!(
@@ -322,8 +390,7 @@ fn download_mirror_tarball(
         })?;
 
     info!("Downloading Node.js binary tarball from {}", tarball_url);
-    if let Err(e) = runner.run_command(
-        "curl",
+    if let Err(e) = runner.run_cancellable_download(
         &[
             "-fsSL",
             "--max-time",
@@ -332,6 +399,7 @@ fn download_mirror_tarball(
             &download_tarball_path.to_string_lossy(),
             &tarball_url,
         ],
+        cancel,
     ) {
         let _ = runner.remove_dir_all(&tmp_dir);
         return Err(AgentError::Internal(format!(
@@ -356,6 +424,13 @@ fn download_mirror_tarball(
     })?;
 
     Ok(bytes)
+}
+
+fn ensure_node_install_active(cancel: &CancellationToken) -> Result<(), AgentError> {
+    if cancel.is_cancelled() {
+        return Err(AgentError::Internal("Instalasi Node.js dibatalkan".into()));
+    }
+    Ok(())
 }
 
 /// Re-enables corepack shims (`pnpm`, `yarn`) for a given installed Node.js runtime.
@@ -397,6 +472,66 @@ mod tests {
     use panel_runtime::node::compute_sha256;
     use std::io::Write;
     use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn disconnected_installer_waits_for_cleanup_and_releases_install_lock() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let cleaned = Arc::new(AtomicBool::new(false));
+        let worker_cleaned = Arc::clone(&cleaned);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (client, stream) = tokio::io::duplex(1024);
+        let handle = tokio::spawn(async move {
+            let mut rpc = panel_proto::RpcStream::new(stream);
+            run_node_operation_connected(&mut rpc, move |cancel| {
+                let _ = started_tx.send(());
+                while !cancel.is_cancelled() {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                worker_cleaned.store(true, Ordering::SeqCst);
+                Err(AgentError::Internal("cancelled fixture".into()))
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        drop(client);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+        assert!(cleaned.load(Ordering::SeqCst));
+        let (_client, stream) = tokio::io::duplex(1024);
+        let mut rpc = panel_proto::RpcStream::new(stream);
+        let result = run_node_operation_connected(&mut rpc, |_| {
+            Ok(NodeRuntimeActionResponse {
+                version: "24.22.0".into(),
+                success: true,
+                path: "fixture".into(),
+                message: "done".into(),
+            })
+        })
+        .await
+        .unwrap();
+        assert!(result.success);
+    }
+
+    #[test]
+    fn cancelled_download_does_not_start_a_command() {
+        let runner = MockSystemRunner::new();
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        assert!(
+            runner
+                .run_cancellable_download(&["--version"], &cancel)
+                .is_err()
+        );
+        assert!(runner.actions.lock().unwrap().is_empty());
+    }
 
     fn build_mock_node_tarball(ver: &str) -> Vec<u8> {
         let mut tar_builder = tar::Builder::new(Vec::new());

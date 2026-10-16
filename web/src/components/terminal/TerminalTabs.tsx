@@ -3,6 +3,7 @@ import { TerminalTabItem } from '../../types/terminal';
 import { Plus, X, Terminal, Search, RotateCw, Trash2, Maximize2, Minimize2 } from 'lucide-react';
 
 interface TerminalTabsProps {
+  fillWidth?: boolean;
   newTabDisabled?: boolean;
   tabs: TerminalTabItem[];
   activeTabId: string;
@@ -30,11 +31,12 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
   onToggleMaximize,
   onCloseAll,
   newTabDisabled = false,
+  fillWidth = false,
 }) => {
   return (
     <div className="flex items-center justify-between border-b border-[var(--line)] bg-[var(--surface-hover)] px-2 py-1 select-none text-xs">
       {/* Tab List */}
-      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[calc(100%-180px)]">
+      <div className={`flex items-center gap-1 overflow-x-auto no-scrollbar ${fillWidth ? 'min-w-0 flex-1' : 'max-w-[calc(100%-180px)]'}`}>
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const statusDotColor =

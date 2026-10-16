@@ -1502,7 +1502,13 @@ impl AgentServer {
                     }
                 }
                 RequestPayload::NodeRuntimeInstall(data) => {
-                    match node::install_node_runtime(self.runner.as_ref(), &data) {
+                    match node::install_node_runtime_connected(
+                        Arc::clone(&self.runner),
+                        data,
+                        &mut rpc,
+                    )
+                    .await
+                    {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
                             ResponsePayload::NodeRuntimeInstalled(res),
@@ -1511,6 +1517,7 @@ impl AgentServer {
                     }
                 }
                 RequestPayload::NodeRuntimeRemove(data) => {
+                    let _guard = node::NODE_INSTALL_LOCK.lock().await;
                     match node::remove_node_runtime(self.runner.as_ref(), &data) {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
@@ -1520,6 +1527,7 @@ impl AgentServer {
                     }
                 }
                 RequestPayload::NodeRuntimeCorepack(data) => {
+                    let _guard = node::NODE_INSTALL_LOCK.lock().await;
                     match node::enable_node_corepack(self.runner.as_ref(), &data) {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,

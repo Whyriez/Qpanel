@@ -162,7 +162,7 @@ async function openHost(f) {
 
     const tenant = await fixture(browser, 1280, 'user');
     await tenant.page.goto(base + '/analytics', { waitUntil: 'domcontentloaded' });
-    await tenant.page.getByRole('alert').filter({ hasText: 'Anda tidak memiliki akses' }).waitFor();
+    await tenant.page.getByRole('heading', { name: 'Observabilitas & Analitik', exact: true }).waitFor();
     check(await tenant.page.getByRole('button', { name: 'Server Host (Admin)', exact: true }).count() === 0, 'tenant cannot open admin host analytics');
     check(!tenant.calls.some(call => call.pathname.startsWith('/api/v1/system/analytics/')), 'tenant view never requests host analytics');
     await tenant.page.close();

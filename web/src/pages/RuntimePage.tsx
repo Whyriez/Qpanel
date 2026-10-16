@@ -187,12 +187,12 @@ export const RuntimePage: React.FC = () => {
     try {
       const job = await setupPhpRepo();
       runtimeJobs.track(job);
-      toast.success('Tugas konfigurasi repositori PPA telah dibuat', {
+      toast.success('Tugas konfigurasi repositori PHP telah dibuat', {
         description: `ID Tugas: ${job.id}. Pembaruan paket sedang berjalan di latar belakang.`,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal memulai konfigurasi repositori.';
-      toast.error('Gagal mengatur repositori Sury PPA', { description: msg });
+      toast.error('Gagal mengatur repositori PHP', { description: msg });
     } finally {
       setSettingUpRepo(false);
     }
@@ -507,7 +507,7 @@ export const RuntimePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Sury PPA Status Card */}
+          {/* PHP repository status card */}
           <div className="p-5 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-card)] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--line)]">
               <div className="space-y-1">
@@ -545,6 +545,7 @@ export const RuntimePage: React.FC = () => {
                 {t('runtime.setupRepo')}
               </button>
             </div>
+            {phpRepoJob && <RuntimeJobProgress job={phpRepoJob} runtime="repositori PHP" />}
           </div>
 
           {/* Error Banner */}

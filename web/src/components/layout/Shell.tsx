@@ -364,6 +364,7 @@ export const Shell: React.FC<ShellProps> = ({
         </nav>
         <JobTray onNavigateToJobs={() => navigate("jobs")} />
         <CommandPalette
+          activeNav={activeNav}
           isOpen={paletteOpen}
           onOpen={() => setPaletteOpen(true)}
           onClose={() => setPaletteOpen(false)}

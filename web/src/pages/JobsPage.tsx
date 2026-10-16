@@ -10,8 +10,10 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { JobItem, JobProgressEvent, JobStatus } from '../types/api';
-import { fetchJobs, cancelJob, subscribeJobEvents } from '../api/client';
+import { JobItem, JobProgressEvent } from '../types/api';
+import { fetchJobs, fetchJobDetail, cancelJob, subscribeJobEvents } from '../api/client';
+import { JobQueueNotice } from '../components/jobs/JobQueueNotice';
+import { jobProgressMessage, jobSnapshotEvent } from '../lib/jobProgress';
 import { StatusPill, StatusVariant } from '../components/ui/StatusPill';
 import { EmptyState } from '../components/ui/EmptyState';
 
@@ -31,6 +33,7 @@ export const JobsPage: React.FC = () => {
   // Live SSE streaming inspect modal
   const [activeStreamJob, setActiveStreamJob] = useState<JobItem | null>(null);
   const [streamEvents, setStreamEvents] = useState<JobProgressEvent[]>([]);
+  const [streamError, setStreamError] = useState('');
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -69,15 +72,8 @@ export const JobsPage: React.FC = () => {
 
   const handleOpenStreamModal = (job: JobItem) => {
     setActiveStreamJob(job);
-    setStreamEvents([
-      {
-        job_id: job.id,
-        status: job.status,
-        progress: job.progress,
-        message: job.error_message || 'Inisialisasi pemantauan status',
-        timestamp: job.updated_at,
-      },
-    ]);
+    setStreamError('');
+    setStreamEvents([jobSnapshotEvent(job)]);
   };
 
   // SSE subscription effect
@@ -85,34 +81,56 @@ export const JobsPage: React.FC = () => {
     if (!activeStreamJob) return;
     let active = true;
     const jobId = activeStreamJob.id;
-
-    const unsubscribe = subscribeJobEvents(
-      jobId,
-      (event: JobProgressEvent) => {
+    let revision = 0;
+    let terminal = false;
+    let checking = false;
+    const apply = (incoming: JobProgressEvent, snapshot: JobItem | null = null) => {
+        const event = { ...incoming, message: jobProgressMessage(incoming.status, incoming.message) };
         if (!active || event.job_id !== jobId) return;
+        if (terminal && !['succeeded', 'failed', 'cancelled'].includes(event.status)) return;
+        terminal = ['succeeded', 'failed', 'cancelled'].includes(event.status);
+        setStreamError('');
         setStreamEvents((prev) => {
           const last = prev.at(-1);
-          // The SSE stream starts with the same persisted snapshot used on open.
+          // Polling only adds state changes; the opening SSE snapshot is deduplicated.
           if (last && last.job_id === event.job_id && last.status === event.status &&
-            last.progress === event.progress && last.timestamp === event.timestamp &&
-            last.message === event.message) return prev;
+            last.progress === event.progress && (snapshot ||
+              (last.timestamp === event.timestamp && last.message === event.message))) return prev;
           return [...prev, event];
         });
+        const update = (current: JobItem) => ({
+          ...current, status: event.status, progress: event.progress, updated_at: event.timestamp,
+          error_message: ['queued', 'failed'].includes(event.status) ? snapshot ? snapshot.error_message : incoming.message : null,
+        });
         setActiveStreamJob((current: JobItem | null) =>
-          current?.id === event.job_id ? { ...current, status: event.status as JobStatus, progress: event.progress } : current
+          current?.id === event.job_id ? update(current) : current
         );
         setJobs((prev) =>
-          prev.map((j) =>
-            j.id === event.job_id
-              ? { ...j, status: event.status as JobStatus, progress: event.progress }
-              : j
-          )
+          prev.map((job) => job.id === event.job_id ? update(job) : job)
         );
-      }
-    );
+    };
+    const unsubscribe = subscribeJobEvents(jobId, event => {
+      revision++;
+      apply(event);
+    });
+    const check = async () => {
+      if (checking || terminal) return;
+      checking = true;
+      const before = revision;
+      try {
+        const job = await fetchJobDetail(jobId);
+        // A slow snapshot must not overwrite a newer event or a closed modal.
+        if (active && revision === before) apply(jobSnapshotEvent(job), job);
+      } catch {
+        if (active && revision === before) setStreamError('Pembaruan status belum dapat dimuat. Pemantauan akan dicoba kembali.');
+      } finally { checking = false; }
+    };
+    void check();
+    const timer = setInterval(() => { void check(); }, 3000);
 
     return () => {
       active = false;
+      clearInterval(timer);
       unsubscribe();
     };
   }, [activeStreamJob?.id]);
@@ -367,6 +385,9 @@ export const JobsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {activeStreamJob.status === 'queued' && <JobQueueNotice jobId={activeStreamJob.id} />}
+              {streamError && <p role="alert" className="text-xs text-[var(--ink-muted)]">{streamError}</p>}
 
               <div className="space-y-1.5">
                 <span className="block text-[11px] font-medium text-[var(--ink-muted)]">

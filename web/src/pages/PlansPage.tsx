@@ -18,7 +18,7 @@ import {
   Sliders,
   Shield,
 } from 'lucide-react';
-import { Plan, CreatePlanRequest, UpdatePlanRequest } from '../types/api';
+import { Plan, CreatePlanRequest, UpdatePlanRequest, ShellPolicy } from '../types/api';
 import { fetchPlans, createPlan, updatePlan, deletePlan } from '../api/client';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 
@@ -50,7 +50,7 @@ export const PlansPage: React.FC = () => {
     max_cron_jobs: 10,
     max_terminal_sessions: 2,
     max_upload_mb: 50,
-    shell_policy: 'none',
+    shell_policy: 'none' as ShellPolicy,
     allow_external_upstream: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -191,26 +191,24 @@ export const PlansPage: React.FC = () => {
     return `${Math.round(bytes / (1024 * 1024))} MB`;
   };
 
-  const renderShellBadge = (policy: string) => {
-    switch (policy.toLowerCase()) {
-      case 'bashchroot':
-      case 'bash_chroot':
+  const renderShellBadge = (policy: ShellPolicy) => {
+    switch (policy) {
+      case 'full':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            <Terminal className="w-3 h-3" /> Bash Chroot
+            <Terminal className="w-3 h-3" /> Shell interaktif
           </span>
         );
-      case 'sftponly':
-      case 'sftp_only':
+      case 'sftp':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            <Shield className="w-3 h-3" /> SFTP Only
+            <Shield className="w-3 h-3" /> SFTP saja
           </span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-[var(--raised)] text-[var(--ink-muted)] border border-[var(--line)]">
-            None (No Shell)
+            Tanpa akses shell
           </span>
         );
     }
@@ -498,17 +496,23 @@ export const PlansPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-[var(--ink)] mb-1">
-                        Akses Shell (Terminal)
+                      <label htmlFor="plan-shell-policy" className="block text-xs font-medium text-[var(--ink)] mb-1">
+                        Akses shell
                       </label>
                       <select
+                        id="plan-shell-policy"
                         value={formData.shell_policy}
-                        onChange={(e) => setFormData({ ...formData, shell_policy: e.target.value })}
+                        onChange={(e) => {
+                          const policy = e.target.value;
+                          if (policy === 'none' || policy === 'sftp' || policy === 'full') {
+                            setFormData({ ...formData, shell_policy: policy });
+                          }
+                        }}
                         className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                       >
-                        <option value="none">None (Tanpa Akses Shell)</option>
-                        <option value="sftp_only">SFTP Only (File Transfer Saja)</option>
-                        <option value="bash_chroot">Bash Chroot (Shell Terisolasi)</option>
+                        <option value="none">Tanpa akses shell</option>
+                        <option value="sftp">SFTP saja (transfer file)</option>
+                        <option value="full">Shell interaktif (SSH dan terminal)</option>
                       </select>
                     </div>
 

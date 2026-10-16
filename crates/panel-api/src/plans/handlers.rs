@@ -234,6 +234,13 @@ pub async fn get_plan_handler(
     }
 }
 
+fn validate_shell_policy(policy: Option<&str>) -> Result<(), &'static str> {
+    match policy {
+        None | Some("none" | "sftp" | "full") => Ok(()),
+        Some(_) => Err("Akses shell harus none, sftp, atau full."),
+    }
+}
+
 /// POST /api/v1/plans - Create a new hosting plan (admin only).
 #[utoipa::path(
     post,
@@ -252,6 +259,13 @@ pub async fn create_plan_handler(
     _csrf: RequireAdminCsrf,
     Json(payload): Json<CreatePlanRequest>,
 ) -> impl IntoResponse {
+    if let Err(message) = validate_shell_policy(payload.shell_policy.as_deref()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response();
+    }
     let repo = SqlitePlanRepository::new(state.pool.clone());
     let create_model: CreatePlan = payload.into();
     match repo.create(&create_model).await {
@@ -286,6 +300,7 @@ pub async fn create_plan_handler(
     request_body = UpdatePlanRequest,
     responses(
         (status = 200, description = "Plan updated", body = PlanResponse),
+        (status = 400, description = "Validation error"),
         (status = 404, description = "Plan not found"),
         (status = 403, description = "Forbidden - Admin only")
     ),
@@ -298,6 +313,13 @@ pub async fn update_plan_handler(
     Path(id): Path<i64>,
     Json(payload): Json<UpdatePlanRequest>,
 ) -> impl IntoResponse {
+    if let Err(message) = validate_shell_policy(payload.shell_policy.as_deref()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response();
+    }
     let repo = SqlitePlanRepository::new(state.pool.clone());
     let user_repo = SqliteUserRepository::new(state.pool.clone());
 

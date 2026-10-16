@@ -118,14 +118,16 @@ describe('TerminalDrawer Component', () => {
     expect(html).toBe('');
   });
 
-  it('renders drawer header and container when isOpen is true', () => {
+  it('renders floating file terminal controls when isOpen is true', () => {
     const html = renderToString(
       <TerminalDrawer isOpen={true} onClose={vi.fn()} initialCwd="/var/www/test" />
     );
 
     expect(html).toContain('Tab Baru');
     expect(html).toContain('Tutup terminal');
-    expect(html).toContain('Perbesar layar penuh');
+    expect(html).toContain('Minimalkan terminal');
+    expect(html).toContain('Maksimalkan terminal');
+    expect(html).toContain('aria-modal="false"');
   });
 });
 

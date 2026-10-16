@@ -57,6 +57,19 @@ pub struct JobContext {
 }
 
 impl JobContext {
+    /// Node installation cancels on RPC disconnect in the agent. Do not apply
+    /// this to APT or other operations without agent-side cancellation support.
+    pub async fn run_cancellable_node_install<F: Future>(
+        &self,
+        operation: F,
+    ) -> Result<F::Output, String> {
+        tokio::select! {
+            biased;
+            _ = self.cancel_token.cancelled() => Err("Instalasi Node.js dibatalkan".into()),
+            result = operation => Ok(result),
+        }
+    }
+
     /// Reports incremental progress (0 to 100) and broadcasts it to SSE subscribers.
     pub async fn report_progress(
         &self,
@@ -308,7 +321,7 @@ impl JobHandler for PhpRepoSetupHandler {
     fn run<'a>(&'a self, _job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
         Box::pin(async move {
             let _ = ctx
-                .report_progress(10, Some("Menyiapkan repositori Sury PHP PPA..."))
+                .report_progress(10, Some("Menyiapkan repositori PHP sesuai OS server..."))
                 .await;
 
             if ctx.is_cancelled() {
@@ -369,10 +382,9 @@ impl JobHandler for NodeInstallHandler {
             let version = req.version.clone();
             ctx.report_progress(15, Some(&format!("Mengunduh dan memverifikasi Node.js v{version}; kemudian mengekstrak runtime dan menyiapkan Corepack.")))
                 .await.map_err(|e| e.to_string())?;
-            let res = self
-                .agent_client
-                .install_node_runtime(req)
-                .await
+            let res = ctx
+                .run_cancellable_node_install(self.agent_client.install_node_runtime(req))
+                .await?
                 .map_err(|e| format!("Instalasi Node.js v{version} gagal: {e}"))?;
             if !res.success {
                 return Err(res.message);
