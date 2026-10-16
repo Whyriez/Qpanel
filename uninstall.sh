@@ -73,15 +73,17 @@ if [[ "$ASSUME_YES" == "false" ]]; then
 fi
 
 echo -e "${BLUE}[1/4] Menghentikan dan menonaktifkan layanan systemd...${NC}"
-# Remove only the Nusa Panel proxy. Preserve tenant sites and the Debian default.
+# Keep tenant integration with retained data; detach it before purging its target.
 proxy_backup="$(mktemp -d)"
 trap 'rm -rf "$proxy_backup"' EXIT
-for proxy_file in /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf; do
+proxy_files=(/etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf)
+if [[ "$PURGE" == true ]]; then proxy_files+=(/etc/nginx/conf.d/00-nusa-panel-sites.conf); fi
+for proxy_file in "${proxy_files[@]}"; do
     if [[ -e "$proxy_file" || -L "$proxy_file" ]]; then cp -a --parents "$proxy_file" "$proxy_backup"; fi
 done
-rm -f /etc/nginx/sites-enabled/nusa-panel.conf /etc/nginx/sites-available/nusa-panel.conf
+rm -f "${proxy_files[@]}"
 if ! nginx -t || { systemctl is-active --quiet nginx && ! systemctl reload nginx; }; then
-    for proxy_file in /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf; do
+    for proxy_file in "${proxy_files[@]}"; do
         if [[ -e "$proxy_backup$proxy_file" || -L "$proxy_backup$proxy_file" ]]; then cp -a "$proxy_backup$proxy_file" "$proxy_file"; fi
     done
     echo '[ERROR] Konfigurasi Nginx tidak valid; pencopotan dibatalkan dan proxy dipulihkan.' >&2

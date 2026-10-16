@@ -13,7 +13,7 @@ use panel_proto::{
 use panel_webserver::baseline::NginxBaselineConfig;
 use panel_webserver::pipeline::{NginxApplyPipeline, ReloadDebouncer};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 /// Resolves the base directory for Nginx configuration.
@@ -52,10 +52,21 @@ pub fn get_nginx_base_dir(override_dir: Option<&Path>) -> PathBuf {
     PathBuf::from("/etc/panel/nginx")
 }
 
+/// The production installer retains the distribution's main configuration.
+/// Alternate roots are standalone fixtures/development installations.
+pub(crate) fn nginx_main_config_path(base_dir: &Path) -> PathBuf {
+    if base_dir == Path::new("/etc/panel/nginx") {
+        PathBuf::from("/etc/nginx/nginx.conf")
+    } else {
+        base_dir.join("nginx.conf")
+    }
+}
+
 pub struct NginxManager {
     runner: Arc<dyn SystemRunner>,
     debouncer: ReloadDebouncer,
     base_dir: Option<PathBuf>,
+    operation_lock: Mutex<()>,
 }
 
 impl NginxManager {
@@ -64,6 +75,7 @@ impl NginxManager {
             runner,
             debouncer: ReloadDebouncer::default(),
             base_dir: None,
+            operation_lock: Mutex::new(()),
         }
     }
 
@@ -72,11 +84,147 @@ impl NginxManager {
             runner,
             debouncer: ReloadDebouncer::default(),
             base_dir: Some(base_dir.into()),
+            operation_lock: Mutex::new(()),
         }
     }
 
     pub fn runner(&self) -> &Arc<dyn SystemRunner> {
         &self.runner
+    }
+
+    fn check_config(&self, config_path: &Path) -> Result<(), AgentError> {
+        let path = config_path.to_string_lossy();
+        let output = self.runner.run_command("nginx", &["-t", "-c", &path])?;
+        if !output.status.success() {
+            return Err(AgentError::InvalidInput(format!(
+                "Validasi Nginx gagal: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        Ok(())
+    }
+
+    /// Install only missing dependencies, then publish the HTTP include last.
+    /// All paths originate in the agent, never from an API-supplied host path.
+    fn ensure_host_baseline(
+        &self,
+        config: &NginxBaselineConfig,
+        main_conf: &Path,
+        bridge: &Path,
+    ) -> Result<(), AgentError> {
+        let main = self.runner.read_file(main_conf).map_err(|error| {
+            AgentError::InvalidInput(format!(
+                "Konfigurasi utama Nginx {} tidak dapat dibaca: {error}",
+                main_conf.display()
+            ))
+        })?;
+        let main = String::from_utf8(main)
+            .map_err(|_| AgentError::InvalidInput("Konfigurasi Nginx bukan UTF-8".into()))?;
+        let directives = main
+            .lines()
+            .map(|line| line.split('#').next().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let tokens: Vec<_> = directives.split_whitespace().collect();
+        if !tokens
+            .windows(2)
+            .any(|pair| pair == ["include", "/etc/nginx/conf.d/*.conf;"])
+        {
+            return Err(AgentError::InvalidInput(
+                "Nginx utama tidak memuat include /etc/nginx/conf.d/*.conf; di blok http. Konfigurasi custom dipertahankan; aktifkan include tersebut sebelum membuat situs.".into(),
+            ));
+        }
+
+        let http_conf = config.base_dir.join("http.conf");
+        let bridge_content = format!(
+            "# Managed by Nusa Panel: tenant websites.\ninclude {};\n",
+            http_conf.to_string_lossy().replace('\\', "/")
+        );
+        if self.runner.path_exists(bridge)
+            && self.runner.read_file(bridge)? != bridge_content.as_bytes()
+        {
+            return Err(AgentError::InvalidInput(format!(
+                "{} sudah ada dengan isi berbeda; periksa integrasi Nginx panel. Berkas tidak ditimpa.",
+                bridge.display()
+            )));
+        }
+
+        for dir in [
+            config.base_dir.clone(),
+            config.conf_d_dir(),
+            config.snippets_dir(),
+            config.sites_available_dir(),
+            config.sites_enabled_dir(),
+            config.log_dir.clone(),
+            config.acme_dir.clone(),
+            config.cache_dir.clone(),
+        ] {
+            if !self.runner.path_exists(&dir) {
+                self.runner.create_dir_all(&dir, 0o755, 0, 0)?;
+            }
+        }
+
+        let files = [
+            (
+                config.snippets_dir().join("acme.conf"),
+                config.render_acme_snippet(),
+            ),
+            (
+                config.snippets_dir().join("security-headers.conf"),
+                config.render_security_headers_snippet(),
+            ),
+            (
+                config.snippets_dir().join("deny-sensitive.conf"),
+                config.render_deny_sensitive_snippet(),
+            ),
+            (
+                config.snippets_dir().join("fastcgi-params.conf"),
+                config.render_fastcgi_params_snippet(),
+            ),
+            (http_conf, config.render_host_http_conf()),
+            (bridge.to_path_buf(), bridge_content),
+        ];
+        let mut created = Vec::new();
+        let result = (|| {
+            for (path, content) in files {
+                if self.runner.path_exists(&path) {
+                    continue;
+                }
+                let staging = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+                let publish = (|| {
+                    self.runner
+                        .write_file(&staging, content.as_bytes(), 0o644)?;
+                    self.runner.set_ownership(&staging, 0, 0)?;
+                    self.runner.move_path(&staging, &path)
+                })();
+                if publish.is_err() {
+                    let _ = self.runner.remove_file(&staging);
+                }
+                publish?;
+                created.push(path);
+            }
+            if !created.is_empty() {
+                self.check_config(main_conf)?;
+            }
+            Ok::<(), AgentError>(())
+        })();
+        if result.is_err() {
+            for path in created.iter().rev() {
+                self.runner.remove_file(path)?;
+            }
+        }
+        result
+    }
+
+    fn prepare_site_config(&self, base_dir: &Path) -> Result<PathBuf, AgentError> {
+        if base_dir == Path::new("/etc/panel/nginx") {
+            self.ensure_host_baseline(
+                &NginxBaselineConfig::default(),
+                Path::new("/etc/nginx/nginx.conf"),
+                Path::new("/etc/nginx/conf.d/00-nusa-panel-sites.conf"),
+            )?;
+        }
+        Ok(nginx_main_config_path(base_dir))
     }
 
     fn build_config(&self, req: &NginxBaselineApplyRequest) -> NginxBaselineConfig {
@@ -120,11 +268,10 @@ impl NginxManager {
     }
 
     fn test_nginx_syntax(&self, config: &NginxBaselineConfig) -> bool {
-        let conf_path_str = config.nginx_conf_path().to_string_lossy().to_string();
-        match self
-            .runner
-            .run_command("nginx", &["-t", "-c", &conf_path_str])
-        {
+        let conf_path_str = nginx_main_config_path(&config.base_dir)
+            .to_string_lossy()
+            .to_string();
+        match self.check_config(&nginx_main_config_path(&config.base_dir)) {
             Ok(_) => {
                 info!(
                     "Nginx baseline configuration test passed (-t -c {})",
@@ -161,11 +308,23 @@ impl NginxManager {
         &self,
         req: NginxBaselineApplyRequest,
     ) -> Result<NginxBaselineAppliedResponse, AgentError> {
+        let _operation = self
+            .operation_lock
+            .lock()
+            .map_err(|_| AgentError::Internal("Kunci konfigurasi Nginx gagal".into()))?;
         let config = self.build_config(&req);
         info!("Installing Nginx baseline to {}", config.base_dir.display());
-        config.install_baseline().map_err(|e| {
-            AgentError::InvalidInput(format!("Failed to install Nginx baseline: {e}"))
-        })?;
+        if config.base_dir == Path::new("/etc/panel/nginx") {
+            self.ensure_host_baseline(
+                &config,
+                Path::new("/etc/nginx/nginx.conf"),
+                Path::new("/etc/nginx/conf.d/00-nusa-panel-sites.conf"),
+            )?;
+        } else {
+            config.install_baseline().map_err(|e| {
+                AgentError::InvalidInput(format!("Failed to install Nginx baseline: {e}"))
+            })?;
+        }
 
         let test_passed = if req.test_config {
             self.test_nginx_syntax(&config)
@@ -181,7 +340,9 @@ impl NginxManager {
 
         Ok(NginxBaselineAppliedResponse {
             base_dir: config.base_dir.to_string_lossy().to_string(),
-            nginx_conf_path: config.nginx_conf_path().to_string_lossy().to_string(),
+            nginx_conf_path: nginx_main_config_path(&config.base_dir)
+                .to_string_lossy()
+                .to_string(),
             conf_d_dir: config.conf_d_dir().to_string_lossy().to_string(),
             snippets_dir: config.snippets_dir().to_string_lossy().to_string(),
             sites_available_dir: config.sites_available_dir().to_string_lossy().to_string(),
@@ -195,6 +356,10 @@ impl NginxManager {
 
     /// Applies a virtual host configuration atomically with syntax verification and automatic rollback.
     pub fn apply_site(&self, req: SiteApplyRequest) -> Result<SiteAppliedResponse, AgentError> {
+        let _operation = self
+            .operation_lock
+            .lock()
+            .map_err(|_| AgentError::Internal("Kunci konfigurasi Nginx gagal".into()))?;
         let base_dir = req
             .nginx_base_dir
             .as_deref()
@@ -202,7 +367,7 @@ impl NginxManager {
             .or_else(|| self.base_dir.clone())
             .unwrap_or_else(|| get_nginx_base_dir(None));
         let pipeline = NginxApplyPipeline::new(&base_dir);
-        let nginx_conf_path = base_dir.join("nginx.conf");
+        let nginx_conf_path = self.prepare_site_config(&base_dir)?;
         let runner = Arc::clone(&self.runner);
 
         let conf_path_str = nginx_conf_path.to_string_lossy().to_string();
@@ -258,6 +423,10 @@ impl NginxManager {
 
     /// Removes a virtual host configuration with automatic rollback on syntax failure.
     pub fn remove_site(&self, req: SiteRemoveRequest) -> Result<SiteRemovedResponse, AgentError> {
+        let _operation = self
+            .operation_lock
+            .lock()
+            .map_err(|_| AgentError::Internal("Kunci konfigurasi Nginx gagal".into()))?;
         let base_dir = req
             .nginx_base_dir
             .as_deref()
@@ -265,7 +434,7 @@ impl NginxManager {
             .or_else(|| self.base_dir.clone())
             .unwrap_or_else(|| get_nginx_base_dir(None));
         let pipeline = NginxApplyPipeline::new(&base_dir);
-        let nginx_conf_path = base_dir.join("nginx.conf");
+        let nginx_conf_path = self.prepare_site_config(&base_dir)?;
         let runner = Arc::clone(&self.runner);
 
         let conf_path_str = nginx_conf_path.to_string_lossy().to_string();
@@ -728,6 +897,173 @@ mod tests {
     use super::*;
     use crate::system::MockSystemRunner;
     use tempfile::TempDir;
+
+    const HOST_MAIN: &str = "/etc/nginx/nginx.conf";
+    const HOST_BRIDGE: &str = "/etc/nginx/conf.d/00-nusa-panel-sites.conf";
+    const DISTRO_MAIN: &[u8] = b"events {}\nhttp { include /etc/nginx/conf.d/*.conf; include /etc/nginx/sites-enabled/*; }\n";
+
+    fn host_fixture() -> (Arc<MockSystemRunner>, NginxManager) {
+        let runner = Arc::new(MockSystemRunner::new());
+        runner
+            .write_file(Path::new(HOST_MAIN), DISTRO_MAIN, 0o644)
+            .unwrap();
+        runner.set_response("nginx", 0, b"syntax is ok", b"");
+        let manager = NginxManager::new(runner.clone());
+        (runner, manager)
+    }
+
+    fn prepare_host(manager: &NginxManager) -> Result<(), AgentError> {
+        manager.ensure_host_baseline(
+            &NginxBaselineConfig::default(),
+            Path::new(HOST_MAIN),
+            Path::new(HOST_BRIDGE),
+        )
+    }
+
+    #[test]
+    fn host_baseline_repairs_installer_layout_without_a_panel_main_config() {
+        let (runner, manager) = host_fixture();
+        let proxy = Path::new("/etc/nginx/sites-available/nusa-panel.conf");
+        runner
+            .write_file(proxy, b"existing custom public port proxy", 0o644)
+            .unwrap();
+        prepare_host(&manager).unwrap();
+        assert_eq!(runner.read_file(Path::new(HOST_MAIN)).unwrap(), DISTRO_MAIN);
+        assert_eq!(
+            runner.read_file(proxy).unwrap(),
+            b"existing custom public port proxy"
+        );
+        assert!(!runner.path_exists(Path::new("/etc/panel/nginx/nginx.conf")));
+        assert_eq!(
+            nginx_main_config_path(Path::new("/etc/panel/nginx")),
+            Path::new(HOST_MAIN)
+        );
+        assert_eq!(
+            nginx_main_config_path(Path::new("fixture")),
+            Path::new("fixture/nginx.conf")
+        );
+        let bridge = runner.read_file(Path::new(HOST_BRIDGE)).unwrap();
+        assert!(
+            String::from_utf8(bridge)
+                .unwrap()
+                .contains("include /etc/panel/nginx/http.conf;")
+        );
+        for path in [
+            "acme",
+            "security-headers",
+            "deny-sensitive",
+            "fastcgi-params",
+        ] {
+            assert!(runner.path_exists(&PathBuf::from(format!(
+                "/etc/panel/nginx/snippets/{path}.conf"
+            ))));
+        }
+        let actions = runner.recorded_actions();
+        assert!(actions.iter().any(|action| matches!(action,
+            crate::system::MockAction::Command { binary, args }
+            if binary == "nginx" && args == &["-t", "-c", HOST_MAIN]
+        )));
+        assert!(!actions.iter().any(|action| matches!(action,
+            crate::system::MockAction::Command { binary, .. } if binary == "systemctl"
+        )));
+    }
+
+    #[test]
+    fn host_baseline_is_idempotent_and_preserves_custom_snippets() {
+        let (runner, manager) = host_fixture();
+        let snippet = Path::new("/etc/panel/nginx/snippets/security-headers.conf");
+        runner
+            .write_file(snippet, b"# operator custom headers", 0o644)
+            .unwrap();
+        prepare_host(&manager).unwrap();
+        let count = runner.recorded_actions().len();
+        prepare_host(&manager).unwrap();
+        assert_eq!(count, runner.recorded_actions().len());
+        assert_eq!(
+            runner.read_file(snippet).unwrap(),
+            b"# operator custom headers"
+        );
+    }
+
+    #[test]
+    fn production_baseline_rpc_reports_the_system_main_and_validates_before_reload() {
+        let (runner, manager) = host_fixture();
+        runner.set_response("systemctl", 0, b"", b"");
+        let request = NginxBaselineApplyRequest {
+            base_dir: Some("/etc/panel/nginx".into()),
+            log_dir: None,
+            acme_dir: None,
+            panel_api_port: None,
+            panel_listen_port: Some(19090),
+            test_config: true,
+            reload: true,
+        };
+        let result = manager.apply_baseline(request.clone()).unwrap();
+        assert_eq!(result.nginx_conf_path, HOST_MAIN);
+        assert!(result.test_passed && result.reloaded);
+        assert!(!runner.path_exists(Path::new("/etc/panel/nginx/conf.d/10-panel.conf")));
+        let before = runner.recorded_actions().len();
+        runner.set_response("nginx", 1, b"", b"invalid operator edit");
+        let result = manager.apply_baseline(request).unwrap();
+        assert!(!result.test_passed && !result.reloaded);
+        assert!(
+            !runner.recorded_actions()[before..]
+                .iter()
+                .any(|action| matches!(action,
+                    crate::system::MockAction::Command { binary, .. } if binary == "systemctl"
+                ))
+        );
+    }
+
+    #[test]
+    fn host_baseline_validation_failure_rolls_back_only_new_files() {
+        let (runner, manager) = host_fixture();
+        let snippet = Path::new("/etc/panel/nginx/snippets/security-headers.conf");
+        runner
+            .write_file(snippet, b"# preserve this", 0o644)
+            .unwrap();
+        runner.set_response("nginx", 1, b"", b"invalid existing configuration");
+        assert!(prepare_host(&manager).is_err());
+        assert!(!runner.path_exists(Path::new(HOST_BRIDGE)));
+        assert!(!runner.path_exists(Path::new("/etc/panel/nginx/http.conf")));
+        assert!(!runner.path_exists(Path::new("/etc/panel/nginx/snippets/acme.conf")));
+        assert_eq!(runner.read_file(snippet).unwrap(), b"# preserve this");
+        assert_eq!(runner.read_file(Path::new(HOST_MAIN)).unwrap(), DISTRO_MAIN);
+    }
+
+    #[test]
+    fn host_baseline_rejects_missing_main_and_custom_include_layouts_without_mutation() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        assert!(prepare_host(&manager).is_err());
+        assert!(runner.recorded_actions().is_empty());
+        for main in [
+            "http { include /operator/custom/*.conf; }",
+            "http {\n# include /etc/nginx/conf.d/*.conf;\n}",
+        ] {
+            runner
+                .write_file(Path::new(HOST_MAIN), main.as_bytes(), 0o644)
+                .unwrap();
+            let count = runner.recorded_actions().len();
+            assert!(prepare_host(&manager).is_err());
+            assert_eq!(count, runner.recorded_actions().len());
+        }
+    }
+
+    #[test]
+    fn host_baseline_preserves_conflicting_integration_file() {
+        let (runner, manager) = host_fixture();
+        runner
+            .write_file(Path::new(HOST_BRIDGE), b"# unrelated configuration", 0o644)
+            .unwrap();
+        let count = runner.recorded_actions().len();
+        assert!(prepare_host(&manager).is_err());
+        assert_eq!(count, runner.recorded_actions().len());
+        assert_eq!(
+            runner.read_file(Path::new(HOST_BRIDGE)).unwrap(),
+            b"# unrelated configuration"
+        );
+    }
 
     #[test]
     fn test_apply_baseline_with_mock_runner() {

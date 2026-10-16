@@ -410,6 +410,20 @@ impl ReliabilityManager {
         Ok(SystemDoctorFixResponse { results, all_fixed })
     }
 
+    /// Reload only after validating the main configuration used by the service.
+    fn reload_reconciled_nginx(&self, nginx_base: &Path) {
+        let conf_str = crate::webserver::nginx_main_config_path(nginx_base)
+            .to_string_lossy()
+            .to_string();
+        if self
+            .runner
+            .run_command("nginx", &["-t", "-c", &conf_str])
+            .is_ok_and(|output| output.status.success())
+        {
+            let _ = self.runner.run_command("systemctl", &["reload", "nginx"]);
+        }
+    }
+
     /// Reconciles state between database records and actual host configurations.
     pub fn reconcile(
         &self,
@@ -546,9 +560,7 @@ impl ReliabilityManager {
 
         // If not dry-run and drifts were resolved, test and reload Nginx
         if !req.dry_run && reconciled_count > 0 {
-            let conf_str = nginx_base.join("nginx.conf").to_string_lossy().to_string();
-            let _ = self.runner.run_command("nginx", &["-t", "-c", &conf_str]);
-            let _ = self.runner.run_command("systemctl", &["reload", "nginx"]);
+            self.reload_reconciled_nginx(&nginx_base);
         }
 
         let report = ReconcileReport::new(timestamp, req.desired_sites.len(), drifts);
@@ -935,6 +947,31 @@ mod tests {
             .find(|c| c.id == "agent_ipc_socket")
             .unwrap();
         assert_eq!(sock_check.status, "fail");
+    }
+
+    #[test]
+    fn reconcile_validates_system_main_and_does_not_reload_after_failure() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let temp = tempdir().unwrap();
+        let nft = Arc::new(NftablesManager::with_path(
+            runner.clone(),
+            temp.path().join("rules.nft"),
+        ));
+        let manager = ReliabilityManager::new(runner.clone(), temp.path(), nft);
+        runner.set_response("nginx", 1, b"", b"invalid config");
+        manager.reload_reconciled_nginx(Path::new("/etc/panel/nginx"));
+        let actions = runner.recorded_actions();
+        assert_eq!(actions.len(), 1);
+        assert!(
+            matches!(&actions[0], crate::system::MockAction::Command { binary, args }
+            if binary == "nginx" && args == &["-t", "-c", "/etc/nginx/nginx.conf"])
+        );
+        runner.set_response("nginx", 0, b"syntax is ok", b"");
+        manager.reload_reconciled_nginx(Path::new("/etc/panel/nginx"));
+        assert!(
+            matches!(runner.recorded_actions().last(), Some(crate::system::MockAction::Command { binary, args })
+            if binary == "systemctl" && args == &["reload", "nginx"])
+        );
     }
 
     #[test]

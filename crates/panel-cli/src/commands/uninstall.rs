@@ -5,11 +5,18 @@ use std::error::Error;
 use std::path::Path;
 use tracing::info;
 
-fn remove_panel_proxy() -> Result<(), Box<dyn Error>> {
+fn remove_panel_proxy(purge: bool) -> Result<(), Box<dyn Error>> {
+    let _ = purge;
     #[cfg(unix)]
     if cfg!(target_os = "linux") {
         let available = Path::new("/etc/nginx/sites-available/nusa-panel.conf");
         let enabled = Path::new("/etc/nginx/sites-enabled/nusa-panel.conf");
+        let bridge = Path::new("/etc/nginx/conf.d/00-nusa-panel-sites.conf");
+        let bridge_contents = if purge && bridge.exists() {
+            Some(std::fs::read(bridge)?)
+        } else {
+            None
+        };
         let contents = if available.exists() {
             Some(std::fs::read(available)?)
         } else {
@@ -21,8 +28,15 @@ fn remove_panel_proxy() -> Result<(), Box<dyn Error>> {
         } else {
             None
         };
-        if contents.is_none() && link.is_none() && enabled_contents.is_none() {
+        if contents.is_none()
+            && link.is_none()
+            && enabled_contents.is_none()
+            && bridge_contents.is_none()
+        {
             return Ok(());
+        }
+        if bridge_contents.is_some() {
+            std::fs::remove_file(bridge)?;
         }
         if enabled.symlink_metadata().is_ok() {
             std::fs::remove_file(enabled)?;
@@ -46,6 +60,9 @@ fn remove_panel_proxy() -> Result<(), Box<dyn Error>> {
             valid
         };
         if !reloaded {
+            if let Some(bytes) = bridge_contents {
+                std::fs::write(bridge, bytes)?;
+            }
             if let Some(bytes) = contents {
                 std::fs::write(available, bytes)?;
             }
@@ -178,7 +195,7 @@ pub async fn run_uninstall(
 ) -> Result<UninstallResult, Box<dyn Error>> {
     info!("Memulai proses pencopotan pemasangan (uninstall) Nusa Panel...");
 
-    remove_panel_proxy()?;
+    remove_panel_proxy(options.purge)?;
     let (services_stopped, unit_files_removed) = stop_and_remove_systemd_services();
     let binaries_removed = remove_installed_binaries();
     let data_purged = purge_data_and_users(options.purge);

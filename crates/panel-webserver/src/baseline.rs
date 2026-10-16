@@ -129,25 +129,7 @@ http {{
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    # Structured JSON Logging Format (panel_json)
-    log_format panel_json escape=json '{{'
-        '"time_local":"$time_iso8601",'
-        '"remote_addr":"$remote_addr",'
-        '"remote_user":"$remote_user",'
-        '"request_method":"$request_method",'
-        '"request_uri":"$request_uri",'
-        '"status":$status,'
-        '"body_bytes_sent":$body_bytes_sent,'
-        '"request_time":$request_time,'
-        '"http_referrer":"$http_referer",'
-        '"http_user_agent":"$http_user_agent",'
-        '"http_x_forwarded_for":"$http_x_forwarded_for",'
-        '"host":"$host",'
-        '"server_name":"$server_name",'
-        '"upstream_addr":"$upstream_addr",'
-        '"upstream_response_time":"$upstream_response_time",'
-        '"upstream_status":"$upstream_status"'
-    '}}';
+    {log_format}
 
     access_log {access_log} panel_json;
     error_log {error_log} warn;
@@ -177,11 +159,50 @@ http {{
 "#,
             worker_processes = self.worker_processes,
             worker_connections = self.worker_connections,
+            log_format = self.render_json_log_format(),
             access_log = access_log,
             error_log = error_log,
             conf_d = conf_d,
             sites_enabled = sites_enabled,
         )
+    }
+
+    /// Shared HTTP-context dependencies for panel vhosts. The distribution keeps
+    /// ownership of nginx.conf, listeners and the panel's public-port proxy.
+    pub fn render_host_http_conf(&self) -> String {
+        let sites = self
+            .sites_enabled_dir()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let conf_d = self.conf_d_dir().to_string_lossy().replace('\\', "/");
+        format!(
+            "# Managed by Nusa Panel: HTTP dependencies and tenant websites.\n\
+             {}\n{}\n{}\ninclude {conf_d}/tuning*.conf;\ninclude {sites}/*.conf;\n",
+            self.render_json_log_format(),
+            self.render_websocket_conf(),
+            self.render_fastcgi_cache_conf(),
+        )
+    }
+
+    pub fn render_json_log_format(&self) -> &'static str {
+        r#"log_format panel_json escape=json '{'
+    '"time_local":"$time_iso8601",'
+    '"remote_addr":"$remote_addr",'
+    '"remote_user":"$remote_user",'
+    '"request_method":"$request_method",'
+    '"request_uri":"$request_uri",'
+    '"status":$status,'
+    '"body_bytes_sent":$body_bytes_sent,'
+    '"request_time":$request_time,'
+    '"http_referrer":"$http_referer",'
+    '"http_user_agent":"$http_user_agent",'
+    '"http_x_forwarded_for":"$http_x_forwarded_for",'
+    '"host":"$host",'
+    '"server_name":"$server_name",'
+    '"upstream_addr":"$upstream_addr",'
+    '"upstream_response_time":"$upstream_response_time",'
+    '"upstream_status":"$upstream_status"'
+'}';"#
     }
 
     /// Generates `conf.d/00-default.conf`: catch-all server rejecting unknown hosts with HTTP 444.
@@ -458,6 +479,33 @@ fn write_file_atomic(dest: &Path, content: &str) -> Result<(), WebserverError> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn host_http_config_supplies_vhost_dependencies_without_duplicate_listeners() {
+        let config = NginxBaselineConfig::default();
+        let conf = config.render_host_http_conf();
+        for required in [
+            "log_format panel_json escape=json",
+            "map $http_upgrade $connection_upgrade",
+            "keys_zone=panel_php_cache:10m",
+            "include /etc/panel/nginx/sites-enabled/*.conf;",
+            "include /etc/panel/nginx/conf.d/tuning*.conf;",
+        ] {
+            assert!(conf.contains(required), "missing: {required}");
+        }
+        for standalone_only in [
+            "listen ",
+            "default_server",
+            "http {",
+            "user www-data",
+            "conf.d/*.conf;",
+        ] {
+            assert!(
+                !conf.contains(standalone_only),
+                "unexpected: {standalone_only}"
+            );
+        }
+    }
 
     #[test]
     fn test_render_logrotate_conf_format() {
