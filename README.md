@@ -13,6 +13,10 @@ Upgrade mengimpor job/audit lama sekali sebelum worker dimulai. Backup menyertak
 core dan operations; pemulihan pasangan database dilakukan offline. Detail alur
 dan acceptance tersedia di [pengelolaan database](docs/database-management.md).
 
+Jika installer menolak template yang hilang, lihat
+[panduan paket release dan pemulihan](RELEASE_PACKAGING.md). Push source saja
+belum memperbarui arsip GitHub Release.
+
 Instalasi menggunakan paket release lengkap. Lihat
 [panduan revisi v0.1.1](docs/release-v0.1.1.md),
 [panduan administrator](docs/admin-guide.md), dan

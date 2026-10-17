@@ -113,17 +113,31 @@ install_packages() {
 find_release() {
     BIN_SOURCE="${SCRIPT_DIR}/bin"
     [[ -d "$BIN_SOURCE" ]] || BIN_SOURCE="${SCRIPT_DIR}/target/release"
-    local binary
+    local binary path missing=0
+    for path in templates/systemd/panel-api.service \
+        templates/systemd/panel-agent.service \
+        templates/systemd/panel-proc-hardening.service \
+        templates/nginx/nusa-panel.conf \
+        templates/nginx/nusa-reject-unknown.conf; do
+        if [[ ! -f "$SCRIPT_DIR/$path" || ! -r "$SCRIPT_DIR/$path" || ! -s "$SCRIPT_DIR/$path" ]]; then
+            printf '[ERROR] File wajib paket tidak ditemukan atau kosong: %s\n' "$path" >&2
+            missing=1
+        fi
+    done
     for binary in panel-api panel-agent panelctl; do
-        [[ -x "$BIN_SOURCE/$binary" ]] || { fail "Biner paket tidak ditemukan: $BIN_SOURCE/$binary"; return 1; }
+        if [[ ! -x "$BIN_SOURCE/$binary" ]]; then
+            printf '[ERROR] Biner paket tidak ditemukan: %s\n' "$BIN_SOURCE/$binary" >&2
+            missing=1
+        fi
+    done
+    [[ "$missing" == 0 ]] || {
+        fail 'Paket rilis tidak lengkap. Unduh rilis baru yang sudah diperbaiki; jangan melewati pemeriksaan ini.'
+        return 1
+    }
+    # Check package completeness before executing even the version commands.
+    for binary in panel-api panel-agent panelctl; do
         "$BIN_SOURCE/$binary" --version
     done
-    [[ -r "$SCRIPT_DIR/templates/systemd/panel-api.service" &&
-       -r "$SCRIPT_DIR/templates/systemd/panel-agent.service" &&
-       -r "$SCRIPT_DIR/templates/nginx/nusa-panel.conf" &&
-       -r "$SCRIPT_DIR/templates/nginx/nusa-reject-unknown.conf" ]] || {
-        fail 'Template systemd/Nginx paket tidak lengkap'; return 1;
-    }
 }
 
 begin_transaction() {

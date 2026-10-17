@@ -126,7 +126,8 @@ pass 'installer rollback includes operational database and its WAL/SHM together 
 grep -q 'runner: ubuntu-22.04$' "$REPO/.github/workflows/release.yml"
 grep -q 'runner: ubuntu-22.04-arm$' "$REPO/.github/workflows/release.yml"
 grep -q 'scripts/check-glibc.sh' "$REPO/.github/workflows/release.yml"
-grep -q 'templates/nginx/nusa-panel.conf' "$REPO/scripts/build-release.sh"
+grep -q 'scripts/package-release.sh' "$REPO/scripts/build-release.sh"
+grep -q 'templates/nginx/nusa-panel.conf' "$REPO/scripts/package-release.sh"
 pass 'release baseline gate and proxy template packaging'
 
 # Exercise the actual failure trap in an isolated child with every host mutation mocked.

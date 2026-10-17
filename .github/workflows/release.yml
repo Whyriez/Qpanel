@@ -9,7 +9,7 @@ on:
       tag:
         description: 'Tag rilis (contoh: v1.0.0)'
         required: true
-        default: 'v1.0.0'
+        default: 'v0.1.1'
 
 permissions:
   contents: write
@@ -21,6 +21,8 @@ jobs:
     env:
       CARGO_TARGET_DIR: target/release-native/${{ matrix.target }}
       CARGO_INCREMENTAL: '0'
+      RELEASE_TARGET: ${{ matrix.target }}
+      RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +35,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Validate release version
+        run: bash scripts/package-release.sh "$RELEASE_TARGET" "$RELEASE_VERSION" --check-version
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -61,38 +66,15 @@ jobs:
           npm run build
 
       - name: Compile release binaries
-        run: bash scripts/compile-release.sh "${{ matrix.target }}"
+        run: bash scripts/compile-release.sh "$RELEASE_TARGET"
 
       - name: Verify supported GLIBC baseline
         run: |
-          bash scripts/check-glibc.sh "$CARGO_TARGET_DIR/${{ matrix.target }}/release/panel-api" "$CARGO_TARGET_DIR/${{ matrix.target }}/release/panel-agent" "$CARGO_TARGET_DIR/${{ matrix.target }}/release/panelctl"
+          bash scripts/check-glibc.sh "$CARGO_TARGET_DIR/$RELEASE_TARGET/release/panel-api" "$CARGO_TARGET_DIR/$RELEASE_TARGET/release/panel-agent" "$CARGO_TARGET_DIR/$RELEASE_TARGET/release/panelctl"
 
       - name: Package tarball and checksum
         run: |
-          VERSION="${{ inputs.tag }}"
-          VERSION="${VERSION:-$GITHUB_REF_NAME}"
-          STAGE_NAME="nusa-panel-${VERSION}-${{ matrix.target }}"
-          mkdir -p release/${STAGE_NAME}/bin
-          mkdir -p release/${STAGE_NAME}/templates/systemd
-          mkdir -p release/${STAGE_NAME}/templates/nginx
-
-          cp "$CARGO_TARGET_DIR/${{ matrix.target }}/release/panel-agent" release/${STAGE_NAME}/bin/
-          cp "$CARGO_TARGET_DIR/${{ matrix.target }}/release/panel-api" release/${STAGE_NAME}/bin/
-          cp "$CARGO_TARGET_DIR/${{ matrix.target }}/release/panelctl" release/${STAGE_NAME}/bin/
-          chmod 0755 release/${STAGE_NAME}/bin/*
-
-          cp templates/systemd/*.service release/${STAGE_NAME}/templates/systemd/
-          cp templates/nginx/nusa-panel.conf release/${STAGE_NAME}/templates/nginx/
-          cp install.sh uninstall.sh release/${STAGE_NAME}/
-          chmod 0755 release/${STAGE_NAME}/install.sh release/${STAGE_NAME}/uninstall.sh
-
-          if [ -d web/dist ]; then
-            mkdir -p release/${STAGE_NAME}/web
-            cp -r web/dist release/${STAGE_NAME}/web/
-          fi
-
-          tar -czf release/${STAGE_NAME}.tar.gz -C release ${STAGE_NAME}
-          (cd release && sha256sum ${STAGE_NAME}.tar.gz > ${STAGE_NAME}.tar.gz.sha256)
+          bash scripts/package-release.sh "$RELEASE_TARGET" "$RELEASE_VERSION"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
