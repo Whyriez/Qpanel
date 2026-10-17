@@ -33,6 +33,8 @@ use tempfile::tempdir;
 use tower::ServiceExt;
 
 struct TestContext {
+    jobs: Arc<panel_api::jobs::JobRunner>,
+    runner: Arc<MockSystemRunner>,
     app: axum::Router,
     #[allow(dead_code)]
     pool: panel_db::pool::DbPool,
@@ -234,7 +236,7 @@ async fn setup_test_context() -> TestContext {
         auth_config,
         lockout_manager,
         audit_writer,
-        job_runner,
+        job_runner: Arc::clone(&job_runner),
         terminal_hub: Arc::new(panel_api::terminal::TerminalHub::new(Arc::clone(
             &agent_client,
         ))),
@@ -327,6 +329,8 @@ async fn setup_test_context() -> TestContext {
         .expect("seed primary domain for database tests");
 
     TestContext {
+        jobs: job_runner,
+        runner,
         app,
         pool,
         _temp: tmp,
@@ -337,6 +341,156 @@ async fn setup_test_context() -> TestContext {
         admin_csrf,
         site_id,
     }
+}
+
+#[tokio::test]
+async fn database_install_joins_active_job_and_persists_agent_output() {
+    let ctx = setup_test_context().await;
+    ctx.runner.set_response(
+        "apt-get",
+        0,
+        b"Get:1 mariadb-server\nUnpacking mariadb-server\nSetting up mariadb-server\n",
+        b"APT diagnostic\n",
+    );
+    ctx.runner
+        .set_response("systemctl is-active mariadb", 0, b"active\n", b"");
+    let make_request = || {
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/databases/servers/install")
+            .header(
+                header::COOKIE,
+                format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+            )
+            .header(CSRF_HEADER_NAME, &ctx.admin_csrf)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"engine":"mariadb"}"#))
+            .unwrap()
+    };
+    let (first, second) = tokio::join!(
+        ctx.app.clone().oneshot(make_request()),
+        ctx.app.clone().oneshot(make_request())
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+    assert_eq!(first.status(), StatusCode::ACCEPTED);
+    assert_eq!(second.status(), StatusCode::ACCEPTED);
+    let first: DatabaseActionResponse =
+        serde_json::from_slice(&first.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let second: DatabaseActionResponse =
+        serde_json::from_slice(&second.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(first.job_id, second.job_id);
+    let id = first.job_id.unwrap();
+    assert!(panel_api::jobs::process_one_job(&ctx.jobs).await.unwrap());
+    let job = ctx.jobs.job_repo.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(job.status, "succeeded", "{:?}", job.error_message);
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/jobs/{id}/logs"))
+                .header(
+                    header::COOKIE,
+                    format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let events: Vec<panel_api::jobs::JobProgressEvent> =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let text = events
+        .iter()
+        .filter_map(|e| e.message.as_deref())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Unpacking mariadb-server"));
+    assert!(text.contains("APT diagnostic"));
+    assert!(events.windows(2).all(|w| w[0].sequence < w[1].sequence));
+    assert_eq!(events.last().unwrap().status, "succeeded");
+    assert_eq!(
+        ctx.runner
+            .get_commands()
+            .iter()
+            .filter(|command| command.starts_with("apt-get install"))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn php_install_streams_real_mock_output_and_failure_is_retained() {
+    let ctx = setup_test_context().await;
+    ctx.runner
+        .set_file_content("/etc/os-release", b"ID=ubuntu\nVERSION_ID=24.04\n");
+    let policy = panel_runtime::php::PhpVersion::Php84
+        .base_packages()
+        .iter()
+        .map(|pkg| format!("{pkg}:\n  Candidate: 8.4.1-1\n"))
+        .collect::<String>();
+    ctx.runner
+        .set_response("apt-cache", 0, policy.as_bytes(), b"");
+    ctx.runner.set_response(
+        "apt-get",
+        0,
+        b"Reading package lists...\nUnpacking PHP runtime\n",
+        b"",
+    );
+    ctx.runner
+        .set_response("systemctl is-enabled php8.4-fpm", 1, b"", b"masked\n");
+    let response = ctx
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/php/versions/8.4/install")
+                .header(
+                    header::COOKIE,
+                    format!("{SESSION_COOKIE_NAME}={}", ctx.admin_session),
+                )
+                .header(CSRF_HEADER_NAME, &ctx.admin_csrf)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let job: panel_api::jobs::JobItem =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert!(panel_api::jobs::process_one_job(&ctx.jobs).await.unwrap());
+    let finished = ctx
+        .jobs
+        .job_repo
+        .find_by_id(&job.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(finished.status, "succeeded", "{:?}", finished.error_message);
+    let events = ctx.jobs.job_repo.events_after(&job.id, 0).await.unwrap();
+    assert!(events.iter().any(|e| {
+        e.message
+            .as_deref()
+            .is_some_and(|m| m.contains("Unpacking PHP runtime"))
+    }));
+    ctx.runner
+        .set_response("apt-get", 100, b"", b"E: fixture repository unavailable\n");
+    let (failed, _) = ctx
+        .jobs
+        .enqueue_database_install(finished.user_id.unwrap(), "postgresql")
+        .await
+        .unwrap();
+    assert!(panel_api::jobs::process_one_job(&ctx.jobs).await.unwrap());
+    let events = ctx.jobs.job_repo.events_after(&failed.id, 0).await.unwrap();
+    assert!(events.iter().any(|e| {
+        e.message
+            .as_deref()
+            .is_some_and(|m| m.contains("fixture repository unavailable"))
+    }));
+    assert!(!events.iter().any(|e| e.status == "succeeded"));
 }
 
 #[tokio::test]

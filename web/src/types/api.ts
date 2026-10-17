@@ -109,6 +109,7 @@ export interface JobListResponse {
 }
 
 export interface JobProgressEvent {
+  sequence?: number;
   job_id: string;
   status: JobStatus;
   progress: number;

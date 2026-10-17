@@ -1573,7 +1573,8 @@ pub async fn evaluate_site_insights_internal(
         let notif_service = crate::notifications::service::NotificationService::new(
             state.pool.clone(),
             Some(Arc::clone(&state.agent_client)),
-        );
+        )
+        .with_job_runner(Arc::clone(&state.job_runner));
 
         for insight in &insights {
             if matches!(

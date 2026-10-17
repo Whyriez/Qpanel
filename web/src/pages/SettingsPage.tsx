@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Sliders, Cpu, Activity, ShieldCheck, Wrench } from 'lucide-react';
+import { Sliders, Cpu, Activity, ShieldCheck, Wrench, Globe } from 'lucide-react';
+import { NetworkSettings } from '../components/system/NetworkSettings';
 import { ServerOptimizerCard } from '../components/system/ServerOptimizerCard';
 import { PanelMemoryProfileCard } from '../components/system/PanelMemoryProfileCard';
 import { SecurityHardeningCard } from '../components/system/SecurityHardeningCard';
 import { SystemReliabilityCard } from '../components/system/SystemReliabilityCard';
 
 export const SettingsPage: React.FC = () => {
-  const [activeSection, setActiveSection] = useState<'optimizer' | 'security_hardening' | 'reliability' | 'memory_profile' | 'info'>('optimizer');
+  const [activeSection, setActiveSection] = useState<'optimizer' | 'security_hardening' | 'reliability' | 'memory_profile' | 'info' | 'network'>('optimizer');
 
   return (
     <div className="space-y-6" data-testid="settings-page">
@@ -22,6 +23,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] pb-2 text-xs">
+        <button type="button" onClick={() => setActiveSection('network')} aria-pressed={activeSection === 'network'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] font-medium ${activeSection === 'network' ? 'bg-[var(--primary)] text-white dark:text-[var(--bg)]' : 'text-[var(--ink-muted)] hover:bg-[var(--surface)]'}`}><Globe className="w-3.5 h-3.5" />DNS dan Cloudflare</button>
         <button
           type="button"
           onClick={() => setActiveSection('optimizer')}
@@ -90,6 +92,7 @@ export const SettingsPage: React.FC = () => {
       </div>
 
       {/* Section Content */}
+      {activeSection === 'network' && <NetworkSettings />}
       {activeSection === 'optimizer' && (
         <ServerOptimizerCard />
       )}

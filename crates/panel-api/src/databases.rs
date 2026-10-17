@@ -292,19 +292,9 @@ pub async fn install_database_server_handler(
         }
     };
 
-    let job_payload = serde_json::json!({
-        "engine": engine.as_str(),
-    });
-
     let (job, _) = match state
         .job_runner
-        .enqueue(
-            Some(user.id),
-            None,
-            "database.server.install".to_string(),
-            job_payload.to_string(),
-            Some(1),
-        )
+        .enqueue_database_install(user.id, engine.as_str())
         .await
     {
         Ok(res) => res,

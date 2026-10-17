@@ -13,7 +13,7 @@ export function RuntimeJobProgress({ job, runtime }: { job: JobItem; runtime: st
       >
         {job.progress}%
       </progress>
-      <a href="/jobs" className="text-xs text-[var(--primary)] underline underline-offset-2">
+      <a href={`/jobs?job=${encodeURIComponent(job.id)}`} className="text-xs text-[var(--primary)] underline underline-offset-2">
         Lihat progres
       </a>
       </div>

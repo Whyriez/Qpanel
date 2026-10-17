@@ -20,6 +20,7 @@ const SecurityProfilePage = lazy(() =>
 const AuditLogPage = lazy(() =>
   import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage }))
 );
+const EmailPage = lazy(() => import('./pages/EmailPage').then(m => ({ default: m.EmailPage })));
 const JobsPage = lazy(() =>
   import('./pages/JobsPage').then((m) => ({ default: m.JobsPage }))
 );
@@ -163,6 +164,7 @@ const MainApp: React.FC = () => {
         <Suspense fallback={<PageFallback />}>
           {activeNav === 'audit' && <AuditLogPage />}
           {activeNav === 'jobs' && <JobsPage />}
+          {activeNav === 'email' && <EmailPage />}
           {activeNav === 'profile' && <SecurityProfilePage />}
           {activeNav === 'sites' && (
             <SitesPage
@@ -201,7 +203,7 @@ const MainApp: React.FC = () => {
           {activeNav === 'terminal' && <TerminalPage />}
           {activeNav === 'analytics' && <AnalyticsPage />}
           {activeNav === 'settings' && <SettingsPage />}
-          {!['dashboard','audit','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','login','setup'].includes(activeNav) && <NotFoundPage />}
+          {!['dashboard','audit','email','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','login','setup'].includes(activeNav) && <NotFoundPage />}
         </Suspense>
       </Shell>
       <ToastProvider />

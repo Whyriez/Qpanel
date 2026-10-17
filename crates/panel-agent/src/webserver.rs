@@ -726,6 +726,7 @@ impl NginxManager {
             cert_dir.display()
         );
 
+        crate::email::certificate_changed(self.runner.as_ref(), domain.as_ascii())?;
         Ok(SslCertDeployedResponse {
             domain: domain.as_unicode().to_string(),
             cert_path: cert_path.to_string_lossy().to_string(),

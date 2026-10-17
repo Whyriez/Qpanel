@@ -147,6 +147,13 @@ impl UserLifecycleManager {
             Username::parse(&req.username).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
         let uid = TenantUid::parse(req.uid).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
 
+        crate::email::tenant_access(
+            self.runner.as_ref(),
+            username.as_str(),
+            uid.as_u32(),
+            true,
+            false,
+        )?;
         // 1. Lock account and set shell to nologin
         self.runner.run_command(
             "usermod",
@@ -186,6 +193,13 @@ impl UserLifecycleManager {
             )));
         }
 
+        crate::email::tenant_access(
+            self.runner.as_ref(),
+            username.as_str(),
+            uid.as_u32(),
+            false,
+            false,
+        )?;
         // Unlock account and restore shell
         self.runner
             .run_command("usermod", &["-U", "-s", shell, username.as_str()])?;
@@ -208,6 +222,13 @@ impl UserLifecycleManager {
             Username::parse(&req.username).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
         let uid = TenantUid::parse(req.uid).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
 
+        crate::email::tenant_access(
+            self.runner.as_ref(),
+            username.as_str(),
+            uid.as_u32(),
+            true,
+            true,
+        )?;
         let uid_str = uid.to_string();
         // 1. Terminate all remaining processes
         let _ = self.runner.run_command("pkill", &["-KILL", "-u", &uid_str]);

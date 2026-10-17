@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct JobEvent {
+    pub sequence: i64,
+    pub job_id: String,
+    pub status: String,
+    pub progress: i64,
+    pub message: Option<String>,
+    pub timestamp: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct Job {
     pub id: String,

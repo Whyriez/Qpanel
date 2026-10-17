@@ -215,3 +215,5 @@ mod tests {
         assert!(Username::from_slug("root").is_err());
     }
 }
+
+pub mod email;

@@ -17,6 +17,72 @@ use tracing::warn;
 
 pub type JobFuture<'a> = Pin<Box<dyn Future<Output = Result<Option<String>, String>> + Send + 'a>>;
 
+struct CloudflareHandler(Arc<crate::agent_client::AgentClient>);
+impl JobHandler for CloudflareHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let actor: Option<(String, String)> =
+                sqlx::query_as("SELECT role,status FROM users WHERE id=?")
+                    .bind(job.user_id)
+                    .fetch_optional(&ctx.pool)
+                    .await
+                    .map_err(|_| "Gagal memeriksa administrator tugas.".to_owned())?;
+            if actor != Some(("admin".into(), "active".into())) {
+                return Err("Tugas Cloudflare memerlukan administrator aktif.".into());
+            }
+            ctx.report_progress(10, Some("Menyiapkan operasi Cloudflare."))
+                .await
+                .map_err(|e| e.to_string())?;
+            let value = if job.name == "cloudflare.install" {
+                match ctx
+                    .install(
+                        &self.0,
+                        panel_proto::InstallOperation::CloudflareConnector,
+                        40,
+                    )
+                    .await?
+                {
+                    panel_proto::ResponsePayload::Cloudflare(value) => value,
+                    _ => return Err("Respons instalasi konektor tidak sesuai.".into()),
+                }
+            } else {
+                let command: panel_proto::CloudflareRequest =
+                    serde_json::from_str(&job.payload_json)
+                        .map_err(|_| "Payload tugas Cloudflare tidak valid.".to_owned())?;
+                if !matches!(
+                    command,
+                    panel_proto::CloudflareRequest::CreateTunnel { .. }
+                        | panel_proto::CloudflareRequest::TunnelAction { .. }
+                        | panel_proto::CloudflareRequest::Publish { .. }
+                        | panel_proto::CloudflareRequest::Unpublish { .. }
+                ) {
+                    return Err("Operasi tidak diizinkan dalam antrean Cloudflare.".into());
+                }
+                let command = crate::network::validate_publication(&ctx.pool, command)
+                    .await
+                    .map_err(|e| {
+                        e.1.0["error"]
+                            .as_str()
+                            .unwrap_or("Validasi project gagal.")
+                            .to_owned()
+                    })?;
+                ctx.report_progress(
+                    30,
+                    Some("Menerapkan perubahan. Memeriksa DNS, rute, atau layanan tunnel."),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                self.0
+                    .cloudflare(command)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            ctx.report_progress(95,Some("Perubahan Cloudflare selesai. Muat ulang status koneksi untuk memeriksa kesehatan tunnel.")).await.map_err(|e|e.to_string())?;
+            Ok(Some(value.to_string()))
+        })
+    }
+}
+
 async fn validate_job_identity(
     ctx: &JobContext,
     job: &Job,
@@ -57,6 +123,21 @@ pub struct JobContext {
 }
 
 impl JobContext {
+    pub(crate) async fn install(
+        &self,
+        client: &crate::agent_client::AgentClient,
+        operation: panel_proto::InstallOperation,
+        progress: i64,
+    ) -> Result<panel_proto::ResponsePayload, String> {
+        client
+            .install_with_progress(operation, |message| async move {
+                self.report_progress(progress, Some(&message))
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())
+    }
     /// Node installation cancels on RPC disconnect in the agent. Do not apply
     /// this to APT or other operations without agent-side cancellation support.
     pub async fn run_cancellable_node_install<F: Future>(
@@ -84,13 +165,19 @@ impl JobContext {
             .unwrap_or_default()
             .as_secs() as i64;
 
-        let _ = self.event_tx.send(JobProgressEvent {
-            job_id: self.job_id.clone(),
-            status: "running".to_string(),
-            progress: bounded,
-            message: message.map(ToString::to_string),
-            timestamp: now,
-        });
+        crate::jobs::events::publish(
+            &self.job_repo,
+            &self.event_tx,
+            JobProgressEvent {
+                sequence: None,
+                job_id: self.job_id.clone(),
+                status: "running".to_string(),
+                progress: bounded,
+                message: message.map(ToString::to_string),
+                timestamp: now,
+            },
+        )
+        .await?;
 
         Ok(())
     }
@@ -328,11 +415,17 @@ impl JobHandler for PhpRepoSetupHandler {
                 return Err("Job was cancelled before execution".to_string());
             }
 
-            let res = self
-                .agent_client
-                .setup_php_repo()
-                .await
-                .map_err(|e| format!("Setup repositori PHP gagal: {e}"))?;
+            let res = match ctx
+                .install(
+                    &self.agent_client,
+                    panel_proto::InstallOperation::PhpRepository,
+                    10,
+                )
+                .await?
+            {
+                panel_proto::ResponsePayload::PhpRepoSetup(res) => res,
+                _ => return Err("Respons konfigurasi repositori tidak sesuai".into()),
+            };
 
             let _ = ctx
                 .report_progress(100, Some("Repositori PHP berhasil dikonfigurasi"))
@@ -440,11 +533,25 @@ impl JobHandler for PhpInstallHandler {
                 )
                 .await;
 
-            let res = self
-                .agent_client
-                .install_php_runtime(version)
-                .await
-                .map_err(|e| format!("Instalasi PHP {version} gagal: {e}"))?;
+            let res = match ctx
+                .install(
+                    &self.agent_client,
+                    panel_proto::InstallOperation::PhpRuntime(
+                        panel_proto::PhpRuntimeInstallRequest {
+                            version: version.into(),
+                        },
+                    ),
+                    35,
+                )
+                .await?
+            {
+                panel_proto::ResponsePayload::PhpRuntimeInstalled(res) if res.success => res,
+                _ => {
+                    return Err(
+                        "Instalasi PHP tidak berhasil atau respons agent tidak sesuai".into(),
+                    );
+                }
+            };
 
             let _ = ctx
                 .report_progress(
@@ -932,6 +1039,22 @@ impl JobRegistry {
 
     pub fn new_with_agent(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
         let mut reg = Self::new();
+        for name in [
+            "email.install",
+            "email.mailbox",
+            "email.send",
+            "email.deliver",
+        ] {
+            reg.register(name, crate::email::EmailHandler(Arc::clone(&agent_client)));
+        }
+        reg.register(
+            "cloudflare.install",
+            CloudflareHandler(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "cloudflare.change",
+            CloudflareHandler(Arc::clone(&agent_client)),
+        );
         reg.register(
             "node.install",
             NodeInstallHandler::new(Arc::clone(&agent_client)),
@@ -1033,41 +1156,64 @@ impl JobHandler for DatabaseServerInstallHandler {
                 )
                 .await;
 
-            let res = self
-                .agent_client
-                .database_server_install(panel_proto::DatabaseServerInstallRequest {
-                    engine: engine.clone(),
-                })
-                .await
-                .map_err(|e| format!("Instalasi database gagal: {e}"))?;
+            let res = match ctx
+                .install(
+                    &self.agent_client,
+                    panel_proto::InstallOperation::DatabaseServer(
+                        panel_proto::DatabaseServerInstallRequest {
+                            engine: engine.clone(),
+                        },
+                    ),
+                    15,
+                )
+                .await?
+            {
+                panel_proto::ResponsePayload::DatabaseServerInstalled(res) if res.success => res,
+                _ => {
+                    return Err(
+                        "Instalasi database tidak berhasil atau respons agent tidak sesuai".into(),
+                    );
+                }
+            };
 
             let _ = ctx
                 .report_progress(80, Some("Memperbarui status server database..."))
                 .await;
 
             let db_repo = panel_db::repositories::SqliteDatabaseRepository::new(ctx.pool.clone());
-            let port = if engine == "postgresql" { 5432 } else { 3306 };
-            let socket = if engine == "postgresql" {
-                "/var/run/postgresql/.s.PGSQL.5432"
-            } else {
-                "/run/mysqld/mysqld.sock"
-            };
+            let inventory = self
+                .agent_client
+                .database_server_status(panel_proto::DatabaseServerStatusRequest {
+                    engines: vec![engine.clone()],
+                })
+                .await
+                .map_err(|e| e.to_string())?;
+            let server = inventory
+                .servers
+                .into_iter()
+                .find(|server| server.engine == engine)
+                .ok_or_else(|| "Database server status missing".to_string())?;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
 
-            let _ = db_repo
+            db_repo
                 .upsert_server(&panel_db::models::DatabaseServer {
                     engine: engine.clone(),
-                    is_installed: true,
-                    is_running: true,
-                    version: None,
-                    port,
-                    socket_path: Some(socket.to_string()),
+                    is_installed: server.is_installed,
+                    is_running: server.is_running,
+                    version: server.version,
+                    port: i64::from(server.port),
+                    socket_path: server.socket_path,
                     updated_at: now,
                 })
-                .await;
+                .await
+                .map_err(|e| e.to_string())?;
+
+            if !server.is_installed || !server.is_running {
+                return Err("Paket database selesai diproses tetapi service belum aktif; periksa log instalasi.".into());
+            }
 
             let _ = ctx
                 .report_progress(100, Some("Instalasi database selesai"))

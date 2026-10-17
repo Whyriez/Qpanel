@@ -23,12 +23,16 @@ pub const DEFAULT_ENV_DIR: &str = "/etc/panel/env";
 pub const CIPHER_PREFIX: &str = "enc:v1:";
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
+static MASTER_KEY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Loads or creates the 32-byte master key for tenant secret encryption.
 pub fn get_or_create_master_key(
     runner: &dyn SystemRunner,
     custom_key_path: Option<&str>,
 ) -> Result<[u8; 32], AgentError> {
+    let _guard = MASTER_KEY_LOCK
+        .lock()
+        .map_err(|_| AgentError::Internal("Master key lock tidak tersedia".into()))?;
     let key_path_str = custom_key_path.unwrap_or(DEFAULT_MASTER_KEY_PATH);
     let key_path = Path::new(key_path_str);
 

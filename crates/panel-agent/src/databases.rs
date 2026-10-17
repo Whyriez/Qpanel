@@ -104,7 +104,7 @@ pub fn install_database_server(
     runner.run_command("apt-get", packages)?;
 
     // 2. Enable and start systemd service
-    let _ = runner.run_command("systemctl", &["enable", "--now", service_name]);
+    runner.run_command("systemctl", &["enable", "--now", service_name])?;
 
     Ok(DatabaseServerInstallResponse {
         engine: engine.as_str().to_string(),

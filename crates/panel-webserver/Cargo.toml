@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 panel-core = { workspace = true }
 minijinja = { workspace = true }
 serde = { workspace = true }

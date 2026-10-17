@@ -37,6 +37,7 @@ const item = (id, name, status, progress) => ({ id, name, status, progress, user
       let status = 200, body = {};
       if (url.pathname === '/api/v1/auth/me') body = { user: { id: 1, username: 'admin', role: 'admin' }, csrf_token: 'fixture' };
       else if (url.pathname === '/api/v1/auth/csrf') body = { csrf_token: 'fixture' };
+      else if (url.pathname.startsWith('/api/v1/jobs/') && url.pathname.endsWith('/logs')) body = [];
       else if (url.pathname === '/api/v1/jobs/php-repo-fixture') {
         body = { ...php };
         if (mode.hold) { mode.hold = false; await new Promise(resolve => { mode.release = resolve; }); }

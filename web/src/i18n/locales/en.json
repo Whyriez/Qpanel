@@ -20,6 +20,7 @@
     "select": "Select",
     "dismiss": "Close",
     "descriptions": {
+      "email": "Manage domain mailboxes and inbox",
       "dashboard": "Overview of sites and services",
       "sites": "Domains and hosted applications",
       "files": "Browse and manage hosting files",
@@ -51,6 +52,7 @@
     }
   },
   "nav": {
+    "email": "Email",
     "dashboard": "Dashboard",
     "sites": "Sites",
     "tenants": "Tenants",

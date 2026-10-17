@@ -24,6 +24,107 @@ pub struct JobRunner {
 }
 
 impl JobRunner {
+    pub async fn enqueue_email(
+        &self,
+        user_id: Option<i64>,
+        name: &str,
+        payload_json: String,
+    ) -> Result<(Job, bool), DbError> {
+        let (job, duplicate) = self
+            .job_repo
+            .create_or_find_active(&CreateJob {
+                id: Uuid::new_v4().to_string(),
+                user_id,
+                name: name.into(),
+                payload_json,
+                max_retries: 0,
+            })
+            .await?;
+        if !duplicate {
+            crate::jobs::events::publish(
+                &self.job_repo,
+                &self.event_tx,
+                JobProgressEvent {
+                    sequence: None,
+                    job_id: job.id.clone(),
+                    status: "queued".into(),
+                    progress: 0,
+                    message: Some("Operasi email masuk antrean.".into()),
+                    timestamp: job.created_at,
+                },
+            )
+            .await?;
+            self.notify.notify_one();
+        }
+        Ok((job, duplicate))
+    }
+    pub async fn enqueue_cloudflare(
+        &self,
+        user_id: i64,
+        name: &str,
+        payload_json: String,
+    ) -> Result<(Job, bool), DbError> {
+        let (job, duplicate) = self
+            .job_repo
+            .create_or_find_active(&CreateJob {
+                id: Uuid::new_v4().to_string(),
+                user_id: Some(user_id),
+                name: name.into(),
+                payload_json,
+                max_retries: 0,
+            })
+            .await?;
+        if !duplicate {
+            crate::jobs::events::publish(
+                &self.job_repo,
+                &self.event_tx,
+                JobProgressEvent {
+                    sequence: None,
+                    job_id: job.id.clone(),
+                    status: "queued".into(),
+                    progress: 0,
+                    message: Some("Operasi Cloudflare masuk antrean.".into()),
+                    timestamp: job.created_at,
+                },
+            )
+            .await?;
+            self.notify.notify_one();
+        }
+        Ok((job, duplicate))
+    }
+    pub async fn enqueue_database_install(
+        &self,
+        user_id: i64,
+        engine: &str,
+    ) -> Result<(Job, bool), DbError> {
+        let (job, duplicate) = self
+            .job_repo
+            .create_or_find_active(&CreateJob {
+                id: Uuid::new_v4().to_string(),
+                user_id: Some(user_id),
+                name: "database.server.install".into(),
+                payload_json: serde_json::json!({ "engine": engine }).to_string(),
+                max_retries: 1,
+            })
+            .await?;
+        if !duplicate {
+            crate::jobs::events::publish(
+                &self.job_repo,
+                &self.event_tx,
+                JobProgressEvent {
+                    sequence: None,
+                    job_id: job.id.clone(),
+                    status: "queued".into(),
+                    progress: 0,
+                    message: Some("Instalasi database masuk antrean.".into()),
+                    timestamp: job.created_at,
+                },
+            )
+            .await?;
+            self.notify.notify_one();
+        }
+        Ok((job, duplicate))
+    }
     /// Creates a new `JobRunner` with default registered handlers.
     pub fn new(pool: DbPool) -> Self {
         Self::with_registry(pool, JobRegistry::new())
@@ -75,13 +176,19 @@ impl JobRunner {
         let created = self.job_repo.create(&input).await?;
 
         // Broadcast initial queued event
-        let _ = self.event_tx.send(JobProgressEvent {
-            job_id: created.id.clone(),
-            status: created.status.clone(),
-            progress: created.progress,
-            message: Some("Job queued".to_string()),
-            timestamp: created.created_at,
-        });
+        crate::jobs::events::publish(
+            &self.job_repo,
+            &self.event_tx,
+            JobProgressEvent {
+                sequence: None,
+                job_id: created.id.clone(),
+                status: created.status.clone(),
+                progress: created.progress,
+                message: Some("Tugas masuk antrean.".to_string()),
+                timestamp: created.created_at,
+            },
+        )
+        .await?;
 
         // Notify the worker to wake up and process immediately
         self.notify.notify_one();
@@ -101,6 +208,13 @@ impl JobRunner {
         }
 
         let cancelled = self.job_repo.cancel(id).await?;
+        if !cancelled {
+            let current = self.job_repo.find_by_id(id).await?;
+            if current.as_ref().is_some_and(|job| job.status == "running") {
+                return Err(DbError::Conflict("Tugas sedang berjalan dan tidak dapat dibatalkan dengan aman. Tunggu sampai selesai.".into()));
+            }
+            return Ok(current);
+        }
         if cancelled {
             // Signal active cancellation token if running
             let tokens = self.cancellation_tokens.read().await;
@@ -113,13 +227,19 @@ impl JobRunner {
                 .unwrap_or_default()
                 .as_secs() as i64;
 
-            let _ = self.event_tx.send(JobProgressEvent {
-                job_id: id.to_string(),
-                status: "cancelled".to_string(),
-                progress: job.progress,
-                message: Some("Job cancelled".to_string()),
-                timestamp: now,
-            });
+            crate::jobs::events::publish(
+                &self.job_repo,
+                &self.event_tx,
+                JobProgressEvent {
+                    sequence: None,
+                    job_id: id.to_string(),
+                    status: "cancelled".to_string(),
+                    progress: job.progress,
+                    message: Some("Tugas dibatalkan.".to_string()),
+                    timestamp: now,
+                },
+            )
+            .await?;
         }
 
         self.job_repo.find_by_id(id).await

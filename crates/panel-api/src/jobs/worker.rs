@@ -28,17 +28,23 @@ async fn handle_cancellation(
             job_id,
             "cancelled",
             None,
-            Some("Job was cancelled during execution"),
+            Some("Tugas dibatalkan saat berjalan"),
         )
         .await?;
 
-    let _ = runner.event_tx.send(JobProgressEvent {
-        job_id: job_id.to_string(),
-        status: "cancelled".to_string(),
-        progress,
-        message: Some("Job was cancelled during execution".to_string()),
-        timestamp: current_timestamp(),
-    });
+    crate::jobs::events::publish(
+        &runner.job_repo,
+        &runner.event_tx,
+        JobProgressEvent {
+            sequence: None,
+            job_id: job_id.to_string(),
+            status: "cancelled".to_string(),
+            progress,
+            message: Some("Tugas dibatalkan saat berjalan".to_string()),
+            timestamp: current_timestamp(),
+        },
+    )
+    .await?;
 
     Ok(())
 }
@@ -53,13 +59,19 @@ async fn handle_success(
         .update_status(job_id, "succeeded", result_json.as_deref(), None)
         .await?;
 
-    let _ = runner.event_tx.send(JobProgressEvent {
-        job_id: job_id.to_string(),
-        status: "succeeded".to_string(),
-        progress: 100,
-        message: Some("Job completed successfully".to_string()),
-        timestamp: current_timestamp(),
-    });
+    crate::jobs::events::publish(
+        &runner.job_repo,
+        &runner.event_tx,
+        JobProgressEvent {
+            sequence: None,
+            job_id: job_id.to_string(),
+            status: "succeeded".to_string(),
+            progress: 100,
+            message: Some("Tugas selesai.".to_string()),
+            timestamp: current_timestamp(),
+        },
+    )
+    .await?;
 
     Ok(())
 }
@@ -73,29 +85,46 @@ async fn handle_failure(runner: &Arc<JobRunner>, job: &Job, err: &str) -> Result
 
     if updated.status == "queued" {
         let backoff = JobRunner::calculate_backoff(job.retry_count);
-        let _ = runner.event_tx.send(JobProgressEvent {
-            job_id: job.id.clone(),
-            status: "queued".to_string(),
-            progress: job.progress,
-            message: Some(format!(
-                "Attempt failed, retrying ({}/{}): {}",
-                updated.retry_count, updated.max_retries, err
-            )),
-            timestamp: current_timestamp(),
-        });
+        crate::jobs::events::publish(
+            &runner.job_repo,
+            &runner.event_tx,
+            JobProgressEvent {
+                sequence: None,
+                job_id: job.id.clone(),
+                status: "queued".to_string(),
+                progress: job.progress,
+                message: Some(format!(
+                    "Percobaan gagal, mengulangi ({}/{}): {}",
+                    updated.retry_count, updated.max_retries, err
+                )),
+                timestamp: current_timestamp(),
+            },
+        )
+        .await?;
         tokio::time::sleep(backoff).await;
     } else {
-        let _ = runner.event_tx.send(JobProgressEvent {
-            job_id: job.id.clone(),
-            status: "failed".to_string(),
-            progress: job.progress,
-            message: Some(format!("Job failed permanently: {}", err)),
-            timestamp: current_timestamp(),
-        });
+        crate::jobs::events::publish(
+            &runner.job_repo,
+            &runner.event_tx,
+            JobProgressEvent {
+                sequence: None,
+                job_id: job.id.clone(),
+                status: "failed".to_string(),
+                progress: job.progress,
+                message: Some(format!("Tugas gagal setelah seluruh percobaan: {}", err)),
+                timestamp: current_timestamp(),
+            },
+        )
+        .await?;
 
         // Trigger notification for job failure or deploy failure
         let notif_service =
             crate::notifications::NotificationService::new(runner.pool.clone(), None);
+        let notif_service = if job.name.starts_with("email.") {
+            notif_service
+        } else {
+            notif_service.with_job_runner(Arc::clone(runner))
+        };
         let category = if job.name == "git.deploy" {
             panel_core::notification::NotificationCategory::DeployFailed
         } else if job.name.starts_with("backup.") {
@@ -164,13 +193,19 @@ pub async fn process_one_job(runner: &Arc<JobRunner>) -> Result<bool, DbError> {
         return Ok(true);
     }
 
-    let _ = runner.event_tx.send(JobProgressEvent {
-        job_id: job.id.clone(),
-        status: "running".to_string(),
-        progress: job.progress,
-        message: Some("Job execution started".to_string()),
-        timestamp: current_timestamp(),
-    });
+    crate::jobs::events::publish(
+        &runner.job_repo,
+        &runner.event_tx,
+        JobProgressEvent {
+            sequence: None,
+            job_id: job.id.clone(),
+            status: "running".to_string(),
+            progress: job.progress,
+            message: Some("Eksekusi tugas dimulai.".to_string()),
+            timestamp: current_timestamp(),
+        },
+    )
+    .await?;
 
     let ctx = JobContext {
         job_id: job.id.clone(),

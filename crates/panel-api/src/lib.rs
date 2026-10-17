@@ -7,6 +7,7 @@ pub mod backups;
 pub mod config;
 pub mod cron;
 pub mod databases;
+pub mod email;
 pub mod env_vars;
 pub mod files;
 pub mod git_deploy;
@@ -14,6 +15,7 @@ pub mod jobs;
 pub mod logs;
 pub mod mail;
 pub mod memory_profile;
+pub mod network;
 pub mod node;
 pub mod node_site;
 pub mod notifications;
@@ -54,6 +56,30 @@ pub fn create_router(state: AppState) -> Router {
     let api_doc = ApiDoc::openapi();
 
     let api_routes = Router::new()
+        .route("/api/v1/email", get(email::overview))
+        .route("/api/v1/email/install", post(email::install))
+        .route(
+            "/api/v1/email/templates",
+            get(email::templates).put(email::save_template),
+        )
+        .route("/api/v1/email/mailboxes", post(email::create_mailbox))
+        .route("/api/v1/email/mailboxes/{id}", post(email::change_mailbox))
+        .route(
+            "/api/v1/email/mailboxes/{id}/messages",
+            get(email::messages).post(email::message),
+        )
+        .route("/api/v1/email/mailboxes/{id}/send", post(email::send))
+        .route("/api/v1/email/mailboxes/{id}/dns", get(email::dns))
+        .route(
+            "/api/v1/network",
+            get(network::overview).put(network::save_addresses),
+        )
+        .route("/api/v1/network/dns-check", post(network::dns_check))
+        .route(
+            "/api/v1/network/cloudflare",
+            get(network::cloudflare_status).post(network::cloudflare_command),
+        )
+        .route("/api/v1/network/cloudflare/install", post(network::install))
         .route("/healthz", get(healthz_handler))
         .route("/api/v1/system/info", get(system_info_handler))
         .route("/api/v1/system/metrics", get(telemetry::current_metrics))
@@ -114,6 +140,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/jobs/{id}", get(jobs::get_job_handler))
         .route("/api/v1/jobs/{id}/cancel", post(jobs::cancel_job_handler))
         .route("/api/v1/jobs/{id}/events", get(jobs::job_events_handler))
+        .route("/api/v1/jobs/{id}/logs", get(jobs::job_logs_handler))
         // Plans endpoints
         .route(
             "/api/v1/plans",

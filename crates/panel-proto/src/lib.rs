@@ -7,7 +7,27 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+mod cloudflare;
+pub use cloudflare::*;
+mod email;
+pub use email::*;
+
 pub const PROTOCOL_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "operation", content = "request")]
+pub enum InstallOperation {
+    EmailServer(EmailServerConfig),
+    CloudflareConnector,
+    PhpRepository,
+    PhpRuntime(PhpRuntimeInstallRequest),
+    DatabaseServer(DatabaseServerInstallRequest),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InstallationProgress {
+    pub message: String,
+}
 
 #[derive(Debug, Error)]
 pub enum ProtoError {
@@ -43,6 +63,10 @@ impl RpcRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "cmd", content = "data")]
 pub enum RequestPayload {
+    Email(EmailRequest),
+    Cloudflare(CloudflareRequest),
+    /// Opt-in streaming for a closed set of package-manager operations.
+    InstallWithProgress(InstallOperation),
     Ping,
     Version,
     UserCreate(UserCreateRequest),
@@ -279,6 +303,9 @@ impl RpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
 pub enum ResponsePayload {
+    Email(serde_json::Value),
+    Cloudflare(serde_json::Value),
+    InstallationProgress(InstallationProgress),
     Pong,
     Version(VersionInfo),
     UserCreated(UserCreatedResponse),

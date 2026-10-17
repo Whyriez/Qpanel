@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 panel-core = { workspace = true, features = ["openapi"] }
-panel-proto = { workspace = true }
+panel-proto = { workspace = true, features = ["openapi"] }
 panel-db = { workspace = true }
 panel-webserver = { workspace = true }
 panel-runtime = { workspace = true }
@@ -44,6 +44,8 @@ x509-parser = { workspace = true }
 time = { workspace = true }
 instant-acme = { workspace = true }
 base64 = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]

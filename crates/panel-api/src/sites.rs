@@ -3129,125 +3129,28 @@ pub async fn set_force_https_handler(
 }
 
 fn render_php_placeholder(domain: &str, php_version: &str, preset: &str) -> String {
-    format!(
-        r#"<?php
-// Qpanel - Welcome Page
-// Domain: {domain}
-// PHP Version: {php_version}
-// Preset: {preset}
-?>
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Selamat Datang di <?= htmlspecialchars("{domain}") ?> - Qpanel</title>
-    <style>
-        :root {{
-            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --border: rgba(255, 255, 255, 0.1);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --accent: #38bdf8;
-            --success: #10b981;
-        }}
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: var(--bg-gradient);
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
-        }}
-        .card {{
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 1rem;
-            padding: 2.5rem;
-            max-width: 32rem;
-            width: 100%;
-            text-align: center;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-        }}
-        .badge {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.35rem 0.85rem;
-            border-radius: 9999px;
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--success);
-            font-size: 0.875rem;
-            font-weight: 500;
-            margin-bottom: 1.5rem;
-            border: 1px solid rgba(16, 185, 129, 0.2);
-        }}
-        h1 {{ font-size: 1.75rem; font-weight: 700; margin-bottom: 0.75rem; letter-spacing: -0.025em; }}
-        p {{ color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin-bottom: 1.75rem; }}
-        .meta {{
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid var(--border);
-            border-radius: 0.5rem;
-            padding: 0.75rem 1rem;
-            font-size: 0.85rem;
-            color: var(--accent);
-            font-family: ui-monospace, monospace;
-            display: flex;
-            justify-content: space-around;
-        }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="badge">
-            <span>●</span> PHP <?= htmlspecialchars(PHP_VERSION) ?> Berjalan
-        </div>
-        <h1><?= htmlspecialchars("{domain}") ?></h1>
-        <p>Situs PHP Anda berhasil diprovisi dan berjalan aktif di bawah Qpanel dengan preset <strong><?= htmlspecialchars("{preset}") ?></strong>.</p>
-        <div class="meta">
-            <div>PHP: <?= htmlspecialchars(PHP_VERSION) ?></div>
-            <div>Preset: <?= htmlspecialchars("{preset}") ?></div>
-        </div>
-    </div>
-</body>
-</html>
-"#
+    // Provisioning writes index.html. Keep this welcome page valid when served as HTML.
+    panel_webserver::placeholder::render_welcome_html(
+        domain,
+        &format!("PHP {php_version} · {preset}"),
+        "Unggah aplikasi PHP ke direktori website. Ganti halaman bawaan ini dengan halaman aplikasi Anda.",
     )
 }
 
 fn render_nodejs_placeholder(domain: &str) -> String {
+    let html = panel_webserver::placeholder::render_welcome_html(
+        domain,
+        "Node.js",
+        "Unggah aplikasi Node.js, periksa pengaturan runtime, lalu jalankan deployment dari panel.",
+    );
+    let html_json = serde_json::json!(html);
     format!(
         r#"const http = require('http');
 
 const port = process.env.PORT || 3000;
 const server = http.createServer((req, res) => {{
     res.writeHead(200, {{ 'Content-Type': 'text/html; charset=utf-8' }});
-    res.end(`<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <title>Situs Node.js Aktif - {domain}</title>
-    <style>
-        body {{ font-family: system-ui, sans-serif; background: #0b0f19; color: #f1f5f9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
-        .card {{ background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.1); border-radius: 1rem; padding: 2.5rem; text-align: center; max-width: 32rem; }}
-        .badge {{ display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.85rem; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.875rem; margin-bottom: 1rem; }}
-        h1 {{ font-size: 1.75rem; margin: 0 0 0.5rem 0; }}
-        p {{ color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="badge"><span>●</span> Node.js ${{process.version}} Berjalan</div>
-        <h1>{domain}</h1>
-        <p>Aplikasi Node.js Anda aktif berjalan di Qpanel pada port ${{port}}.</p>
-    </div>
-</body>
-</html>`);
+    res.end({html_json});
 }});
 
 server.listen(port, '127.0.0.1', () => {{
@@ -3258,32 +3161,66 @@ server.listen(port, '127.0.0.1', () => {{
 }
 
 fn render_python_placeholder(domain: &str) -> String {
+    let html = panel_webserver::placeholder::render_welcome_html(
+        domain,
+        "Python",
+        "Unggah aplikasi Python, periksa pengaturan runtime, lalu jalankan deployment dari panel.",
+    );
+    // A JSON string literal is also a Python string literal; encode after parsing
+    // so Indonesian copy and international domain names produce valid UTF-8 bytes.
+    let html_json = serde_json::json!(html);
     format!(
         r#"def app(environ, start_response):
-    status = '200 OK'
-    response_headers = [('Content-Type', 'text/html; charset=utf-8')]
-    start_response(status, response_headers)
-    return [b"""<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <title>Situs Python Aktif - {domain}</title>
-    <style>
-        body {{ font-family: system-ui, sans-serif; background: #0b0f19; color: #f1f5f9; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }}
-        .card {{ background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.1); border-radius: 1rem; padding: 2.5rem; text-align: center; max-width: 32rem; }}
-        .badge {{ display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.85rem; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.875rem; margin-bottom: 1rem; }}
-        h1 {{ font-size: 1.75rem; margin: 0 0 0.5rem 0; }}
-        p {{ color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="badge"><span>●</span> Python WSGI Berjalan</div>
-        <h1>{domain}</h1>
-        <p>Aplikasi Python Anda aktif berjalan di Qpanel via Unix domain socket.</p>
-    </div>
-</body>
-</html>"""]
+    start_response('200 OK', [('Content-Type', 'text/html; charset=utf-8')])
+    html = {html_json}
+    return [html.encode('utf-8')]
 "#
     )
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod placeholder_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_welcome_pages_share_design_and_preserve_output_formats() {
+        let domain = "toko.contoh.id";
+        let php = render_php_placeholder(domain, "8.4", "generic");
+        assert!(php.starts_with("<!doctype html>"));
+        assert!(php.contains("PHP 8.4 · generic"));
+        assert!(!php.contains("<?php"));
+        let node = render_nodejs_placeholder(domain);
+        let python = render_python_placeholder(domain);
+        assert!(node.contains("require('http')"));
+        assert!(node.contains("server.listen(port, '127.0.0.1'"));
+        assert!(python.contains("html.encode('utf-8')"));
+        assert!(!python.contains("b\"\"\""));
+        for source in [&php, &node, &python] {
+            assert!(source.contains(domain));
+            assert!(source.contains("Publikasikan website Anda"));
+            assert!(!source.contains("backdrop-filter"));
+            assert!(!source.contains("gradient("));
+        }
+    }
+
+    #[test]
+    fn application_sources_keep_unicode_and_quotes_in_string_literals() {
+        let domain = "toko-é.id`'\"${not_code}<script>";
+        let node = render_nodejs_placeholder(domain);
+        let python = render_python_placeholder(domain);
+        for (source, prefix, suffix) in
+            [(&node, "    res.end(", ");"), (&python, "    html = ", "")]
+        {
+            let literal = source
+                .lines()
+                .find_map(|line| line.strip_prefix(prefix))
+                .and_then(|line| line.strip_suffix(suffix))
+                .expect("serialized HTML literal");
+            let html: String = serde_json::from_str(literal).expect("valid quoted string");
+            assert!(html.contains("toko-é.id`&#39;&quot;${not_code}&lt;script&gt;"));
+            assert!(!html.contains("<script>"));
+            assert!(html.contains("<main class=\"wrap\">"));
+        }
+    }
 }

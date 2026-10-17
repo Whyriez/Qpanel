@@ -20,6 +20,7 @@
     "select": "Pilih",
     "dismiss": "Tutup",
     "descriptions": {
+      "email": "Kelola akun domain dan kotak masuk",
       "dashboard": "Ringkasan situs dan layanan",
       "sites": "Domain dan aplikasi hosting",
       "files": "Jelajahi dan kelola berkas hosting",
@@ -51,6 +52,7 @@
     }
   },
   "nav": {
+    "email": "Email",
     "dashboard": "Beranda",
     "sites": "Situs",
     "tenants": "Tenant",

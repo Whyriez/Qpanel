@@ -6,6 +6,13 @@ use std::sync::{Arc, Mutex};
 use tracing::warn;
 
 pub const ALLOWED_BINARIES: &[&str] = &[
+    "postfix",
+    "postmap",
+    "doveadm",
+    "doveconf",
+    "opendkim",
+    "opendkim-genkey",
+    "sendmail",
     "useradd",
     "usermod",
     "userdel",
@@ -75,7 +82,37 @@ pub const ALLOWED_BINARIES: &[&str] = &[
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
 pub trait SystemRunner: Send + Sync {
+    fn run_command_with_input(
+        &self,
+        _binary: &str,
+        _args: &[&str],
+        _input: &[u8],
+    ) -> Result<std::process::Output, AgentError> {
+        Err(AgentError::SecurityViolation(
+            "Command stdin tidak tersedia pada runner ini".into(),
+        ))
+    }
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError>;
+    /// Streaming remains opt-in, with a default implementation for deterministic mocks.
+    fn run_command_streamed(
+        &self,
+        binary: &str,
+        args: &[&str],
+        on_output: &(dyn Fn(&str) + Send + Sync),
+    ) -> Result<std::process::Output, AgentError> {
+        let result = self.run_command(binary, args);
+        match &result {
+            Ok(output) => {
+                for bytes in [&output.stdout, &output.stderr] {
+                    for chunk in bytes.chunks(2048) {
+                        on_output(&String::from_utf8_lossy(chunk));
+                    }
+                }
+            }
+            Err(error) => on_output(&error.to_string()),
+        }
+        result
+    }
     /// Node downloads can be cancelled without interrupting package-manager operations.
     fn run_cancellable_download(
         &self,
@@ -177,6 +214,69 @@ fn wait_for_download(
 }
 
 impl SystemRunner for RealSystemRunner {
+    fn run_command_with_input(
+        &self,
+        binary: &str,
+        args: &[&str],
+        input: &[u8],
+    ) -> Result<std::process::Output, AgentError> {
+        use std::io::Write;
+        use std::process::Stdio;
+        if !["sendmail", "doveadm"].contains(&binary) || input.len() > 2 * 1024 * 1024 {
+            return Err(AgentError::SecurityViolation(
+                "Input command email tidak valid".into(),
+            ));
+        }
+        let mut child = panel_core::production::system_command(binary)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| AgentError::Internal("stdin tidak tersedia".into()))?;
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(move || stdin.write_all(input));
+            let output = child.wait_with_output()?;
+            writer
+                .join()
+                .map_err(|_| AgentError::Internal("Penulisan email terhenti".into()))??;
+            if !output.status.success() {
+                return Err(AgentError::Internal(format!(
+                    "{binary} menolak email; periksa log layanan"
+                )));
+            }
+            Ok(output)
+        })
+    }
+    fn run_command_streamed(
+        &self,
+        binary: &str,
+        args: &[&str],
+        on_output: &(dyn Fn(&str) + Send + Sync),
+    ) -> Result<std::process::Output, AgentError> {
+        if ![
+            "apt-get",
+            "apt-cache",
+            "add-apt-repository",
+            "systemctl",
+            "dpkg-query",
+        ]
+        .contains(&binary)
+        {
+            return Err(AgentError::SecurityViolation(
+                "Command is not an installation command".into(),
+            ));
+        }
+        let mut command = panel_core::production::system_command(binary);
+        command
+            .args(args)
+            .env("LC_ALL", "C")
+            .env("DEBIAN_FRONTEND", "noninteractive");
+        crate::installation::run_streamed_command(command, binary, on_output)
+    }
     fn run_cancellable_download(
         &self,
         args: &[&str],
@@ -198,6 +298,16 @@ impl SystemRunner for RealSystemRunner {
         // Candidate parsing must not depend on the server's display language.
         if binary == "apt-cache" {
             command.env("LC_ALL", "C");
+        }
+        if binary == "doveadm" {
+            command.args(args);
+            return crate::installation::run_streamed_command(command, binary, &|_| {}).map_err(
+                |_| {
+                    AgentError::Internal(
+                        "Dovecot gagal memproses permintaan; periksa log layanan".into(),
+                    )
+                },
+            );
         }
         let output = command.args(args).output().map_err(AgentError::Io)?;
 
@@ -430,7 +540,8 @@ pub type MockCommandResponse = (i32, Vec<u8>, Vec<u8>);
 /// never leak into test mocks.
 pub fn is_mock_system_path(path: &Path) -> bool {
     let p = path.to_string_lossy();
-    p.starts_with("/etc")
+    p.starts_with("/home")
+        || p.starts_with("/etc")
         || p.starts_with("/usr")
         || p.starts_with("/var")
         || p.starts_with("/run")
@@ -497,6 +608,15 @@ impl MockSystemRunner {
 }
 
 impl SystemRunner for MockSystemRunner {
+    fn run_command_with_input(
+        &self,
+        binary: &str,
+        args: &[&str],
+        _input: &[u8],
+    ) -> Result<std::process::Output, AgentError> {
+        // Never execute commands or persist message contents in mock diagnostics.
+        self.run_command(binary, args)
+    }
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError> {
         if !ALLOWED_BINARIES.contains(&binary) {
             return Err(AgentError::SecurityViolation(format!(

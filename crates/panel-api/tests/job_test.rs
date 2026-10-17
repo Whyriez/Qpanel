@@ -110,6 +110,124 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
 }
 
 #[tokio::test]
+async fn running_package_job_cannot_be_cancelled_and_resubmitted() {
+    let (app, pool, runner, _tmp) = setup_test_app().await;
+    let admin = SqliteUserRepository::new(pool)
+        .find_by_username("admin")
+        .await
+        .unwrap()
+        .unwrap();
+    let (job, _) = runner
+        .enqueue_database_install(admin.id, "mariadb")
+        .await
+        .unwrap();
+    assert_eq!(
+        runner
+            .job_repo
+            .claim_next_queued()
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        job.id
+    );
+    let (cookie, csrf) = login(&app, "admin", "AdminPass123!").await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/jobs/{}/cancel", job.id))
+                .header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={cookie}"))
+                .header("X-CSRF-Token", csrf)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let (joined, duplicate) = runner
+        .enqueue_database_install(admin.id, "mariadb")
+        .await
+        .unwrap();
+    assert!(duplicate);
+    assert_eq!(joined.id, job.id);
+    assert_eq!(joined.status, "running");
+}
+
+#[tokio::test]
+async fn durable_logs_respect_owner_and_resume_from_sequence() {
+    let (app, pool, runner, _tmp) = setup_test_app().await;
+    let alice = SqliteUserRepository::new(pool)
+        .find_by_username("alice")
+        .await
+        .unwrap()
+        .unwrap();
+    let (job, _) = runner
+        .enqueue(
+            Some(alice.id),
+            None,
+            "system.echo".into(),
+            "{}".into(),
+            Some(1),
+        )
+        .await
+        .unwrap();
+    assert!(process_one_job(&runner).await.unwrap());
+    let (alice_cookie, _) = login(&app, "alice", "AlicePass123!").await;
+    let (bob_cookie, _) = login(&app, "bob", "BobPass123!").await;
+    let (admin_cookie, _) = login(&app, "admin", "AdminPass123!").await;
+    let get = |cookie: &str, path: String| {
+        Request::builder()
+            .uri(path)
+            .header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={cookie}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let response = app
+        .clone()
+        .oneshot(get(&alice_cookie, format!("/api/v1/jobs/{}/logs", job.id)))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let events: Vec<panel_api::jobs::JobProgressEvent> =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert!(events.len() >= 3);
+    assert_eq!(events.last().unwrap().status, "succeeded");
+    let sequence = events.last().unwrap().sequence.unwrap();
+    let response = app
+        .clone()
+        .oneshot(get(
+            &alice_cookie,
+            format!("/api/v1/jobs/{}/logs?after={sequence}", job.id),
+        ))
+        .await
+        .unwrap();
+    let events: Vec<panel_api::jobs::JobProgressEvent> =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert!(events.is_empty());
+    let forbidden = app
+        .clone()
+        .oneshot(get(&bob_cookie, format!("/api/v1/jobs/{}/logs", job.id)))
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    let allowed = app
+        .clone()
+        .oneshot(get(&admin_cookie, format!("/api/v1/jobs/{}/logs", job.id)))
+        .await
+        .unwrap();
+    assert_eq!(allowed.status(), StatusCode::OK);
+    let sse = app
+        .oneshot(get(
+            &alice_cookie,
+            format!("/api/v1/jobs/{}/events", job.id),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(sse.headers().get("x-accel-buffering").unwrap(), "no");
+}
+
+#[tokio::test]
 async fn deleted_actor_cannot_execute_a_previously_queued_job() {
     let (_app, core, runner, _tmp) = setup_test_app().await;
     let alice = SqliteUserRepository::new(core.clone())

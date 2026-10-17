@@ -11,6 +11,52 @@ pub struct SqliteJobRepository {
 }
 
 impl SqliteJobRepository {
+    /// SQLite serializes this INSERT/SELECT transaction across API workers.
+    pub async fn create_or_find_active(&self, input: &CreateJob) -> Result<(Job, bool), DbError> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let mut tx = self.pool.begin().await?;
+        let inserted = sqlx::query(
+            "INSERT INTO jobs (id,user_id,name,status,progress,payload_json,retry_count,max_retries,created_at,updated_at) SELECT ?,?,?,'queued',0,?,0,?,?,? WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE name=? AND payload_json=? AND status IN ('queued','running'))"
+        ).bind(&input.id).bind(input.user_id).bind(&input.name).bind(&input.payload_json)
+            .bind(input.max_retries).bind(now).bind(now).bind(&input.name).bind(&input.payload_json)
+            .execute(&mut *tx).await?.rows_affected() > 0;
+        let job = sqlx::query_as::<_, Job>("SELECT * FROM jobs WHERE name=? AND payload_json=? AND status IN ('queued','running') ORDER BY created_at,id LIMIT 1")
+            .bind(&input.name).bind(&input.payload_json).fetch_one(&mut *tx).await?;
+        tx.commit().await?;
+        Ok((job, !inserted))
+    }
+
+    pub async fn append_event(&self, event: &crate::models::job::JobEvent) -> Result<i64, DbError> {
+        let mut tx = self.pool.begin().await?;
+        let sequence = sqlx::query(
+            "INSERT INTO job_events(job_id,status,progress,message,timestamp) VALUES(?,?,?,?,?)",
+        )
+        .bind(&event.job_id)
+        .bind(&event.status)
+        .bind(event.progress)
+        .bind(&event.message)
+        .bind(event.timestamp)
+        .execute(&mut *tx)
+        .await?
+        .last_insert_rowid();
+        // Bound retained history independently per job; live delivery continues.
+        sqlx::query("DELETE FROM job_events WHERE job_id=? AND sequence <= (SELECT sequence FROM job_events WHERE job_id=? ORDER BY sequence DESC LIMIT 1 OFFSET 5000)")
+            .bind(&event.job_id).bind(&event.job_id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(sequence)
+    }
+
+    pub async fn events_after(
+        &self,
+        job_id: &str,
+        after: i64,
+    ) -> Result<Vec<crate::models::job::JobEvent>, DbError> {
+        Ok(sqlx::query_as("SELECT sequence,job_id,status,progress,message,timestamp FROM job_events WHERE job_id=? AND sequence>? ORDER BY sequence LIMIT 5000")
+            .bind(job_id).bind(after).fetch_all(&self.pool).await?)
+    }
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
@@ -167,6 +213,7 @@ impl SqliteJobRepository {
             UPDATE jobs
             SET status = 'cancelled', updated_at = ?
             WHERE id = ? AND status IN ('queued', 'running')
+              AND NOT (status = 'running' AND name IN ('php.install','php.repo.setup','database.server.install','cloudflare.install','cloudflare.change','email.install','email.mailbox','email.send','email.deliver'))
             "#,
         )
         .bind(now)

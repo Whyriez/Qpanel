@@ -1,10 +1,8 @@
 //! Notification dispatch and system alert evaluation service.
 
 use crate::agent_client::AgentClient;
-use crate::mail::{EmailMessage, SmtpClient, SmtpConfig};
-use panel_core::notification::{
-    NotificationCategory, NotificationSeverity, format_alert_email_body, format_alert_email_subject,
-};
+
+use panel_core::notification::{NotificationCategory, NotificationSeverity};
 use panel_db::error::DbError;
 use panel_db::models::{CreateNotificationInput, NotificationFilter, NotificationModel};
 use panel_db::pool::DbPool;
@@ -14,7 +12,7 @@ use panel_db::repositories::{
 };
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct DispatchNotificationEvent {
@@ -30,7 +28,8 @@ pub struct DispatchNotificationEvent {
 
 #[derive(Clone)]
 pub struct NotificationService {
-    _pool: DbPool,
+    pool: DbPool,
+    job_runner: Option<Arc<crate::jobs::runner::JobRunner>>,
     notif_repo: SqliteNotificationRepository,
     user_repo: SqliteUserRepository,
     cert_repo: SqliteCertificateRepository,
@@ -45,11 +44,16 @@ impl NotificationService {
             user_repo: SqliteUserRepository::new(pool.clone()),
             cert_repo: SqliteCertificateRepository::new(pool.clone()),
             plan_repo: SqlitePlanRepository::new(pool.clone()),
-            _pool: pool,
+            pool,
+            job_runner: None,
             agent_client,
         }
     }
 
+    pub fn with_job_runner(mut self, runner: Arc<crate::jobs::runner::JobRunner>) -> Self {
+        self.job_runner = Some(runner);
+        self
+    }
     pub fn notif_repo(&self) -> &SqliteNotificationRepository {
         &self.notif_repo
     }
@@ -120,41 +124,64 @@ impl NotificationService {
             return Ok(model);
         }
 
-        let smtp_config = SmtpConfig {
-            host: smtp_host,
-            port: settings.smtp_port as u16,
-            username: settings.smtp_username,
-            password: settings.smtp_password_enc,
-            encryption: settings.smtp_encryption,
-            from_address: settings.from_address,
-            from_name: settings.from_name,
-        };
+        self.enqueue_email(&event, recipients).await;
+        Ok(model)
+    }
 
-        let subject = format_alert_email_subject(event.category, &event.title);
-        let body = format_alert_email_body(
-            event.category,
+    async fn email_content(
+        &self,
+        event: &DispatchNotificationEvent,
+    ) -> Result<(String, String), String> {
+        crate::email::load_template(&self.pool).await?.render(
             &event.title,
             &event.message,
-            event.action_url.as_deref(),
-        );
+            event.category.as_str(),
+            event.action_url.as_deref().unwrap_or("/dashboard"),
+        )
+    }
 
-        // Spawn async mail delivery
-        tokio::spawn(async move {
-            for to in recipients {
-                let msg = EmailMessage {
-                    to: to.clone(),
-                    subject: subject.clone(),
-                    body: body.clone(),
-                };
-                if let Err(e) = SmtpClient::send_mail(&smtp_config, &msg).await {
-                    warn!("Gagal mengirim notifikasi email ke {to}: {e}");
-                } else {
-                    info!("Notifikasi email berhasil terkirim ke {to}");
-                }
+    async fn queue_delivery(
+        &self,
+        user_id: Option<i64>,
+        to: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<(), DbError> {
+        let Some(runner) = &self.job_runner else {
+            return Ok(());
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO email_deliveries(id,user_id,to_address,subject,body,created_at) VALUES(?,?,?,?,?,?)")
+            .bind(&id).bind(user_id).bind(to).bind(subject).bind(body).bind(chrono::Utc::now().timestamp()).execute(&self.pool).await.map_err(DbError::Sqlx)?;
+        runner
+            .enqueue(
+                user_id,
+                Some(id.clone()),
+                "email.deliver".into(),
+                serde_json::json!({"id":id}).to_string(),
+                Some(0),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn enqueue_email(&self, event: &DispatchNotificationEvent, recipients: Vec<String>) {
+        if self.job_runner.is_none() {
+            return;
+        }
+        let Ok((subject, body)) = self.email_content(event).await else {
+            warn!("Template email tidak dapat dirender; notifikasi tetap tersedia di panel");
+            return;
+        };
+        for to in recipients {
+            if self
+                .queue_delivery(event.user_id, &to, &subject, &body)
+                .await
+                .is_err()
+            {
+                warn!("Notifikasi email gagal masuk antrean");
             }
-        });
-
-        Ok(model)
+        }
     }
 
     /// Evaluates system health and alerts: SSL expiration and Quota threshold.

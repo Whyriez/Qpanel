@@ -328,7 +328,7 @@ export async function fetchJobs(
 }
 
 export async function fetchJobDetail(id: string): Promise<JobItem> {
-  return request<JobItem>(`/api/v1/jobs/${id}`);
+  return request<JobItem>(`/api/v1/jobs/${encodeURIComponent(id)}`);
 }
 
 export async function cancelJob(id: string): Promise<JobItem> {
@@ -367,6 +367,10 @@ export function subscribeJobEvents(
   return () => {
     eventSource.close();
   };
+}
+
+export function fetchJobLogs(id: string, after = 0): Promise<JobProgressEvent[]> {
+  return request<JobProgressEvent[]>(`/api/v1/jobs/${encodeURIComponent(id)}/logs?after=${after}`);
 }
 
 // Plans API

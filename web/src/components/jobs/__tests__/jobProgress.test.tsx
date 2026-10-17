@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { JobQueueNotice } from '../JobQueueNotice';
 import { RuntimeJobProgress } from '../../runtime/RuntimeJobProgress';
-import { jobProgressMessage, jobSnapshotEvent } from '../../../lib/jobProgress';
+import { jobProgressMessage, jobSnapshotEvent, mergeJobEvents, canCancelJob } from '../../../lib/jobProgress';
 import type { JobItem, JobStatus } from '../../../types/api';
 
 const job: JobItem = {
@@ -12,6 +12,20 @@ const job: JobItem = {
 };
 
 describe('Queue and monitor progress', () => {
+  it('replays identical log lines with different sequence IDs once each', () => {
+    const event = { ...jobSnapshotEvent(job), status: 'running' as const, message: 'Unpacking PHP' };
+    const merged = mergeJobEvents([{ ...event, sequence: 2 }], [{ ...event, sequence: 1 }, { ...event, sequence: 2 }, { ...event, sequence: 3 }]);
+    expect(merged.map(item => item.sequence)).toEqual([1, 2, 3]);
+    expect(mergeJobEvents(merged, merged)).toEqual(merged);
+    expect(mergeJobEvents([], [{ ...event, sequence: 2, timestamp: 1 }, { ...event, sequence: 1, timestamp: 2 }]).map(item => item.sequence)).toEqual([1, 2]);
+  });
+
+  it('keeps package installs locked while running but permits queued cancellation', () => {
+    expect(canCancelJob({ ...job, name: 'database.server.install', status: 'running' })).toBe(false);
+    expect(canCancelJob({ ...job, name: 'php.install', status: 'running' })).toBe(false);
+    expect(canCancelJob(job)).toBe(true);
+    expect(canCancelJob({ ...job, name: 'node.install', status: 'running' })).toBe(true);
+  });
   it('explains waiting without implying installation has started', () => {
     const html = renderToString(<JobQueueNotice jobId={job.id} />);
     expect(html).toContain('Tugas ini masih antre. Eksekusi belum dimulai.');
@@ -22,7 +36,7 @@ describe('Queue and monitor progress', () => {
     const html = renderToString(<RuntimeJobProgress job={job} runtime="repositori PHP" />);
     expect(html).toContain('Menunggu giliran worker. Tugas belum dimulai.');
     expect(html).toContain('value="0"');
-    expect(html).toContain('href="/jobs"');
+    expect(html).toContain('href="/jobs?job=php-repo"');
     expect(html).toContain('Progres tugas repositori PHP');
   });
 

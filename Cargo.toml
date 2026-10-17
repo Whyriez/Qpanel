@@ -81,6 +81,8 @@ idna = "1.0"
 minijinja = "2.7"
 rcgen = "0.14"
 x509-parser = "0.18"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "0.8"
 instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "ring", "rcgen"] }
 time = "0.3"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }

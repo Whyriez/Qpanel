@@ -1,13 +1,12 @@
 use base64::prelude::*;
-use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use std::{sync::Arc, time::Duration};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tracing::debug;
+use tokio_rustls::{TlsConnector, rustls};
 
 const SMTP_TIMEOUT: Duration = Duration::from_secs(10);
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
@@ -17,321 +16,237 @@ pub struct SmtpConfig {
     pub from_address: String,
     pub from_name: String,
 }
-
-#[derive(Debug, Clone)]
-pub struct EmailMessage {
-    pub to: String,
-    pub subject: String,
-    pub body: String,
+impl std::fmt::Debug for SmtpConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SmtpConfig")
+            .field("host", &self.host)
+            .field("encryption", &self.encryption)
+            .field("password", &"[redacted]")
+            .finish_non_exhaustive()
+    }
 }
-
+pub use panel_core::email::{EmailMessage, build_message};
 pub struct SmtpClient;
-
 impl SmtpClient {
-    /// Tests connectivity and optional authentication with the target SMTP server.
     pub async fn test_connection(config: &SmtpConfig) -> Result<(), String> {
-        let mut session = SmtpSession::connect(config).await?;
-        session.handshake(config).await?;
-        session.quit().await?;
-        Ok(())
+        timeout(Duration::from_secs(45), async {
+            let mut session = SmtpSession::connect(config).await?;
+            session.command("QUIT", &[221]).await.map(|_| ())
+        })
+        .await
+        .map_err(|_| "Uji SMTP melewati batas waktu".to_string())?
     }
-
-    /// Sends an email message asynchronously over SMTP.
     pub async fn send_mail(config: &SmtpConfig, msg: &EmailMessage) -> Result<(), String> {
-        let mut session = SmtpSession::connect(config).await?;
-        session.handshake(config).await?;
-        session.send_message(config, msg).await?;
-        session.quit().await?;
-        Ok(())
+        let mime = build_message(&config.from_address, &config.from_name, msg)?;
+        timeout(Duration::from_secs(60), async {
+            let mut session = SmtpSession::connect(config).await?;
+            session
+                .command(&format!("MAIL FROM:<{}>", config.from_address), &[250])
+                .await?;
+            session
+                .command(&format!("RCPT TO:<{}>", msg.to), &[250, 251])
+                .await?;
+            session.command("DATA", &[354]).await?;
+            session.write(&format!("{mime}\r\n.\r\n")).await?;
+            session.reply(&[250]).await?;
+            // Acceptance is final; a failed QUIT must never cause duplicate delivery.
+            let _ = session.command("QUIT", &[221]).await;
+            Ok(())
+        })
+        .await
+        .map_err(|_| {
+            "Pengiriman SMTP melewati batas waktu; periksa antrean sebelum mengirim ulang"
+                .to_string()
+        })?
     }
 }
-
+trait SmtpIo: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> SmtpIo for T {}
+type Stream = Box<dyn SmtpIo>;
 struct SmtpSession {
-    reader: BufReader<tokio::net::tcp::OwnedReadHalf>,
-    writer: tokio::net::tcp::OwnedWriteHalf,
+    reader: BufReader<Stream>,
 }
-
 impl SmtpSession {
     async fn connect(config: &SmtpConfig) -> Result<Self, String> {
-        let addr = format!("{}:{}", config.host, config.port);
-        let stream = timeout(SMTP_TIMEOUT, TcpStream::connect(&addr))
-            .await
-            .map_err(|_| format!("Koneksi SMTP ke {addr} timeout setelah 10 detik"))?
-            .map_err(|e| format!("Gagal terhubung ke SMTP {addr}: {e}"))?;
-
-        let (read_half, writer) = stream.into_split();
-        let mut reader = BufReader::new(read_half);
-
-        let mut line = String::new();
-        let read_res = timeout(SMTP_TIMEOUT, reader.read_line(&mut line))
-            .await
-            .map_err(|_| "Timeout membaca banner awal SMTP".to_string())?
-            .map_err(|e| format!("Error membaca banner SMTP: {e}"))?;
-
-        if read_res == 0 || !line.starts_with("220") {
-            return Err(format!("Banner SMTP tidak valid: {}", line.trim()));
-        }
-
-        debug!("SMTP Connected: {}", line.trim());
-        Ok(Self { reader, writer })
+        Self::connect_with_trust(config, None).await
     }
-
-    async fn send_command(&mut self, cmd: &str) -> Result<(), String> {
-        self.writer
-            .write_all(format!("{cmd}\r\n").as_bytes())
-            .await
-            .map_err(|e| format!("Gagal mengirim perintah SMTP: {e}"))?;
-        self.writer
-            .flush()
-            .await
-            .map_err(|e| format!("Gagal flush perintah SMTP: {e}"))
-    }
-
-    async fn read_multiline_reply(&mut self) -> Result<(u16, Vec<String>), String> {
-        let mut lines = Vec::new();
-        loop {
-            let mut line = String::new();
-            let n = timeout(SMTP_TIMEOUT, self.reader.read_line(&mut line))
-                .await
-                .map_err(|_| "Timeout membaca respons SMTP".to_string())?
-                .map_err(|e| format!("Gagal membaca respons SMTP: {e}"))?;
-
-            if n == 0 {
-                return Err("Koneksi SMTP ditutup oleh server".to_string());
-            }
-
-            let trimmed = line.trim_end();
-            if trimmed.len() < 3 {
-                return Err(format!("Respons SMTP tidak valid: '{trimmed}'"));
-            }
-
-            lines.push(trimmed.to_string());
-
-            let is_hyphen = trimmed.as_bytes().get(3) == Some(&b'-');
-            if !is_hyphen {
-                let code_str = &trimmed[..3];
-                let code: u16 = code_str
-                    .parse()
-                    .map_err(|_| format!("Kode status SMTP tidak valid: '{code_str}'"))?;
-                return Ok((code, lines));
-            }
-        }
-    }
-
-    async fn handshake(&mut self, config: &SmtpConfig) -> Result<(), String> {
-        self.send_command("EHLO localhost").await?;
-        let (code, _lines) = self.read_multiline_reply().await?;
-        if code != 250 {
-            // Fallback to HELO if EHLO not accepted
-            self.send_command("HELO localhost").await?;
-            let (helo_code, _) = self.read_multiline_reply().await?;
-            if helo_code != 250 {
-                return Err(format!("Server menolak HELO/EHLO (status {helo_code})"));
-            }
-        }
-
-        // Authentication if credentials supplied
-        if let (Some(user), Some(pass)) = (&config.username, &config.password)
-            && !user.is_empty()
-        {
-            self.send_command("AUTH LOGIN").await?;
-            let (auth_code, _) = self.read_multiline_reply().await?;
-            if auth_code != 334 {
-                return Err(format!("AUTH LOGIN ditolak (status {auth_code})"));
-            }
-
-            // Send base64 username
-            let user_b64 = BASE64_STANDARD.encode(user.as_bytes());
-            self.send_command(&user_b64).await?;
-            let (user_code, _) = self.read_multiline_reply().await?;
-            if user_code != 334 {
-                return Err(format!("Username SMTP ditolak (status {user_code})"));
-            }
-
-            // Send base64 password
-            let pass_b64 = BASE64_STANDARD.encode(pass.as_bytes());
-            self.send_command(&pass_b64).await?;
-            let (pass_code, _) = self.read_multiline_reply().await?;
-            if pass_code != 235 {
-                return Err(format!("Autentikasi SMTP gagal (status {pass_code})"));
-            }
-            debug!("SMTP Authenticated successfully as {}", user);
-        }
-
-        Ok(())
-    }
-
-    async fn send_message(
-        &mut self,
+    async fn connect_with_trust(
         config: &SmtpConfig,
-        msg: &EmailMessage,
-    ) -> Result<(), String> {
-        self.send_command(&format!("MAIL FROM:<{}>", config.from_address))
-            .await?;
-        let (from_code, _) = self.read_multiline_reply().await?;
-        if from_code != 250 {
-            return Err(format!(
-                "Alamat pengirim ditolak oleh server (status {from_code})"
-            ));
+        trust: Option<Arc<rustls::ClientConfig>>,
+    ) -> Result<Self, String> {
+        validate_config(config)?;
+        let socket = timeout(
+            SMTP_TIMEOUT,
+            TcpStream::connect((config.host.as_str(), config.port)),
+        )
+        .await
+        .map_err(|_| "Koneksi SMTP timeout")?
+        .map_err(|_| "Tidak dapat terhubung ke SMTP")?;
+        let mut stream: Stream = Box::new(socket);
+        if config.encryption == "tls" {
+            stream = tls(stream, &config.host, trust.clone()).await?;
         }
-
-        self.send_command(&format!("RCPT TO:<{}>", msg.to)).await?;
-        let (to_code, _) = self.read_multiline_reply().await?;
-        if to_code != 250 {
-            return Err(format!(
-                "Alamat penerima '{}' ditolak oleh server (status {to_code})",
-                msg.to
-            ));
-        }
-
-        self.send_command("DATA").await?;
-        let (data_code, _) = self.read_multiline_reply().await?;
-        if data_code != 354 {
-            return Err(format!("Server menolak payload DATA (status {data_code})"));
-        }
-
-        // Format headers & body
-        let header_from = if config.from_name.is_empty() {
-            format!("From: <{}>\r\n", config.from_address)
-        } else {
-            format!(
-                "From: \"{}\" <{}>\r\n",
-                config.from_name, config.from_address
-            )
+        let mut session = Self {
+            reader: BufReader::new(stream),
         };
-        let header_to = format!("To: <{}>\r\n", msg.to);
-        let header_subj = format!("Subject: {}\r\n", msg.subject);
-        let mime_header = "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n";
-
-        // Dot stuffing per RFC 5321 (lines starting with '.' must be prefixed with another '.')
-        let mut sanitized_body = String::new();
-        for line in msg.body.lines() {
-            if line.starts_with('.') {
-                sanitized_body.push('.');
+        session.reply(&[220]).await?;
+        let capabilities = session.command("EHLO qpanel.local", &[250]).await?;
+        if config.encryption == "starttls" {
+            if !capabilities.lines().any(|line| {
+                line.get(4..)
+                    .is_some_and(|v| v.trim().eq_ignore_ascii_case("STARTTLS"))
+            }) {
+                return Err("Server tidak menawarkan STARTTLS; autentikasi dibatalkan".into());
             }
-            sanitized_body.push_str(line);
-            sanitized_body.push_str("\r\n");
+            session.command("STARTTLS", &[220]).await?;
+            if !session.reader.buffer().is_empty() {
+                return Err("Balasan STARTTLS tidak valid".into());
+            }
+            session.reader =
+                BufReader::new(tls(session.reader.into_inner(), &config.host, trust).await?);
+            session.command("EHLO qpanel.local", &[250]).await?;
         }
-
-        let full_payload = format!(
-            "{}{}{}{}\r\n{}.\r\n",
-            header_from, header_to, header_subj, mime_header, sanitized_body
-        );
-
-        self.writer
-            .write_all(full_payload.as_bytes())
-            .await
-            .map_err(|e| format!("Gagal menulis payload email: {e}"))?;
-        self.writer
-            .flush()
-            .await
-            .map_err(|e| format!("Gagal flush payload email: {e}"))?;
-
-        let (sent_code, _) = self.read_multiline_reply().await?;
-        if sent_code != 250 {
-            return Err(format!("Pengiriman email ditolak (status {sent_code})"));
+        if let Some(username) = config.username.as_ref().filter(|s| !s.is_empty()) {
+            session.command("AUTH LOGIN", &[334]).await?;
+            session
+                .command(&BASE64_STANDARD.encode(username), &[334])
+                .await?;
+            session
+                .command(
+                    &BASE64_STANDARD.encode(config.password.as_deref().unwrap_or_default()),
+                    &[235],
+                )
+                .await?;
         }
-
-        debug!("Email successfully sent to {}", msg.to);
-        Ok(())
+        Ok(session)
     }
-
-    async fn quit(&mut self) -> Result<(), String> {
-        let _ = self.send_command("QUIT").await;
-        let _ = self.read_multiline_reply().await;
-        Ok(())
+    async fn write(&mut self, value: &str) -> Result<(), String> {
+        timeout(
+            SMTP_TIMEOUT,
+            self.reader.get_mut().write_all(value.as_bytes()),
+        )
+        .await
+        .map_err(|_| "SMTP timeout".to_string())?
+        .map_err(|_| "Gagal menulis SMTP".to_string())
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
-
-    #[tokio::test]
-    async fn test_smtp_mock_server_flow() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind listener");
-        let local_addr = listener.local_addr().expect("local addr");
-
-        // Spawn mock SMTP server in background
-        tokio::spawn(async move {
-            while let Ok((mut stream, _)) = listener.accept().await {
-                let (r, mut w) = stream.split();
-                let mut reader = BufReader::new(r);
-                let _ = w
-                    .write_all(b"220 mock.smtp.local Qpanel SMTP Test\r\n")
-                    .await;
-
-                let mut line = String::new();
-                while let Ok(n) = reader.read_line(&mut line).await {
-                    if n == 0 {
+    async fn command(&mut self, value: &str, codes: &[u16]) -> Result<String, String> {
+        self.write(&format!("{value}\r\n")).await?;
+        self.reply(codes).await
+    }
+    async fn reply(&mut self, codes: &[u16]) -> Result<String, String> {
+        timeout(SMTP_TIMEOUT, async {
+            let mut result = String::new();
+            let mut first = None;
+            for _ in 0..128 {
+                let mut line = Vec::new();
+                loop {
+                    let byte = self
+                        .reader
+                        .read_u8()
+                        .await
+                        .map_err(|_| "Koneksi SMTP terputus")?;
+                    line.push(byte);
+                    if line.len() > 8192 {
+                        return Err("Balasan SMTP terlalu panjang".to_string());
+                    }
+                    if byte == b'\n' {
                         break;
                     }
-                    let trimmed = line.trim();
-                    if trimmed.starts_with("EHLO") {
-                        let _ = w
-                            .write_all(b"250-mock.smtp.local\r\n250-AUTH LOGIN\r\n250 8BITMIME\r\n")
-                            .await;
-                    } else if trimmed == "AUTH LOGIN" {
-                        let _ = w.write_all(b"334 VXNlcm5hbWU6\r\n").await;
-                    } else if trimmed == "dXNlcm5hbWU=" {
-                        // "username"
-                        let _ = w.write_all(b"334 UGFzc3dvcmQ6\r\n").await;
-                    } else if trimmed == "cGFzc3dvcmQ=" {
-                        // "password"
-                        let _ = w
-                            .write_all(b"235 2.7.0 Authentication successful\r\n")
-                            .await;
-                    } else if trimmed.starts_with("MAIL FROM:") {
-                        let _ = w.write_all(b"250 2.1.0 Sender OK\r\n").await;
-                    } else if trimmed.starts_with("RCPT TO:") {
-                        let _ = w.write_all(b"250 2.1.5 Recipient OK\r\n").await;
-                    } else if trimmed == "DATA" {
-                        let _ = w
-                            .write_all(b"354 Start mail input; end with <CRLF>.<CRLF>\r\n")
-                            .await;
-                    } else if trimmed == "." {
-                        let _ = w.write_all(b"250 2.0.0 OK queued\r\n").await;
-                    } else if trimmed == "QUIT" {
-                        let _ = w.write_all(b"221 2.0.0 Bye\r\n").await;
-                        break;
-                    }
-                    line.clear();
+                }
+                if line.len() < 5
+                    || !line[..3].iter().all(u8::is_ascii_digit)
+                    || !matches!(line[3], b' ' | b'-')
+                {
+                    return Err("Format balasan SMTP tidak valid".into());
+                }
+                let code = u16::from(line[0] - b'0') * 100
+                    + u16::from(line[1] - b'0') * 10
+                    + u16::from(line[2] - b'0');
+                if first.is_some_and(|v| v != code) || !codes.contains(&code) {
+                    return Err(format!("SMTP menolak operasi (kode {code})"));
+                }
+                first = Some(code);
+                result
+                    .push_str(std::str::from_utf8(&line).map_err(|_| "Balasan SMTP bukan UTF-8")?);
+                if line[3] == b' ' {
+                    return Ok(result);
                 }
             }
-        });
-
-        let config = SmtpConfig {
-            host: "127.0.0.1".to_string(),
-            port: local_addr.port(),
-            username: Some("username".to_string()),
-            password: Some("password".to_string()),
-            encryption: "none".to_string(),
-            from_address: "panel@local".to_string(),
-            from_name: "Qpanel".to_string(),
-        };
-
-        // Test connection
-        let conn_res = SmtpClient::test_connection(&config).await;
-        assert!(
-            conn_res.is_ok(),
-            "Test connection failed: {:?}",
-            conn_res.err()
-        );
-
-        // Test sending mail
-        let send_res = SmtpClient::send_mail(
-            &config,
-            &EmailMessage {
-                to: "admin@local".to_string(),
-                subject: "[Test] Alert".to_string(),
-                body: "This is a test notification message.".to_string(),
-            },
-        )
-        .await;
-        assert!(send_res.is_ok(), "Send mail failed: {:?}", send_res.err());
+            Err("Terlalu banyak baris balasan SMTP".into())
+        })
+        .await
+        .map_err(|_| "Timeout membaca SMTP".to_string())?
     }
 }
+fn system_trust() -> Result<Arc<rustls::ClientConfig>, String> {
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in rustls_native_certs::load_native_certs().certs {
+        roots
+            .add(cert)
+            .map_err(|_| "Sertifikat CA lokal tidak valid")?;
+    }
+    if roots.is_empty() {
+        return Err("CA tepercaya belum tersedia pada server".into());
+    }
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|_| "Konfigurasi TLS gagal")?
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    Ok(Arc::new(config))
+}
+async fn tls(
+    stream: Stream,
+    host: &str,
+    trust: Option<Arc<rustls::ClientConfig>>,
+) -> Result<Stream, String> {
+    let config = match trust {
+        Some(config) => config,
+        None => system_trust()?,
+    };
+    let name = rustls::pki_types::ServerName::try_from(host.to_owned())
+        .map_err(|_| "Hostname TLS tidak valid")?;
+    let stream = timeout(
+        SMTP_TIMEOUT,
+        TlsConnector::from(config).connect(name, stream),
+    )
+    .await
+    .map_err(|_| "Negosiasi TLS timeout")?
+    .map_err(|_| "TLS SMTP gagal; periksa sertifikat dan hostname")?;
+    Ok(Box::new(stream))
+}
+pub fn validate_config(config: &SmtpConfig) -> Result<(), String> {
+    if config.host.is_empty()
+        || config.host.len() > 253
+        || config
+            .host
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\'))
+        || config.port == 0
+    {
+        return Err("Host atau port SMTP tidak valid".into());
+    }
+    match config.encryption.as_str() {
+        "tls" | "starttls" => {}
+        "none"
+            if config.host == "localhost"
+                || config
+                    .host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback()) => {}
+        _ => {
+            return Err("Gunakan TLS/STARTTLS; koneksi tanpa enkripsi hanya untuk loopback".into());
+        }
+    }
+    if config.username.as_ref().is_some_and(|s| s.len() > 1024)
+        || config.password.as_ref().is_some_and(|s| s.len() > 4096)
+    {
+        return Err("Kredensial SMTP terlalu panjang".into());
+    }
+    Ok(())
+}
+#[cfg(test)]
+#[path = "mail_tests.rs"]
+mod tests;

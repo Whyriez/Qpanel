@@ -4,7 +4,7 @@ import { Command } from 'cmdk';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowDown, ArrowUp, BarChart3, Check, CornerDownLeft, Cpu, FolderTree,
-  Globe, Languages, Layers, LayoutDashboard, ListTodo, LogOut, Monitor,
+  Globe, Mail, Languages, Layers, LayoutDashboard, ListTodo, LogOut, Monitor,
   Moon, Search, Settings, ShieldCheck, Sun, Terminal, UserCheck, Users, X,
 } from 'lucide-react';
 import { ThemeMode } from '../../types/api';
@@ -15,6 +15,7 @@ import { filterMenuCommands } from './commandFilter';
 const navigation = [
   { id: 'dashboard', icon: LayoutDashboard },
   { id: 'sites', icon: Globe },
+  { id: 'email', icon: Mail },
   { id: 'files', icon: FolderTree },
   { id: 'terminal', icon: Terminal },
   { id: 'analytics', icon: BarChart3 },

@@ -11,6 +11,7 @@ import {
 import { JobItem, JobProgressEvent } from '../../types/api';
 import { fetchJobs, cancelJob, subscribeJobEvents } from '../../api/client';
 import { StatusPill, StatusVariant } from '../ui/StatusPill';
+import { canCancelJob } from '../../lib/jobProgress';
 
 export interface JobTrayProps {
   onNavigateToJobs?: () => void;
@@ -154,7 +155,7 @@ export const JobTray: React.FC<JobTrayProps> = ({ onNavigateToJobs }) => {
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-[11px] text-[var(--ink-muted)] font-mono">
                       <span>{job.progress}%</span>
-                      {['queued', 'running'].includes(job.status) && (
+                      {canCancelJob(job) && (
                         <button
                           onClick={(e) => handleCancelJob(job.id, e)}
                           className="flex items-center gap-1 text-[10px] text-[var(--danger)] hover:underline"

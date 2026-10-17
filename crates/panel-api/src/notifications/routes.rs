@@ -7,10 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get, patch, post},
 };
-use panel_core::notification::{
-    validate_email_address, validate_quota_warning_percent, validate_smtp_host, validate_smtp_port,
-    validate_ssl_warning_days,
-};
+use panel_core::notification::{validate_email_address, validate_smtp_host};
 use panel_db::models::{NotificationFilter, NotificationModel, UpdateNotificationSettingsInput};
 use panel_db::repositories::SqliteNotificationRepository;
 use serde::{Deserialize, Serialize};
@@ -391,10 +388,34 @@ async fn update_notification_settings(
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
     }
 
-    if let Some(port) = payload.smtp_port
-        && let Err(e) = validate_smtp_port(port as u16)
+    if payload.smtp_port.is_some_and(|p| !(1..=65535).contains(&p)) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"Port SMTP harus 1-65535"})),
+        )
+            .into_response();
+    }
+    if payload
+        .smtp_encryption
+        .as_ref()
+        .is_some_and(|v| !["tls", "starttls", "none"].contains(&v.as_str()))
     {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"Pilihan enkripsi SMTP tidak valid"})),
+        )
+            .into_response();
+    }
+    if payload
+        .from_name
+        .as_ref()
+        .is_some_and(|v| v.len() > 128 || v.chars().any(char::is_control))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"Nama pengirim tidak valid"})),
+        )
+            .into_response();
     }
 
     if let Some(ref from) = payload.from_address
@@ -410,24 +431,42 @@ async fn update_notification_settings(
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
     }
 
-    if let Some(days) = payload.ssl_warning_days
-        && let Err(e) = validate_ssl_warning_days(days as u32)
+    if payload
+        .ssl_warning_days
+        .is_some_and(|days| !(1..=90).contains(&days))
     {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"Ambang batas SSL harus 1-90 hari"})),
+        )
+            .into_response();
     }
-
-    if let Some(pct) = payload.quota_warning_percent
-        && let Err(e) = validate_quota_warning_percent(pct as u8)
+    if payload
+        .quota_warning_percent
+        .is_some_and(|pct| !(50..=99).contains(&pct))
     {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"Ambang batas kuota harus 50-99 persen"})),
+        )
+            .into_response();
     }
-
     // Don't overwrite password with masked placeholder
-    let password_enc = match payload.smtp_password {
-        Some(ref p) if p == "********" => None,
-        Some(p) => Some(p),
-        None => None,
-    };
+    let password_enc =
+        match payload.smtp_password {
+            Some(ref p) if p == "********" => None,
+            Some(p) => match crate::email::secret(&state.agent_client, p, true).await {
+                Ok(value) => Some(value),
+                Err(_) => return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(
+                        json!({"error":"Password belum disimpan. Agent enkripsi tidak tersedia."}),
+                    ),
+                )
+                    .into_response(),
+            },
+            None => None,
+        };
 
     let notif_repo = SqliteNotificationRepository::new(state.pool.clone());
     let update_input = UpdateNotificationSettingsInput {
@@ -528,9 +567,23 @@ async fn test_smtp_connection(
     let port = payload.port.unwrap_or(current_settings.smtp_port as u16);
     let username = payload.username.or(current_settings.smtp_username);
     let password = match payload.password {
-        Some(ref p) if p == "********" => current_settings.smtp_password_enc,
-        Some(p) => Some(p),
-        None => current_settings.smtp_password_enc,
+        Some(p) if p != "********" => Some(p),
+        _ => match crate::email::smtp_password(
+            &state.pool,
+            &state.agent_client,
+            current_settings.smtp_password_enc,
+        )
+        .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error":"Password SMTP tidak dapat dibuka oleh agent"})),
+                )
+                    .into_response();
+            }
+        },
     };
     let encryption = payload
         .encryption
@@ -570,7 +623,7 @@ async fn test_smtp_connection(
             StatusCode::OK,
             Json(json!({
                 "success": true,
-                "message": format!("Email uji coba berhasil dikirim ke {}", to_address)
+                "message": format!("Server SMTP menerima email uji coba untuk {}", to_address)
             })),
         )
             .into_response(),
@@ -593,7 +646,8 @@ async fn evaluate_alerts(
     let service = NotificationService::new(
         state.pool.clone(),
         Some(std::sync::Arc::clone(&state.agent_client)),
-    );
+    )
+    .with_job_runner(std::sync::Arc::clone(&state.job_runner));
     match service.evaluate_system_alerts().await {
         Ok(triggered) => (
             StatusCode::OK,

@@ -17,6 +17,58 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use utoipa::{IntoParams, ToSchema};
 
+#[derive(Debug, Default, Deserialize, IntoParams)]
+pub struct JobLogQuery {
+    pub after: Option<i64>,
+}
+
+#[utoipa::path(get, path = "/api/v1/jobs/{id}/logs", params(("id" = String, Path), JobLogQuery),
+    responses((status = 200, body = Vec<crate::jobs::events::JobProgressEvent>)), tag = "jobs")]
+pub async fn job_logs_handler(
+    State(state): State<AppState>,
+    RequireAuth(user): RequireAuth,
+    Path(id): Path<String>,
+    Query(query): Query<JobLogQuery>,
+) -> Response {
+    let repo = SqliteJobRepository::new(state.operations_read_pool.clone());
+    let job = match repo.find_by_id(&id).await {
+        Ok(Some(job)) => job,
+        Ok(None) => return (StatusCode::NOT_FOUND, "Tugas tidak ditemukan").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Gagal memuat tugas").into_response(),
+    };
+    if !user.is_admin()
+        && !job
+            .user_id
+            .is_some_and(|owner_id| user.authorize(&Action::ManageJob { owner_id }))
+    {
+        return (StatusCode::FORBIDDEN, "Akses log tugas ditolak").into_response();
+    }
+    match repo
+        .events_after(&id, query.after.unwrap_or(0).max(0))
+        .await
+    {
+        Ok(events) => Json(
+            events
+                .into_iter()
+                .map(|event| JobProgressEvent {
+                    sequence: Some(event.sequence),
+                    job_id: event.job_id,
+                    status: event.status,
+                    progress: event.progress,
+                    message: event.message,
+                    timestamp: event.timestamp,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Gagal memuat riwayat log tugas",
+        )
+            .into_response(),
+    }
+}
+
 use crate::auth::{RequireAuth, RequireCsrf};
 use crate::jobs::events::JobProgressEvent;
 use crate::routes::AppState;
@@ -288,9 +340,10 @@ pub async fn get_job_handler(
     post,
     path = "/api/v1/jobs/{id}/cancel",
     responses(
-        (status = 200, description = "Job cancelled successfully", body = JobItem),
+        (status = 200, description = "Tugas dibatalkan", body = JobItem),
         (status = 401, description = "Unauthorized"),
         (status = 403, description = "Forbidden: Cannot cancel another user's job"),
+        (status = 409, description = "Running installation or email operation cannot be cancelled safely"),
         (status = 404, description = "Job not found"),
         (status = 500, description = "Internal database error")
     ),
@@ -337,6 +390,9 @@ pub async fn cancel_job_handler(
 
     let updated = match state.job_runner.cancel(&id).await {
         Ok(u) => u.unwrap_or(job),
+        Err(panel_db::DbError::Conflict(message)) => {
+            return (StatusCode::CONFLICT, message).into_response();
+        }
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -376,6 +432,8 @@ pub async fn job_events_handler(
     RequireAuth(user): RequireAuth,
     Path(id): Path<String>,
 ) -> Response {
+    // Subscribe before reading the snapshot, so completion cannot fall into a gap.
+    let rx = state.job_runner.subscribe();
     let job_repo = SqliteJobRepository::new(state.operations_read_pool.clone());
     let job = match job_repo.find_by_id(&id).await {
         Ok(Some(j)) => j,
@@ -411,12 +469,13 @@ pub async fn job_events_handler(
     }
 
     let initial_event = JobProgressEvent {
+        sequence: None,
         job_id: job.id.clone(),
         status: job.status.clone(),
         progress: job.progress,
         message: job.error_message.clone().or_else(|| {
             if job.status == "succeeded" {
-                Some("Job completed successfully".to_string())
+                Some("Tugas selesai.".to_string())
             } else {
                 None
             }
@@ -433,12 +492,16 @@ pub async fn job_events_handler(
 
     if is_already_terminal {
         // Stream only the final state and close
-        return Sse::new(initial_stream.boxed())
+        let mut response = Sse::new(initial_stream.boxed())
             .keep_alive(KeepAlive::default())
             .into_response();
+        response.headers_mut().insert(
+            "x-accel-buffering",
+            axum::http::HeaderValue::from_static("no"),
+        );
+        return response;
     }
 
-    let rx = state.job_runner.subscribe();
     let target_id = id.clone();
 
     let rx_stream = futures_util::stream::unfold(Some((rx, target_id)), |state| async move {
@@ -465,7 +528,12 @@ pub async fn job_events_handler(
     });
 
     let combined_stream = initial_stream.chain(rx_stream).boxed();
-    Sse::new(combined_stream)
+    let mut response = Sse::new(combined_stream)
         .keep_alive(KeepAlive::default())
-        .into_response()
+        .into_response();
+    response.headers_mut().insert(
+        "x-accel-buffering",
+        axum::http::HeaderValue::from_static("no"),
+    );
+    response
 }

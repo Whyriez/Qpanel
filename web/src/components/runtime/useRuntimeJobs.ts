@@ -15,7 +15,7 @@ export function runtimeJobVersion(job: JobItem): string | undefined {
 }
 
 /** Recover server jobs on entry; retain accepted jobs while a list request is in flight. */
-export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>) {
+export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>, names: ReadonlySet<string> = runtimeNames) {
   const tracked = useRef(new Map<string, JobItem>());
   const notified = useRef(new Set<string>());
   const [jobs, setJobs] = useState<JobItem[]>([]);
@@ -41,7 +41,7 @@ export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>) {
           let totalPages = 1;
           do {
             const result = await fetchJobs({ status, page, per_page: 100 });
-            items.push(...result.items.filter(job => runtimeNames.has(job.name) && isActive(job)));
+            items.push(...result.items.filter(job => names.has(job.name) && isActive(job)));
             totalPages = result.total_pages;
             page++;
           } while (page <= totalPages);
@@ -59,8 +59,9 @@ export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>) {
           else {
             if (!notified.current.has(job.id)) {
               notified.current.add(job.id);
-              if (job.status === 'failed') toast.error(`${job.name === 'node.install' ? 'Pemasangan Node.js' : 'Tugas PHP'} gagal`, { description: job.error_message || 'Lihat rincian pada halaman Tugas.' });
-              if (job.status === 'succeeded') toast.success(job.name === 'node.install' ? 'Pemasangan Node.js selesai' : 'Tugas PHP selesai');
+              const label = job.name.startsWith('email.') ? 'Tugas email' : job.name.startsWith('cloudflare.') ? 'Tugas Cloudflare' : job.name === 'database.server.install' ? 'Pemasangan database' : job.name === 'node.install' ? 'Pemasangan Node.js' : 'Tugas PHP';
+              if (job.status === 'failed') toast.error(`${label} gagal`, { description: job.error_message || 'Lihat rincian pada halaman Tugas.' });
+              if (job.status === 'succeeded') toast.success(`${label} selesai`);
             }
             if (job.status === 'succeeded') {
               tracked.current.set(job.id, job);
@@ -89,7 +90,7 @@ export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>) {
     void check();
     const timer = setInterval(() => { void check(); }, 3000);
     return () => { active = false; clearInterval(timer); };
-  }, [onFinished]);
+  }, [onFinished, names]);
 
   return { jobs, loading, error, track };
 }

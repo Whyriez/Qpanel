@@ -2,12 +2,15 @@
 
 pub mod audit;
 pub mod backups;
+pub mod cloudflare;
 pub mod cron;
 pub mod crypto;
 pub mod databases;
+pub mod email;
 pub mod fs_manager;
 pub mod git_deploy;
 pub mod hardening;
+mod installation;
 pub mod nftables;
 pub mod node;
 pub mod node_site;
@@ -576,6 +579,13 @@ impl AgentServer {
             };
 
             let (action, target) = match &req.payload {
+                RequestPayload::Email(_) => ("email.operation".into(), "email".into()),
+                RequestPayload::Cloudflare(_) => {
+                    ("cloudflare.operation".into(), "cloudflare".into())
+                }
+                RequestPayload::InstallWithProgress(operation) => {
+                    ("installation.stream".to_string(), format!("{operation:?}"))
+                }
                 RequestPayload::Ping => ("ping".to_string(), "system".to_string()),
                 RequestPayload::Version => ("version".to_string(), "system".to_string()),
                 RequestPayload::UserCreate(d) => ("user.create".to_string(), d.username.clone()),
@@ -997,6 +1007,56 @@ impl AgentServer {
             };
 
             let response = match req.payload {
+                RequestPayload::Email(operation) => {
+                    let runner = Arc::clone(&self.runner);
+                    match tokio::task::spawn_blocking(move || {
+                        email::execute(runner.as_ref(), operation)
+                    })
+                    .await
+                    {
+                        Ok(Ok(value)) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::Email(value))
+                        }
+                        Ok(Err(error)) => RpcResponse::err(&req.request_id, error.to_string()),
+                        Err(_) => RpcResponse::err(
+                            &req.request_id,
+                            "Operasi email terhenti; periksa status sebelum mencoba kembali",
+                        ),
+                    }
+                }
+
+                RequestPayload::Cloudflare(operation) => {
+                    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+                    let _guard = LOCK.lock().await;
+                    let runner = Arc::clone(&self.runner);
+                    match tokio::task::spawn_blocking(move || {
+                        cloudflare::execute(runner.as_ref(), operation)
+                    })
+                    .await
+                    {
+                        Ok(Ok(value)) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::Cloudflare(value))
+                        }
+                        Ok(Err(error)) => RpcResponse::err(&req.request_id, error.to_string()),
+                        Err(_) => RpcResponse::err(
+                            &req.request_id,
+                            "Operasi Cloudflare terhenti. Periksa status sebelum mencoba kembali.",
+                        ),
+                    }
+                }
+                RequestPayload::InstallWithProgress(operation) => {
+                    match installation::run(
+                        Arc::clone(&self.runner),
+                        operation,
+                        &mut rpc,
+                        &req.request_id,
+                    )
+                    .await
+                    {
+                        Ok(payload) => RpcResponse::ok(&req.request_id, payload),
+                        Err(error) => RpcResponse::err(&req.request_id, error.to_string()),
+                    }
+                }
                 RequestPayload::Ping => RpcResponse::ok(&req.request_id, ResponsePayload::Pong),
                 RequestPayload::Version => {
                     let info = VersionInfo {

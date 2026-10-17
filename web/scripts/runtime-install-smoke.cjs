@@ -35,7 +35,8 @@ async function fixture(browser, width = 1280) {
       status = mode.fail ? 503 : 202;
       mode.enqueued = !mode.fail;
       body = mode.fail ? { error: 'Antrean tugas sementara tidak tersedia' } : job('node-fixture', 'node.install');
-    } else if (name === '/api/v1/jobs/node-fixture') body = job('node-fixture', 'node.install', mode.node);
+    } else if (name.startsWith('/api/v1/jobs/') && name.endsWith('/logs')) body = [];
+    else if (name === '/api/v1/jobs/node-fixture') body = job('node-fixture', 'node.install', mode.node);
     else if (name === '/api/v1/jobs/php-fixture') body = job('php-fixture', 'php.install', mode.php);
     else if (name === '/api/v1/jobs') {
       if (mode.jobsFail) { status = 503; body = { error: 'Status antrean tidak tersedia' }; }
@@ -76,14 +77,14 @@ async function monitor(browser, width) {
   check((await log.innerText()).includes(longError), 'stored and streamed error includes the entire original text');
   check(await log.locator('p').filter({ hasText: 'AKHIR_DIAGNOSTIK_LENGKAP' }).count() === 1, 'initial SSE snapshot does not duplicate the stored error');
   const dimensions = await dialog.evaluate(element => {
-    const panel = element.querySelector('.dialog-panel'), body = element.querySelector('.dialog-body'), header = element.querySelector('.dialog-header');
+    const panel = element.querySelector('.dialog-panel'), body = element.querySelector('[role=log]'), header = element.querySelector('.dialog-header');
     const paragraph = element.querySelector('[role=log] p'), box = panel.getBoundingClientRect();
     return { fits: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight, overflow: panel.scrollWidth > panel.clientWidth, ellipsis: getComputedStyle(paragraph).textOverflow, whiteSpace: getComputedStyle(paragraph).whiteSpace, scrolls: body.scrollHeight > body.clientHeight, headerY: header.getBoundingClientRect().y };
   });
   check(dimensions.fits && !dimensions.overflow, `${width}px monitor stays inside the viewport`);
   check(dimensions.ellipsis !== 'ellipsis' && dimensions.whiteSpace === 'pre-wrap', 'long lines wrap with original newlines and no ellipsis');
-  check(dimensions.scrolls, 'only the modal body scrolls for a long log');
-  await dialog.locator('.dialog-body').evaluate(el => { el.scrollTop = el.scrollHeight; });
+  check(dimensions.scrolls, 'long diagnostics scroll within the log viewport');
+  await dialog.getByRole('log').evaluate(el => { el.scrollTop = el.scrollHeight; });
   check(Math.abs((await dialog.locator('.dialog-header').boundingBox()).y - dimensions.headerY) < 1, 'monitor header remains visible while reading the end of a log');
   await p.screenshot({ path: path.join(output, `monitor-${width}.png`) });
   await dialog.getByRole('button', { name: 'Tutup monitor' }).click();

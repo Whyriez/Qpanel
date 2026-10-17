@@ -98,6 +98,103 @@ pub struct AgentClient {
 }
 
 impl AgentClient {
+    pub async fn email(
+        &self,
+        request: panel_proto::EmailRequest,
+    ) -> Result<serde_json::Value, AgentClientError> {
+        tokio::time::timeout(std::time::Duration::from_secs(45), async {
+            let mut rpc = self.connect().await?;
+            rpc.send_request(&RpcRequest::new(
+                uuid::Uuid::new_v4().to_string(),
+                RequestPayload::Email(request),
+            ))
+            .await?;
+            let response = rpc.recv_response().await?;
+            if !response.success {
+                return Err(AgentClientError::AgentError(
+                    response
+                        .error
+                        .unwrap_or_else(|| "Operasi Email gagal.".into()),
+                ));
+            }
+            match response.payload {
+                ResponsePayload::Email(value) => Ok(value),
+                _ => Err(AgentClientError::UnexpectedResponse {
+                    expected: "Email",
+                    got: "unexpected payload".into(),
+                }),
+            }
+        })
+        .await
+        .map_err(|_| {
+            AgentClientError::AgentError(
+                "Operasi email timeout. Periksa status sebelum mencoba kembali.".into(),
+            )
+        })?
+    }
+    pub async fn cloudflare(
+        &self,
+        request: panel_proto::CloudflareRequest,
+    ) -> Result<serde_json::Value, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        rpc.send_request(&RpcRequest::new(
+            uuid::Uuid::new_v4().to_string(),
+            RequestPayload::Cloudflare(request),
+        ))
+        .await?;
+        let response = rpc.recv_response().await?;
+        if !response.success {
+            return Err(AgentClientError::AgentError(
+                response
+                    .error
+                    .unwrap_or_else(|| "Operasi Cloudflare gagal.".into()),
+            ));
+        }
+        match response.payload {
+            ResponsePayload::Cloudflare(value) => Ok(value),
+            _ => Err(AgentClientError::UnexpectedResponse {
+                expected: "Cloudflare",
+                got: "unexpected payload".into(),
+            }),
+        }
+    }
+    /// Read bounded progress frames until the typed installation result arrives.
+    pub async fn install_with_progress<F, Fut>(
+        &self,
+        operation: panel_proto::InstallOperation,
+        mut on_log: F,
+    ) -> Result<ResponsePayload, AgentClientError>
+    where
+        F: FnMut(String) -> Fut,
+        Fut: std::future::Future<Output = Result<(), String>>,
+    {
+        let mut rpc = self.connect().await?;
+        let id = uuid::Uuid::new_v4().to_string();
+        rpc.send_request(&RpcRequest::new(
+            &id,
+            RequestPayload::InstallWithProgress(operation),
+        ))
+        .await?;
+        loop {
+            let response = rpc.recv_response().await?;
+            if response.request_id != id {
+                return Err(AgentClientError::AgentError(
+                    "Installation response ID mismatch".into(),
+                ));
+            }
+            if !response.success {
+                return Err(AgentClientError::AgentError(
+                    response.error.unwrap_or_else(|| "Instalasi gagal".into()),
+                ));
+            }
+            match response.payload {
+                ResponsePayload::InstallationProgress(event) => on_log(event.message)
+                    .await
+                    .map_err(AgentClientError::AgentError)?,
+                result => return Ok(result),
+            }
+        }
+    }
     pub fn new(socket_path: impl Into<PathBuf>) -> Self {
         Self {
             socket_path: socket_path.into(),

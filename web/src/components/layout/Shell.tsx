@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard,
   Globe,
+  Mail,
   Users,
   BarChart3,
   Cpu,
@@ -77,6 +78,7 @@ export const Shell: React.FC<ShellProps> = ({
       items: [
         { id: "dashboard", icon: LayoutDashboard },
         { id: "sites", icon: Globe },
+        { id: "email", icon: Mail },
         { id: "files", icon: FolderTree },
         { id: "terminal", icon: Terminal },
         { id: "analytics", icon: BarChart3 },
