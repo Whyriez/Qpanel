@@ -128,7 +128,7 @@ mod tests {
             ocsp_stapling: false,
             custom_headers: vec![],
             php_version: "8.3".to_string(),
-            fpm_socket: "unix:/run/panel/php/p_alice-8.3.sock".to_string(),
+            fpm_socket: "unix:/run/panel/php/p_alice-8.3/fpm.sock".to_string(),
             preset: PhpPreset::Wordpress,
             custom_entry_file: None,
             upload_max_size: Some("64M".to_string()),
@@ -159,7 +159,7 @@ mod tests {
 
         // 4. Verify FastCGI socket configuration
         assert!(
-            rendered.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3.sock;"),
+            rendered.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3/fpm.sock;"),
             "Vhost must route FastCGI to tenant's PHP 8.3 socket"
         );
     }
@@ -183,7 +183,7 @@ mod tests {
             ocsp_stapling: false,
             custom_headers: vec![],
             php_version: "8.2".to_string(),
-            fpm_socket: "unix:/run/panel/php/p_bob-8.2.sock".to_string(),
+            fpm_socket: "unix:/run/panel/php/p_bob-8.2/fpm.sock".to_string(),
             preset: PhpPreset::Laravel,
             custom_entry_file: None,
             upload_max_size: Some("32M".to_string()),
@@ -231,7 +231,7 @@ mod tests {
             ocsp_stapling: false,
             custom_headers: vec![],
             php_version: "8.1".to_string(),
-            fpm_socket: "unix:/run/panel/php/p_alice-8.1.sock".to_string(),
+            fpm_socket: "unix:/run/panel/php/p_alice-8.1/fpm.sock".to_string(),
             preset: PhpPreset::Generic,
             custom_entry_file: None,
             upload_max_size: Some("16M".to_string()),
@@ -241,7 +241,7 @@ mod tests {
 
         let rendered = renderer.render_php(&ctx).expect("render generic vhost");
         assert!(rendered.contains("fastcgi_index index.php;"));
-        assert!(rendered.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.1.sock;"));
+        assert!(rendered.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.1/fpm.sock;"));
     }
 
     #[test]
@@ -288,8 +288,11 @@ mod tests {
         assert!(bob_conf.contains("pm.max_children = 20"));
 
         // 3. Verify distinct socket endpoints
-        assert!(alice_conf.contains("listen = /run/panel/php/p_alice-8.1.sock"));
-        assert!(bob_conf.contains("listen = /run/panel/php/p_bob-8.3.sock"));
+        assert!(alice_conf.contains("listen = /run/panel/php/p_alice-8.1/fpm.sock"));
+        assert!(bob_conf.contains("listen = /run/panel/php/p_bob-8.3/fpm.sock"));
+        assert_ne!(alice_pool.socket_path, bob_pool.socket_path);
+        assert!(alice_conf.contains("listen.acl_users = www-data\n"));
+        assert!(bob_conf.contains("listen.acl_users = www-data\n"));
 
         // 4. Verify systemd unit isolation
         let alice_unit = master_alice.render_systemd_unit();
@@ -298,6 +301,8 @@ mod tests {
         assert!(alice_unit.contains("Slice=panel-u10001.slice"));
         assert!(bob_unit.contains("User=p_bob"));
         assert!(bob_unit.contains("Slice=panel-u10002.slice"));
+        assert!(alice_unit.contains("RuntimeDirectory=panel/php/p_alice-8.1"));
+        assert!(bob_unit.contains("RuntimeDirectory=panel/php/p_bob-8.3"));
 
         // 5. Verify socket permissions allow www-data but reject cross-tenant access
         let socket_alice_mode = 0o660;

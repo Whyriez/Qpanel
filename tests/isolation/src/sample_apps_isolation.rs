@@ -6,7 +6,7 @@
 //! 3. Cross-tenant isolation verification:
 //!    - Service of Tenant A (`p_alice`, UID 10001) CANNOT read, traverse, or write to Tenant B's home (`p_bob`, UID 10002, mode `0700`).
 //!    - Service of Tenant A CANNOT access Tenant B's environment file (`/etc/panel/env/site-2.env`, mode `0600`).
-//!    - Service of Tenant A CANNOT connect to or write to Tenant B's Unix domain socket (`/run/panel/python/site_2.sock`, mode `0770`).
+//!    - Service of Tenant A CANNOT connect to or write to Tenant B's Unix domain socket (`/run/panel/python/site_2/app.sock`, mode `0770`).
 //!    - Process isolation prevents Tenant A from inspecting Tenant B's processes under `/proc` (`hidepid=2`).
 //! 4. Nginx virtual host HTTPS generation:
 //!    - All 5 applications generate HTTPS virtual hosts with IPv4/IPv6 `listen ... ssl http2`, `ssl_certificate`, and `ssl_certificate_key`, without the standalone `http2` directive.
@@ -102,7 +102,8 @@ pub fn evaluate_cross_env_access(
 
 /// Evaluates whether a tenant's background service can connect to or write to
 /// another tenant's Python Unix domain socket.
-/// Socket files (/run/panel/python/site_<id>.sock) are owned by tenant UID/GID with mode `0770` or `0775` (group www-data).
+/// Models inode DAC for tenant-owned sockets in /run/panel/python/site_<id>/app.sock.
+/// Named ACLs granting Nginx access and parent-directory traversal are separate checks.
 pub fn evaluate_cross_socket_access(
     accessor: SimulatedUser,
     socket_owner: SimulatedUser,
@@ -150,17 +151,17 @@ mod tests {
     #[test]
     fn test_all_five_sample_apps_systemd_unit_hardening_and_restart() {
         let sample_apps = [
-            SampleAppKind::Express,
-            SampleAppKind::NextJsStandalone,
-            SampleAppKind::Django,
-            SampleAppKind::FastApi,
-            SampleAppKind::Flask,
+            (SampleAppKind::Express, "site_101"),
+            (SampleAppKind::NextJsStandalone, "site_102"),
+            (SampleAppKind::Django, "site_103"),
+            (SampleAppKind::FastApi, "site_104"),
+            (SampleAppKind::Flask, "site_105"),
         ];
 
-        for app in sample_apps {
+        for (app, site_id) in sample_apps {
             let unit_content = match app {
                 SampleAppKind::Express => generate_node_site_unit(
-                    "site-101",
+                    site_id,
                     USER_ALICE.username,
                     USER_ALICE.uid,
                     "22.14.0",
@@ -168,13 +169,13 @@ mod tests {
                     20051,
                     &NodeSiteEntrypoint::NodeScript("server.js".to_string()),
                     true, // auto_restart enabled
-                    "/etc/panel/env/site-101.env",
+                    "/etc/panel/env/site_101.env",
                     None,
                 )
                 .expect("generate express unit"),
 
                 SampleAppKind::NextJsStandalone => generate_node_site_unit(
-                    "site-102",
+                    site_id,
                     USER_ALICE.username,
                     USER_ALICE.uid,
                     "22.14.0",
@@ -182,65 +183,71 @@ mod tests {
                     20052,
                     &NodeSiteEntrypoint::NodeScript("server.js".to_string()),
                     true, // auto_restart enabled
-                    "/etc/panel/env/site-102.env",
+                    "/etc/panel/env/site_102.env",
                     None,
                 )
                 .expect("generate nextjs unit"),
 
                 SampleAppKind::Django => generate_python_site_unit(
-                    "site-103",
+                    site_id,
                     USER_ALICE.username,
                     USER_ALICE.uid,
                     "3.12.9",
                     "/home/p_alice/sites/django.example.com/app",
                     "/home/p_alice/sites/django.example.com/app/.venv",
-                    "/run/panel/python/site_103.sock",
+                    "/run/panel/python/site_103/app.sock",
                     PythonSiteFramework::Django,
                     PythonSiteServer::GunicornWsgi,
                     &PythonSiteEntrypoint::Wsgi("myproject.wsgi:application".to_string()),
                     3,
                     true, // auto_restart enabled
-                    "/etc/panel/env/site-103.env",
+                    "/etc/panel/env/site_103.env",
                     None,
                 )
                 .expect("generate django unit"),
 
                 SampleAppKind::FastApi => generate_python_site_unit(
-                    "site-104",
+                    site_id,
                     USER_ALICE.username,
                     USER_ALICE.uid,
                     "3.12.9",
                     "/home/p_alice/sites/fastapi.example.com/app",
                     "/home/p_alice/sites/fastapi.example.com/app/.venv",
-                    "/run/panel/python/site_104.sock",
+                    "/run/panel/python/site_104/app.sock",
                     PythonSiteFramework::FastApi,
                     PythonSiteServer::UvicornAsgi,
                     &PythonSiteEntrypoint::Asgi("main:app".to_string()),
                     3,
                     true, // auto_restart enabled
-                    "/etc/panel/env/site-104.env",
+                    "/etc/panel/env/site_104.env",
                     None,
                 )
                 .expect("generate fastapi unit"),
 
                 SampleAppKind::Flask => generate_python_site_unit(
-                    "site-105",
+                    site_id,
                     USER_ALICE.username,
                     USER_ALICE.uid,
                     "3.12.9",
                     "/home/p_alice/sites/flask.example.com/app",
                     "/home/p_alice/sites/flask.example.com/app/.venv",
-                    "/run/panel/python/site_105.sock",
+                    "/run/panel/python/site_105/app.sock",
                     PythonSiteFramework::Flask,
                     PythonSiteServer::GunicornWsgi,
                     &PythonSiteEntrypoint::Wsgi("app:app".to_string()),
                     3,
                     true, // auto_restart enabled
-                    "/etc/panel/env/site-105.env",
+                    "/etc/panel/env/site_105.env",
                     None,
                 )
                 .expect("generate flask unit"),
             };
+
+            if app.runtime_family() == "python" {
+                let directory = format!("RuntimeDirectory=panel/python/{site_id}");
+                assert!(unit_content.lines().any(|line| line == directory));
+                assert!(unit_content.contains("RuntimeDirectoryMode=0750"));
+            }
 
             // Acceptance criterion 2: Crash app automatically restarts with Restart=on-failure and RestartSec=2
             assert!(
@@ -343,7 +350,7 @@ mod tests {
         // 4. Unix domain socket communication attempt
         // Socket files in /run/panel/python/ are mode 0770 (-rwxrwx---) owned by p_bob:p_bob.
         let decision_cross_sock = evaluate_cross_socket_access(
-            USER_ALICE, USER_BOB, 0o770, // mode of /run/panel/python/site_bob.sock
+            USER_ALICE, USER_BOB, 0o770, // mode of /run/panel/python/site_bob/app.sock
         );
         assert_eq!(
             decision_cross_sock,
@@ -453,7 +460,7 @@ mod tests {
             force_https: true,
             ocsp_stapling: true,
             custom_headers: vec![],
-            unix_socket: "/run/panel/python/site_103.sock".to_string(),
+            unix_socket: "/run/panel/python/site_103/app.sock".to_string(),
             static_url: Some("/static/".to_string()),
             static_dir: Some("/home/p_alice/sites/django.example.com/app/static".to_string()),
             media_url: Some("/media/".to_string()),
@@ -468,7 +475,9 @@ mod tests {
         let django_conf = renderer
             .render_python(&django_ctx)
             .expect("render django https vhost");
-        assert!(django_conf.contains("proxy_pass http://unix:/run/panel/python/site_103.sock;"));
+        assert!(
+            django_conf.contains("proxy_pass http://unix:/run/panel/python/site_103/app.sock;")
+        );
         assert!(django_conf.contains("location /static/ {"));
         assert!(django_conf.contains("location /media/ {"));
 
@@ -486,7 +495,7 @@ mod tests {
             force_https: true,
             ocsp_stapling: false,
             custom_headers: vec![],
-            unix_socket: "/run/panel/python/site_104.sock".to_string(),
+            unix_socket: "/run/panel/python/site_104/app.sock".to_string(),
             static_url: None,
             static_dir: None,
             media_url: None,
@@ -501,7 +510,9 @@ mod tests {
         let fastapi_conf = renderer
             .render_python(&fastapi_ctx)
             .expect("render fastapi https vhost");
-        assert!(fastapi_conf.contains("proxy_pass http://unix:/run/panel/python/site_104.sock;"));
+        assert!(
+            fastapi_conf.contains("proxy_pass http://unix:/run/panel/python/site_104/app.sock;")
+        );
 
         // 5. Flask (Python WSGI) with static mapping & HTTPS
         let flask_ctx = PythonVhostContext {
@@ -517,7 +528,7 @@ mod tests {
             force_https: true,
             ocsp_stapling: false,
             custom_headers: vec![],
-            unix_socket: "/run/panel/python/site_105.sock".to_string(),
+            unix_socket: "/run/panel/python/site_105/app.sock".to_string(),
             static_url: Some("/static/".to_string()),
             static_dir: Some("/home/p_alice/sites/flask.example.com/app/static".to_string()),
             media_url: None,
@@ -532,7 +543,7 @@ mod tests {
         let flask_conf = renderer
             .render_python(&flask_ctx)
             .expect("render flask https vhost");
-        assert!(flask_conf.contains("proxy_pass http://unix:/run/panel/python/site_105.sock;"));
+        assert!(flask_conf.contains("proxy_pass http://unix:/run/panel/python/site_105/app.sock;"));
         assert!(flask_conf.contains("location /static/ {"));
 
         // Enforce the distro-compatible HTTPS contract for every sample app.
@@ -602,7 +613,7 @@ mod tests {
         assert!(loopback_v6.is_ok(), "[::1] IPv6 loopback must be allowed");
 
         let unix_sock =
-            validate_reverse_proxy_upstream_url("unix:/run/panel/python/site_1.sock", false);
+            validate_reverse_proxy_upstream_url("unix:/run/panel/python/site_1/app.sock", false);
         assert!(unix_sock.is_ok(), "Unix domain socket must be allowed");
 
         // 2. Tenant WITH permission (allow_external = true)
