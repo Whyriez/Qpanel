@@ -592,12 +592,15 @@ fn ensure_php_fpm_master_inner(
 
     // 1. Ensure runtime, config, pool, and log directories exist
     runner.create_dir_all(Path::new("/run/panel/php"), 0o755, 0, 0)?;
+    runner.create_dir_all(&master.runtime_dir(), 0o755, master.uid, master.uid)?;
     runner.create_dir_all(&master.config_dir(), 0o755, 0, 0)?;
     runner.create_dir_all(&master.pool_dir(), 0o755, 0, 0)?;
-    runner.create_dir_all(&master.tenant_log_dir(), 0o750, 0, 0)?;
+    runner.create_dir_all(&master.tenant_log_dir(), 0o750, master.uid, master.uid)?;
 
-    // Give tenant read ACL on their log dir so they can inspect logs without root
-    let _ = runner.set_facl(&master.tenant_log_dir(), &master.username, "r-x");
+    // Existing root-owned logs from older syntax checks must become writable without
+    // following tenant symlinks or truncating their content.
+    runner.prepare_owned_file(&master.error_log_path(), 0o640, master.uid, master.uid)?;
+    runner.prepare_owned_file(&master.slow_log_path(), 0o640, master.uid, master.uid)?;
 
     // Ensure tenant tmp dir exists for upload_tmp_dir and session.save_path
     let user_tmp = PathBuf::from(format!("/home/{}/tmp", master.username));
@@ -721,7 +724,10 @@ fn validate_and_swap_staging_pool(
         )?;
         let fpm_bin = format!("php-fpm{}", version.as_str());
         let config = validation_path.to_string_lossy();
-        let checked = runner.run_command(&fpm_bin, &["-t", "-y", &config]);
+        let checked = runner.run_command(
+            "runuser",
+            &["-u", &master.username, "--", &fpm_bin, "-t", "-y", &config],
+        );
         match checked {
             Ok(output) if output.status.success() => {}
             Ok(output) => {
@@ -1837,7 +1843,10 @@ mod tests {
 
         assert_eq!(res.service_name, "panel-fpm@p_alice-8.3.service");
         assert_eq!(res.config_dir, "/etc/panel/php/p_alice-8.3");
-        assert_eq!(res.default_socket_path, "/run/panel/php/p_alice-8.3.sock");
+        assert_eq!(
+            res.default_socket_path,
+            "/run/panel/php/p_alice-8.3/fpm.sock"
+        );
 
         let files = runner.files.lock().unwrap();
         let master_conf_path = PathBuf::from("/etc/panel/php/p_alice-8.3/php-fpm.conf");
@@ -1899,7 +1908,7 @@ mod tests {
         assert!(files.contains_key(&pool_path));
         let pool_content = String::from_utf8(files.get(&pool_path).unwrap().clone()).unwrap();
         assert!(pool_content.contains("[site-1]"));
-        assert!(pool_content.contains("listen = /run/panel/php/p_alice-8.3.sock"));
+        assert!(pool_content.contains("listen = /run/panel/php/p_alice-8.3/fpm.sock"));
         assert!(pool_content.contains("pm.max_children = 15"));
         assert!(pool_content.contains("pm = ondemand"));
 
@@ -1914,7 +1923,7 @@ mod tests {
     fn test_apply_php_fpm_pool_syntax_error_rollback() {
         let runner = MockSystemRunner::new();
         runner.set_response(
-            "php-fpm8.3",
+            "runuser",
             1,
             b"",
             b"Fatal error: pool configuration syntax invalid at line 10",
@@ -1978,7 +1987,7 @@ mod tests {
             PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::parse("8.3").unwrap()).unwrap();
         runner.set_response(
             &format!(
-                "php-fpm8.3 -t -y {}",
+                "runuser -u p_alice -- php-fpm8.3 -t -y {}",
                 master.master_conf_path().to_string_lossy()
             ),
             1,
@@ -2039,7 +2048,7 @@ mod tests {
             .iter()
             .position(|action| {
                 matches!(action,
-            MockAction::Command { binary, .. } if binary == "php-fpm8.3")
+            MockAction::Command { binary, .. } if binary == "runuser")
             })
             .unwrap();
         let swap = actions
@@ -2060,7 +2069,7 @@ mod tests {
         let target = PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/site_1.conf");
         let previous = b"[site_1]\nlisten=/previous.sock\n";
         runner.set_file_content(&target, previous);
-        runner.set_response("php-fpm8.3", 1, b"", b"candidate pool invalid");
+        runner.set_response("runuser", 1, b"", b"candidate pool invalid");
         assert!(apply_php_fpm_pool(&runner, create_pool_request()).is_err());
         assert_eq!(runner.read_file(&target).unwrap(), previous);
         let files = runner.files.lock().unwrap();
@@ -2088,7 +2097,7 @@ mod tests {
         ] {
             let runner = MockSystemRunner::new();
             if socket {
-                runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
+                runner.add_existing_path("/run/panel/php/p_alice-8.3/fpm.sock");
             }
             if pool {
                 runner.add_existing_path("/etc/panel/php/p_alice-8.3/pool.d/site_1.conf");
@@ -2257,8 +2266,8 @@ mod tests {
     #[test]
     fn test_get_php_fpm_pool_status_and_metrics() {
         let runner = MockSystemRunner::new();
-        let socket_path = PathBuf::from("/run/panel/php/p_alice-8.3.sock");
-        let mock_status_file = PathBuf::from("/run/panel/php/p_alice-8.3.status.json");
+        let socket_path = PathBuf::from("/run/panel/php/p_alice-8.3/fpm.sock");
+        let mock_status_file = socket_path.with_extension("status.json");
 
         runner.set_file_content(&socket_path, b"");
         let status_json = r#"{"pool":"site-alpha","process manager":"ondemand","start time":1728000000,"start since":100,"accepted conn":120,"listen queue":0,"max listen queue":2,"listen queue len":128,"idle processes":0,"active processes":0,"total processes":0,"max active processes":3,"max children reached":0,"slow requests":0}"#;

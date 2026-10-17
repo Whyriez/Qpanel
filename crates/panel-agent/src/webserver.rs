@@ -616,7 +616,9 @@ impl NginxManager {
         let docroot_path = PathBuf::from(&req.docroot);
 
         // Reject pre-existing symlink components before changing directories/ACLs.
-        self.check_site_symlinks(&docroot_path.join("index.html"))?;
+        if let Some(filename) = req.starter.filename() {
+            self.check_site_symlinks(&docroot_path.join(filename))?;
+        }
         for (index, path) in directories.iter().enumerate() {
             if !self.runner.path_exists(path) {
                 self.runner.create_dir_all(
@@ -656,17 +658,38 @@ impl NginxManager {
             }
         }
 
-        // 3. Write index.html placeholder if not exists
-        let index_path = docroot_path.join("index.html");
+        // Fixed destinations per runtime. Existing project files are never replaced.
+        let mut files = Vec::new();
+        if let Some(filename) = req.starter.filename() {
+            files.push((
+                filename,
+                req.index_content.clone().unwrap_or_else(|| {
+                    panel_webserver::template::render_placeholder_html(&req.username)
+                }),
+            ));
+        }
+        if req.starter == panel_proto::SiteStarter::Nodejs {
+            files.push((
+                "package.json",
+                "{\"private\":true,\"scripts\":{\"start\":\"node server.js\"}}\n".into(),
+            ));
+        }
+        if req.starter == panel_proto::SiteStarter::PythonDjango {
+            files.push(("myproject/__init__.py", String::new()));
+        }
         let mut placeholder_written = false;
-        if !self.runner.path_exists(&index_path) {
-            let placeholder_content = req.index_content.unwrap_or_else(|| {
-                panel_webserver::template::render_placeholder_html(&req.username)
-            });
-            self.runner
-                .write_file(&index_path, placeholder_content.as_bytes(), 0o644)?;
-            self.runner.set_ownership(&index_path, uid_val, uid_val)?;
-            placeholder_written = true;
+        for (filename, content) in files {
+            let path = docroot_path.join(filename);
+            self.check_site_symlinks(&path)?;
+            if self.runner.write_file_if_absent(
+                &path,
+                content.as_bytes(),
+                0o644,
+                uid_val,
+                uid_val,
+            )? {
+                placeholder_written = true;
+            }
         }
 
         info!(
@@ -1127,7 +1150,42 @@ mod tests {
             docroot: docroot.into(),
             web_user: Some("www-data".into()),
             index_content: Some("website placeholder".into()),
+            starter: panel_proto::SiteStarter::Html,
         }
+    }
+
+    #[test]
+    fn starters_use_language_filenames_and_preserve_reused_project_files() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let manager = NginxManager::new(runner.clone());
+        let root = "/home/p_alice/sites/reused.test/app";
+        let mut request = provision_request(root);
+        manager.provision_site(request.clone()).unwrap();
+        request.starter = panel_proto::SiteStarter::Nodejs;
+        request.index_content = Some("const http = require('http');".into());
+        manager.provision_site(request.clone()).unwrap();
+        assert_eq!(
+            runner
+                .read_file(&Path::new(root).join("index.html"))
+                .unwrap(),
+            b"website placeholder"
+        );
+        assert!(runner.path_exists(&Path::new(root).join("server.js")));
+        assert!(runner.path_exists(&Path::new(root).join("package.json")));
+        runner.set_file_content(Path::new(root).join("server.js"), b"user-owned code");
+        manager.provision_site(request.clone()).unwrap();
+        assert_eq!(
+            runner
+                .read_file(&Path::new(root).join("server.js"))
+                .unwrap(),
+            b"user-owned code"
+        );
+        request.starter = panel_proto::SiteStarter::PythonDjango;
+        request.index_content =
+            Some("def app(environ, start_response): pass\napplication = app".into());
+        manager.provision_site(request).unwrap();
+        assert!(runner.path_exists(&Path::new(root).join("myproject/wsgi.py")));
+        assert!(runner.path_exists(&Path::new(root).join("myproject/__init__.py")));
     }
 
     #[test]

@@ -361,7 +361,7 @@ pub async fn get_python_site_status_handler(
         .get("socket_path")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{}/site_{}.sock", DEFAULT_PYTHON_SOCKET_DIR, site.id));
+        .unwrap_or_else(|| format!("{}/site_{}/app.sock", DEFAULT_PYTHON_SOCKET_DIR, site.id));
 
     let probe_req = PythonSiteStatusRequest {
         site_id: format!("site_{}", site.id),
@@ -682,7 +682,7 @@ fn build_python_site_settings_dto(
         .get("socket_path")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{}/site_{}.sock", DEFAULT_PYTHON_SOCKET_DIR, site.id));
+        .unwrap_or_else(|| format!("{}/site_{}/app.sock", DEFAULT_PYTHON_SOCKET_DIR, site.id));
 
     let static_url = settings
         .get("static_url")

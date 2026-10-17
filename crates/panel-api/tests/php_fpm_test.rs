@@ -314,7 +314,7 @@ async fn test_php_fpm_agent_client_direct_lifecycle() {
     assert_eq!(ensure_res.service_name, "panel-fpm@p_alice-8.3.service");
     assert_eq!(
         ensure_res.default_socket_path,
-        "/run/panel/php/p_alice-8.3.sock"
+        "/run/panel/php/p_alice-8.3/fpm.sock"
     );
 
     // 2. Apply PHP-FPM Pool

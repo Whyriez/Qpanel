@@ -130,10 +130,10 @@ async fn setup_test_context() -> TestContext {
     runner.add_existing_path("/usr/bin/php8.3");
 
     // Pre-populate socket paths for mock health checks
-    runner.add_existing_path("/run/panel/php/p_alice-8.1.sock");
-    runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
-    runner.add_existing_path("/run/panel/php/p_bob-8.2.sock");
-    runner.add_existing_path("/run/panel/php/p_bob-8.3.sock");
+    runner.add_existing_path("/run/panel/php/p_alice-8.1/fpm.sock");
+    runner.add_existing_path("/run/panel/php/p_alice-8.3/fpm.sock");
+    runner.add_existing_path("/run/panel/php/p_bob-8.2/fpm.sock");
+    runner.add_existing_path("/run/panel/php/p_bob-8.3/fpm.sock");
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>

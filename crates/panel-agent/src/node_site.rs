@@ -64,6 +64,26 @@ pub fn validate_username(username: &str) -> Result<(), AgentError> {
     Ok(())
 }
 
+pub(crate) fn validate_app_directory(
+    username: &str,
+    uid: u32,
+    path: &str,
+) -> Result<(), AgentError> {
+    panel_core::tenant::TenantUid::parse(uid)
+        .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
+    if panel_core::tenant::is_reserved_username(username)
+        || !path.starts_with(&format!("/home/{username}/"))
+        || path.contains(['\n', '\r', '\0', '%', '\\'])
+        || path.split('/').any(|part| matches!(part, "." | ".."))
+    {
+        return Err(AgentError::InvalidInput(
+            "Direktori aplikasi harus berada di home tenant dan tidak mengandung directive systemd"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Validates entrypoint configuration.
 pub fn validate_entrypoint(entrypoint: &NodeSiteEntrypoint) -> Result<(), AgentError> {
     match entrypoint {
@@ -79,7 +99,11 @@ pub fn validate_entrypoint(entrypoint: &NodeSiteEntrypoint) -> Result<(), AgentE
                         .into(),
                 ));
             }
-            if script.contains("..") {
+            if script.contains("..")
+                || !script
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))
+            {
                 return Err(AgentError::InvalidInput(
                     "Entrypoint script tidak boleh mengandung path traversal ('..')".into(),
                 ));
@@ -212,6 +236,7 @@ pub fn apply_node_site(
     validate_site_id(&req.site_id)?;
     validate_username(&req.username)?;
     validate_entrypoint(&req.entrypoint)?;
+    validate_app_directory(&req.username, req.uid, &req.app_dir)?;
 
     if req.port < 1024 {
         return Err(AgentError::InvalidInput(format!(
@@ -220,6 +245,27 @@ pub fn apply_node_site(
         )));
     }
 
+    let node_binary = format!(
+        "{}/{}/bin/node",
+        req.base_runtime_dir
+            .as_deref()
+            .unwrap_or(DEFAULT_NODE_BASE_DIR),
+        normalize_node_version(&req.node_version)
+    );
+    if !runner.path_exists(PathBuf::from(&node_binary).as_path()) {
+        return Err(AgentError::InvalidInput(
+            "Runtime Node.js belum terpasang; pasang melalui Runtime Manager".into(),
+        ));
+    }
+    let entry = match &req.entrypoint {
+        NodeSiteEntrypoint::NodeScript(file) => file.as_str(),
+        _ => "package.json",
+    };
+    if !runner.path_exists(&PathBuf::from(&req.app_dir).join(entry)) {
+        return Err(AgentError::InvalidInput(
+            "Entrypoint Node.js belum ada; unggah project atau gunakan server.js".into(),
+        ));
+    }
     let service_name = format!("site-{}.service", req.site_id);
     let unit_path_str = req
         .unit_path
@@ -293,19 +339,26 @@ pub fn remove_node_site(
     let env_path = PathBuf::from(&env_path_str);
 
     // 1. Stop and disable service
-    let _ = runner.run_command("systemctl", &["stop", &service_name]);
-    let _ = runner.run_command("systemctl", &["disable", &service_name]);
+    if runner.path_exists(&unit_path) {
+        runner.run_command("systemctl", &["stop", &service_name])?;
+        runner.run_command("systemctl", &["disable", &service_name])?;
+    } else if runner
+        .run_command("systemctl", &["is-active", "--quiet", &service_name])
+        .is_ok()
+    {
+        runner.run_command("systemctl", &["stop", &service_name])?;
+    }
 
     // 2. Remove files
     if runner.path_exists(&unit_path) {
-        let _ = runner.remove_file(&unit_path);
+        runner.remove_file(&unit_path)?;
     }
     if runner.path_exists(&env_path) {
-        let _ = runner.remove_file(&env_path);
+        runner.remove_file(&env_path)?;
     }
 
     // 3. Daemon reload
-    let _ = runner.run_command("systemctl", &["daemon-reload"]);
+    runner.run_command("systemctl", &["daemon-reload"])?;
 
     Ok(NodeSiteActionResponse {
         site_id: req.site_id.clone(),
@@ -484,7 +537,39 @@ pub fn status_node_site(
     let (healthy, probe_status_code, probe_message) = if is_active {
         if let Some(port) = req.port {
             let path = req.probe_path.as_deref().unwrap_or("/");
-            let (h, code, msg) = probe_http(port, path);
+            let url = format!("http://127.0.0.1:{port}/{}", path.trim_start_matches('/'));
+            let (h, code, msg) = match runner.run_command(
+                "curl",
+                &[
+                    "--noproxy",
+                    "*",
+                    "--silent",
+                    "--show-error",
+                    "--connect-timeout",
+                    "1",
+                    "--max-time",
+                    "1",
+                    "--output",
+                    "/dev/null",
+                    "--write-out",
+                    "%{http_code}",
+                    "--",
+                    &url,
+                ],
+            ) {
+                Ok(output) => {
+                    let code = String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .parse::<u16>()
+                        .ok();
+                    (
+                        output.status.success() && code.is_some_and(|c| (200..500).contains(&c)),
+                        code,
+                        "HTTP readiness probe".to_string(),
+                    )
+                }
+                Err(error) => (false, None, error.to_string()),
+            };
             (h, code, Some(msg))
         } else {
             (
@@ -631,6 +716,51 @@ mod tests {
     use crate::system::{MockAction, MockSystemRunner};
 
     #[test]
+    fn missing_runtime_or_entrypoint_never_installs_a_broken_node_service() {
+        let runner = MockSystemRunner::new();
+        let request = NodeSiteApplyRequest {
+            site_id: "site_1".into(),
+            username: "p_alice".into(),
+            uid: 10001,
+            node_version: "22.14.0".into(),
+            app_dir: "/home/p_alice/sites/app".into(),
+            port: 20042,
+            entrypoint: NodeSiteEntrypoint::NodeScript("server.js".into()),
+            env_vars: BTreeMap::new(),
+            auto_restart: true,
+            env_file_path: None,
+            unit_path: None,
+            base_runtime_dir: None,
+        };
+        assert!(apply_node_site(&runner, &request).is_err());
+        runner.add_existing_path("/opt/panel/runtimes/node/22.14.0/bin/node");
+        assert!(apply_node_site(&runner, &request).is_err());
+        assert!(
+            runner
+                .recorded_actions()
+                .iter()
+                .all(|action| !matches!(action, MockAction::WriteFile { .. }))
+        );
+        runner.add_existing_path("/home/p_alice/sites/app/server.js");
+        apply_node_site(&runner, &request).unwrap();
+        runner.set_response("systemctl stop site-site_1.service", 1, b"", b"stop failed");
+        assert!(
+            remove_node_site(
+                &runner,
+                &NodeSiteRemoveRequest {
+                    site_id: "site_1".into(),
+                    unit_path: None,
+                    env_file_path: None
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            runner.path_exists(PathBuf::from("/etc/systemd/system/site-site_1.service").as_path())
+        );
+    }
+
+    #[test]
     fn test_generate_node_site_unit_matches_prd_5_1() {
         let unit = generate_node_site_unit(
             "site-42",
@@ -748,6 +878,8 @@ mod tests {
             base_runtime_dir: None,
         };
 
+        runner.add_existing_path("/opt/panel/runtimes/node/22.14.0/bin/node");
+        runner.add_existing_path("/home/p_alice/sites/app/server.js");
         let res_apply = apply_node_site(&runner, &req_apply).expect("apply node site");
         assert_eq!(res_apply.site_id, "site-1");
         assert_eq!(res_apply.port, 20042);

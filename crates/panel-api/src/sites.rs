@@ -445,7 +445,7 @@ fn render_python_vhost_for_site(
         .get("socket_path")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("/run/panel/python/site_{}.sock", args.site.id));
+        .unwrap_or_else(|| format!("/run/panel/python/site_{}/app.sock", args.site.id));
 
     let static_url = args
         .settings
@@ -609,7 +609,7 @@ pub async fn recompile_and_apply_site_vhost(
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let php_ver = site.version.clone().unwrap_or_else(|| "8.3".to_string());
-        let fpm_socket = format!("unix:/run/panel/php/{linux_uname}-{php_ver}.sock");
+        let fpm_socket = format!("unix:/run/panel/php/{linux_uname}-{php_ver}/fpm.sock");
 
         let fastcgi_cache = settings.get("fastcgi_cache").and_then(|v| {
             if let Some(b) = v.as_bool() {
@@ -843,30 +843,6 @@ pub async fn recompile_and_apply_site_vhost(
     };
 
     let enable = site.status == "active";
-    let apply_req = SiteApplyRequest {
-        site_id: format!("site_{}", site.id),
-        config_content: rendered,
-        enable,
-        nginx_base_dir: None,
-        log_context: Some(panel_proto::SiteLogContext {
-            username: linux_uname.to_string(),
-            domain: primary_domain.to_string(),
-        }),
-        test_config: true,
-        reload: true,
-    };
-
-    state
-        .agent_client
-        .apply_site(apply_req)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Host webserver apply failed: {e}"),
-            )
-        })?;
-
     // If Node.js site is active, also ensure systemd unit and env file are applied on host
     if is_nodejs && site.status == "active" {
         let node_ver = site
@@ -949,6 +925,7 @@ pub async fn recompile_and_apply_site_vhost(
                     format!("Gagal menerapkan runtime Node.js: {e}"),
                 )
             })?;
+        wait_runtime_ready(state, site, "nodejs", port, None).await?;
     }
 
     // If Python site is active, also ensure systemd unit and env file are applied on host
@@ -980,7 +957,7 @@ pub async fn recompile_and_apply_site_vhost(
             .get("socket_path")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("/run/panel/python/site_{}.sock", site.id));
+            .unwrap_or_else(|| format!("/run/panel/python/site_{}/app.sock", site.id));
 
         let fw_str = settings
             .get("framework_preset")
@@ -1048,7 +1025,7 @@ pub async fn recompile_and_apply_site_vhost(
             python_version: py_ver,
             app_dir,
             venv_dir,
-            socket_path,
+            socket_path: socket_path.clone(),
             framework,
             server_type,
             entrypoint,
@@ -1070,9 +1047,94 @@ pub async fn recompile_and_apply_site_vhost(
                     format!("Gagal menerapkan runtime Python: {e}"),
                 )
             })?;
+        wait_runtime_ready(state, site, "python", 0, Some(socket_path)).await?;
     }
 
+    let apply_req = SiteApplyRequest {
+        site_id: format!("site_{}", site.id),
+        config_content: rendered,
+        enable,
+        nginx_base_dir: None,
+        log_context: Some(panel_proto::SiteLogContext {
+            username: linux_uname.to_string(),
+            domain: primary_domain.to_string(),
+        }),
+        test_config: true,
+        reload: true,
+    };
+
+    state
+        .agent_client
+        .apply_site(apply_req)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Host webserver apply failed: {e}"),
+            )
+        })?;
+
     Ok(())
+}
+
+async fn wait_runtime_ready(
+    state: &AppState,
+    site: &Site,
+    runtime: &str,
+    port: u16,
+    socket: Option<String>,
+) -> Result<(), (StatusCode, String)> {
+    let mut diagnostic = "Proses belum siap".to_string();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    for attempt in 0..50 {
+        let result = if runtime == "nodejs" {
+            state
+                .agent_client
+                .status_node_site(panel_proto::NodeSiteStatusRequest {
+                    site_id: format!("site_{}", site.id),
+                    port: Some(port),
+                    probe_path: Some("/".into()),
+                })
+                .await
+                .map(|status| (status.active && status.healthy, status.probe_message))
+        } else {
+            state
+                .agent_client
+                .status_python_site(panel_proto::PythonSiteStatusRequest {
+                    site_id: format!("site_{}", site.id),
+                    socket_path: socket.clone(),
+                })
+                .await
+                .map(|status| {
+                    (
+                        status.active && status.healthy && status.socket_exists,
+                        status.probe_message,
+                    )
+                })
+        };
+        match result {
+            Ok((true, _)) => return Ok(()),
+            Ok((false, message)) => {
+                diagnostic = message.unwrap_or_else(|| "Service atau endpoint belum siap".into())
+            }
+            Err(error) => {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("Health check {runtime} gagal: {error}"),
+                ));
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        if attempt < 49 {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+    Err((
+        StatusCode::UNPROCESSABLE_ENTITY,
+        format!("Aplikasi {runtime} belum siap: {diagnostic}. Periksa entrypoint dan log proses."),
+    ))
 }
 
 /// Helper to recompile and apply a site configuration by fetching user and domains from DB.
@@ -1105,12 +1167,47 @@ fn log_site_cleanup_error(site_id: i64, operation: &str, error: impl std::fmt::D
     tracing::error!(site_id, operation, error=%error, "Provisioning rollback failed");
 }
 
+async fn remove_site_process(
+    state: &AppState,
+    site: &Site,
+) -> Result<(), crate::agent_client::AgentClientError> {
+    if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
+        state
+            .agent_client
+            .remove_node_site(panel_proto::NodeSiteRemoveRequest {
+                site_id: format!("site_{}", site.id),
+                unit_path: None,
+                env_file_path: None,
+            })
+            .await?;
+    } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
+        let settings: serde_json::Value =
+            serde_json::from_str(&site.settings_json).unwrap_or_default();
+        let socket = settings
+            .get("socket_path")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("/run/panel/python/site_{}/app.sock", site.id));
+        state
+            .agent_client
+            .remove_python_site(panel_proto::PythonSiteRemoveRequest {
+                site_id: format!("site_{}", site.id),
+                socket_path: Some(socket),
+                unit_path: None,
+                env_file_path: None,
+            })
+            .await?;
+    }
+    Ok(())
+}
+
 async fn rollback_created_site(
     state: &AppState,
     site: &Site,
     username: &str,
     php_version: Option<&str>,
 ) {
+    let mut cleanup_failed = false;
     if let Err(err) = state
         .agent_client
         .remove_site(SiteRemoveRequest {
@@ -1120,6 +1217,7 @@ async fn rollback_created_site(
         })
         .await
     {
+        cleanup_failed = true;
         log_site_cleanup_error(site.id, "remove vhost", err);
     }
     if let Some(version) = php_version
@@ -1128,7 +1226,28 @@ async fn rollback_created_site(
             .remove_php_fpm_pool(username, version, format!("site_{}", site.id), true)
             .await
     {
+        cleanup_failed = true;
         log_site_cleanup_error(site.id, "remove FPM pool", err);
+    }
+    if let Err(error) = remove_site_process(state, site).await {
+        cleanup_failed = true;
+        log_site_cleanup_error(site.id, "remove runtime", error);
+    }
+    if cleanup_failed {
+        let _ = SqliteSiteRepository::new(state.pool.clone())
+            .update(
+                site.id,
+                &UpdateSite {
+                    kind: None,
+                    docroot: None,
+                    runtime: None,
+                    version: None,
+                    status: Some("suspended".into()),
+                    settings_json: None,
+                },
+            )
+            .await;
+        return;
     }
     if let Err(err) = SqliteSiteRepository::new(state.pool.clone())
         .delete(site.id)
@@ -1138,9 +1257,35 @@ async fn rollback_created_site(
     }
 }
 
+fn site_deletion_failure(
+    error: crate::agent_client::AgentClientError,
+    stage: &'static str,
+) -> axum::response::Response {
+    site_agent_failure(
+        error,
+        stage,
+        "penghapusan situs belum selesai; domain tetap dicatat",
+        "site_deletion_failed",
+    )
+}
+
 fn site_provisioning_failure(
     error: crate::agent_client::AgentClientError,
     stage: &'static str,
+) -> axum::response::Response {
+    site_agent_failure(
+        error,
+        stage,
+        "pembuatan situs dibatalkan",
+        "site_provisioning_failed",
+    )
+}
+
+fn site_agent_failure(
+    error: crate::agent_client::AgentClientError,
+    stage: &'static str,
+    operation: &str,
+    code: &str,
 ) -> axum::response::Response {
     // An agent-reported provisioning rejection is not a proxy failure. Returning
     // 502 makes it indistinguishable from an unavailable origin behind a gateway.
@@ -1148,20 +1293,20 @@ fn site_provisioning_failure(
         crate::agent_client::AgentClientError::AgentError(detail) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
-                "{stage}; pembuatan situs dibatalkan. {}",
+                "{stage}; {operation}. {}",
                 detail.chars().take(2048).collect::<String>()
             ),
         ),
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
             format!(
-                "{stage}; pembuatan situs dibatalkan. Agent tidak dapat dihubungi atau responsnya tidak valid. Periksa layanan agent."
+                "{stage}; {operation}. Agent tidak dapat dihubungi atau responsnya tidak valid. Periksa layanan agent."
             ),
         ),
     };
     (
         status,
-        Json(serde_json::json!({"error":message,"code":"site_provisioning_failed"})),
+        Json(serde_json::json!({"error":message,"code":code})),
     )
         .into_response()
 }
@@ -1351,7 +1496,7 @@ pub async fn create_static_site_handler(
             }
         });
         let ep_type = payload.entrypoint_type.clone().unwrap_or_else(|| {
-            if srv_type.contains("asgi") {
+            if srv_type != "gunicorn_wsgi" {
                 "asgi".to_string()
             } else {
                 "wsgi".to_string()
@@ -1551,16 +1696,54 @@ pub async fn create_static_site_handler(
         }
     };
 
-    // 7. Provision host docroot via agent
-    let placeholder = if is_php {
-        render_php_placeholder(&unicode_domain, &php_version, preset.as_str())
+    // 7. Provision the correct starter while retaining existing project files.
+    let (starter, placeholder) = if is_php {
+        (
+            panel_proto::SiteStarter::Php,
+            render_php_placeholder(&unicode_domain, &php_version, preset.as_str()),
+        )
     } else if is_nodejs {
-        render_nodejs_placeholder(&unicode_domain)
+        let entry = settings
+            .get("entrypoint_value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("server.js");
+        let npm = settings
+            .get("entrypoint_type")
+            .and_then(|v| v.as_str())
+            .is_some_and(|v| v.starts_with("npm_"));
+        (
+            if entry == "server.js" || npm {
+                panel_proto::SiteStarter::Nodejs
+            } else {
+                panel_proto::SiteStarter::Empty
+            },
+            render_nodejs_placeholder(&unicode_domain),
+        )
     } else if is_python {
-        render_python_placeholder(&unicode_domain)
+        let entry = settings
+            .get("entrypoint_value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("app:app");
+        let module = entry.split(':').next().unwrap_or("");
+        let starter = match module {
+            "app" => panel_proto::SiteStarter::PythonApp,
+            "main" => panel_proto::SiteStarter::PythonMain,
+            "wsgi" => panel_proto::SiteStarter::PythonWsgi,
+            "myproject.wsgi" => panel_proto::SiteStarter::PythonDjango,
+            _ => panel_proto::SiteStarter::Empty,
+        };
+        let asgi = settings.get("entrypoint_type").and_then(|v| v.as_str()) == Some("asgi");
+        (starter, render_python_starter(&unicode_domain, asgi))
     } else {
-        render_placeholder_html(&unicode_domain)
+        (
+            panel_proto::SiteStarter::Html,
+            render_placeholder_html(&unicode_domain),
+        )
     };
+    let provision_dir = settings
+        .get("app_dir")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&docroot);
     let prov_req = SiteProvisionRequest {
         site_id: created_site.id,
         username: linux_uname.to_string(),
@@ -1569,10 +1752,11 @@ pub async fn create_static_site_handler(
         docroot: if is_php && preset == PhpPreset::Laravel {
             format!("{docroot}/public")
         } else {
-            docroot.clone()
+            provision_dir.to_string()
         },
         web_user: Some("www-data".to_string()),
         index_content: Some(placeholder),
+        starter,
     };
     if let Err(e) = state.agent_client.provision_site(prov_req).await {
         tracing::error!(error=%e, "Site docroot provisioning failed");
@@ -1678,7 +1862,7 @@ pub async fn create_static_site_handler(
         None,
         Some(format!(
             "domain:{ascii_domain},kind:{}",
-            if is_php { "php" } else { "static" }
+            created_site.kind.as_str()
         )),
     );
 
@@ -2145,12 +2329,12 @@ pub async fn get_site_overview_handler(
             format!("127.0.0.1:{port}")
         }
         "python" => {
-            format!("/run/panel-python/site_{}.sock", site.id)
+            format!("/run/panel/python/site_{}/app.sock", site.id)
         }
         "php" => {
             let ver = site.version.as_deref().unwrap_or("8.3");
             let uname = &tenant_linux_name;
-            format!("/run/panel/php/{uname}-{ver}.sock")
+            format!("/run/panel/php/{uname}-{ver}/fpm.sock")
         }
         "proxy" => settings
             .get("upstream_url")
@@ -2650,7 +2834,9 @@ pub async fn delete_site_handler(
         nginx_base_dir: None,
         reload: true,
     };
-    let _ = state.agent_client.remove_site(rm_req).await;
+    if let Err(error) = state.agent_client.remove_site(rm_req).await {
+        return site_deletion_failure(error, "Penghapusan vhost gagal");
+    }
 
     // 1b. If PHP site, remove PHP-FPM pool via agent
     if site.kind == "php" || site.runtime.as_deref() == Some("php") {
@@ -2663,23 +2849,18 @@ pub async fn delete_site_handler(
                 }
             };
             let ver = site.version.as_deref().unwrap_or("8.3");
-            let _ = state
+            if let Err(error) = state
                 .agent_client
                 .remove_php_fpm_pool(&uname, ver, format!("site_{id}"), true)
-                .await;
+                .await
+            {
+                return site_deletion_failure(error, "Penghapusan pool PHP-FPM gagal");
+            }
         }
     }
 
-    // 1c. If Node.js site, remove systemd unit and env file via agent
-    if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
-        let _ = state
-            .agent_client
-            .remove_node_site(panel_proto::NodeSiteRemoveRequest {
-                site_id: format!("site_{id}"),
-                unit_path: None,
-                env_file_path: None,
-            })
-            .await;
+    if let Err(error) = remove_site_process(&state, &site).await {
+        return site_deletion_failure(error, "Penghapusan proses aplikasi gagal");
     }
 
     // 2. Delete database record (cascading deletes domains)
@@ -3226,6 +3407,38 @@ fn render_python_placeholder(domain: &str) -> String {
     start_response('200 OK', [('Content-Type', 'text/html; charset=utf-8')])
     html = {html_json}
     return [html.encode('utf-8')]
+
+application = app
+"#
+    )
+}
+
+fn render_python_starter(domain: &str, asgi: bool) -> String {
+    if !asgi {
+        return render_python_placeholder(domain);
+    }
+    let html = panel_webserver::placeholder::render_welcome_html(
+        domain,
+        "Python",
+        "Unggah aplikasi Python Anda untuk memulai deployment.",
+    );
+    let html = serde_json::json!(html);
+    format!(
+        r#"async def app(scope, receive, send):
+    if scope['type'] == 'lifespan':
+        while True:
+            message = await receive()
+            if message['type'] == 'lifespan.startup':
+                await send({{'type': 'lifespan.startup.complete'}})
+            elif message['type'] == 'lifespan.shutdown':
+                await send({{'type': 'lifespan.shutdown.complete'}})
+                return
+    elif scope['type'] == 'http':
+        html = {html}
+        await send({{'type': 'http.response.start', 'status': 200, 'headers': [(b'content-type', b'text/html; charset=utf-8')]}})
+        await send({{'type': 'http.response.body', 'body': html.encode('utf-8')}})
+
+application = app
 "#
     )
 }
@@ -3234,6 +3447,98 @@ fn render_python_placeholder(domain: &str) -> String {
 #[allow(clippy::expect_used)]
 mod placeholder_tests {
     use super::*;
+
+    #[test]
+    fn generated_python_wsgi_and_asgi_starters_execute_with_utf8_responses() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let script = r#"import sys, asyncio
+ns = {}
+exec(sys.stdin.read(), ns)
+if sys.argv[1] == 'asgi':
+    messages = []
+    async def receive(): return {'type': 'http.request', 'body': b''}
+    async def send(message): messages.append(message)
+    asyncio.run(ns['app']({'type': 'http'}, receive, send))
+    assert messages[0]['status'] == 200
+    body = messages[1]['body']
+else:
+    statuses = []
+    body = b''.join(ns['application']({}, lambda status, headers: statuses.append(status)))
+    assert statuses == ['200 OK']
+assert 'toko-\u00e9.example.test' in body.decode('utf-8')
+"#;
+        for asgi in [false, true] {
+            let mut child = Command::new(if cfg!(windows) { "python" } else { "python3" })
+                .args([
+                    "-X",
+                    "utf8",
+                    "-c",
+                    script,
+                    if asgi { "asgi" } else { "wsgi" },
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(render_python_starter("toko-\u{00e9}.example.test", asgi).as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    fn generated_node_starter_answers_http_on_a_temporary_loopback_port() {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let program = format!(
+            "process.env.PORT = '0';\n{}\n{}",
+            render_nodejs_placeholder("runtime.example.test"),
+            r#"
+server.on('listening', () => {
+  http.get({host: '127.0.0.1', port: server.address().port, path: '/'}, response => {
+    let body = '';
+    response.setEncoding('utf8');
+    response.on('data', chunk => body += chunk);
+    response.on('end', () => {
+      server.close();
+      if (response.statusCode !== 200 || !body.includes('runtime.example.test')) process.exitCode = 1;
+    });
+  }).on('error', () => { server.close(); process.exitCode = 2; });
+});
+setTimeout(() => process.exit(3), 3000).unref();
+"#
+        );
+        let mut child = Command::new("node")
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(program.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[tokio::test]
     async fn provisioning_rejection_keeps_bounded_diagnostics_in_json() {

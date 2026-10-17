@@ -221,7 +221,7 @@ async fn mock_rpc(
             captured.lock().await.push(value.clone());
             let kind = value["type"].as_str().unwrap();
             let data = &value["data"];
-            let response = if kind == fail {
+            let response = if fail.split('|').any(|operation| operation == kind) {
                 panel_proto::RpcResponse::err(req.request_id, "Injected fixture failure")
             } else {
                 let (response_kind, body) = match kind {
@@ -243,11 +243,27 @@ async fn mock_rpc(
                     ),
                     "PhpFpmMasterEnsure" => (
                         "PhpFpmMasterEnsure",
-                        json!({"service_name":"panel-php","config_dir":"/etc/panel/php","default_socket_path":"/run/panel/php/p_actual-8.3.sock","is_active":true}),
+                        json!({"service_name":"panel-php","config_dir":"/etc/panel/php","default_socket_path":"/run/panel/php/p_actual-8.3/fpm.sock","is_active":true}),
                     ),
                     "PhpFpmPoolApply" => (
                         "PhpFpmPoolApply",
-                        json!({"pool_name":data["pool_name"],"pool_conf_path":"/etc/panel/php/pool.conf","socket_path":"/run/panel/php/p_actual-8.3.sock","reloaded":true}),
+                        json!({"pool_name":data["pool_name"],"pool_conf_path":"/etc/panel/php/pool.conf","socket_path":"/run/panel/php/p_actual-8.3/fpm.sock","reloaded":true}),
+                    ),
+                    "NodeSiteStatus" => (
+                        "NodeSiteStatus",
+                        json!({"site_id":data["site_id"],"service_name":"fixture","active":true,"sub_state":"running","healthy":true,"probe_status_code":200}),
+                    ),
+                    "PythonSiteStatus" => (
+                        "PythonSiteStatus",
+                        json!({"site_id":data["site_id"],"service_name":"fixture","active":true,"sub_state":"running","healthy":true,"socket_exists":true}),
+                    ),
+                    "NodeSiteRemove" => (
+                        "NodeSiteRemoved",
+                        json!({"site_id":data["site_id"],"action":"remove","success":true,"message":"removed"}),
+                    ),
+                    "PythonSiteRemove" => (
+                        "PythonSiteRemoved",
+                        json!({"site_id":data["site_id"],"action":"remove","success":true,"message":"removed"}),
                     ),
                     "SiteApply" => (
                         "SiteApplied",
@@ -723,4 +739,206 @@ async fn collector_worker_persists_proc_fixture_and_stops_cleanly() {
     assert_eq!(point.disk_total_bytes, 8192);
     assert_eq!(point.load1, 0.5);
     assert!(!state.collector_status.read().await.failed);
+}
+
+#[tokio::test]
+async fn same_domain_can_be_deleted_and_recreated_across_runtimes_with_matching_starters() {
+    use axum::{Json, response::IntoResponse};
+    use panel_db::repositories::SqliteSiteRepository;
+    let (mut state, tmp) = fixture().await;
+    let owner = tenant(&state, "customer", Some("p_actual"), Some(10042)).await;
+    let (client, calls, task) = mock_rpc(&tmp, "").await;
+    state.agent_client = client;
+    for (kind, starter) in [
+        ("static", "html"),
+        ("nodejs", "nodejs"),
+        ("python", "python_app"),
+        ("php", "php"),
+    ] {
+        let request = serde_json::from_value(json!({"domain":"reused.example.test","user_id":owner.id,"kind":kind,"php_version":"8.3"})).unwrap();
+        let response = panel_api::sites::create_static_site_handler(
+            State(state.clone()),
+            actor(999, "admin", "admin"),
+            Json(request),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::CREATED, "{kind}");
+        let site = SqliteSiteRepository::new(state.pool.clone())
+            .find_by_user_id(owner.id)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        {
+            let captured = calls.lock().await;
+            let provision = captured
+                .iter()
+                .rev()
+                .find(|c| c["type"] == "SiteProvision")
+                .unwrap();
+            assert_eq!(provision["data"]["starter"], starter);
+            if kind == "nodejs" || kind == "python" {
+                let ready = if kind == "nodejs" {
+                    "NodeSiteStatus"
+                } else {
+                    "PythonSiteStatus"
+                };
+                let health = captured.iter().rposition(|c| c["type"] == ready).unwrap();
+                let publish = captured
+                    .iter()
+                    .rposition(|c| c["type"] == "SiteApply")
+                    .unwrap();
+                assert!(health < publish, "publish only after {kind} is ready");
+            }
+        }
+        let response = panel_api::sites::delete_site_handler(
+            State(state.clone()),
+            actor(999, "admin", "admin"),
+            axum::extract::Path(site.id),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK, "{kind}");
+        assert!(
+            SqliteSiteRepository::new(state.pool.clone())
+                .find_by_user_id(owner.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    let captured = calls.lock().await;
+    assert!(captured.iter().any(|c| c["type"] == "NodeSiteRemove"));
+    let removal = captured
+        .iter()
+        .find(|c| c["type"] == "PythonSiteRemove")
+        .unwrap();
+    assert!(
+        removal["data"]["socket_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("/app.sock")
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn failed_runtime_health_never_publishes_and_failed_cleanup_retains_domain() {
+    use axum::{Json, response::IntoResponse};
+    use panel_db::repositories::SqliteSiteRepository;
+    for kind in ["nodejs", "python"] {
+        let (mut state, tmp) = fixture().await;
+        let owner = tenant(&state, "customer", Some("p_actual"), Some(10042)).await;
+        let failure = if kind == "nodejs" {
+            "NodeSiteStatus|NodeSiteRemove"
+        } else {
+            "PythonSiteStatus|PythonSiteRemove"
+        };
+        let (client, calls, task) = mock_rpc(&tmp, failure).await;
+        state.agent_client = client;
+        let request = serde_json::from_value(
+            json!({"domain":"failed.example.test","user_id":owner.id,"kind":kind}),
+        )
+        .unwrap();
+        let response = panel_api::sites::create_static_site_handler(
+            State(state.clone()),
+            actor(999, "admin", "admin"),
+            Json(request),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(!calls.lock().await.iter().any(|c| c["type"] == "SiteApply"));
+        let sites = SqliteSiteRepository::new(state.pool.clone())
+            .find_by_user_id(owner.id)
+            .await
+            .unwrap();
+        assert_eq!(sites.len(), 1, "retain ownership until cleanup succeeds");
+        assert_eq!(sites[0].status, "suspended");
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn failed_python_delete_does_not_free_the_domain() {
+    use axum::{Json, response::IntoResponse};
+    use panel_db::repositories::SqliteSiteRepository;
+    let (mut state, tmp) = fixture().await;
+    let owner = tenant(&state, "customer", Some("p_actual"), Some(10042)).await;
+    let (client, _, task) = mock_rpc(&tmp, "PythonSiteRemove").await;
+    state.agent_client = client;
+    let request = serde_json::from_value(
+        json!({"domain":"kept.example.test","user_id":owner.id,"kind":"python"}),
+    )
+    .unwrap();
+    let response = panel_api::sites::create_static_site_handler(
+        State(state.clone()),
+        actor(999, "admin", "admin"),
+        Json(request),
+    )
+    .await
+    .into_response();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let site = SqliteSiteRepository::new(state.pool.clone())
+        .find_by_user_id(owner.id)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    let response = panel_api::sites::delete_site_handler(
+        State(state.clone()),
+        actor(999, "admin", "admin"),
+        axum::extract::Path(site.id),
+    )
+    .await
+    .into_response();
+    assert!(response.status().is_client_error() || response.status().is_server_error());
+    assert!(
+        SqliteSiteRepository::new(state.pool.clone())
+            .find_by_id(site.id)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn python_presets_seed_entrypoints_with_the_selected_wsgi_or_asgi_protocol() {
+    use axum::{Json, response::IntoResponse};
+    for (framework, entry, protocol, starter) in [
+        (
+            "django",
+            "myproject.wsgi:application",
+            "wsgi",
+            "python_django",
+        ),
+        ("flask", "app:app", "wsgi", "python_app"),
+        ("fastapi", "main:app", "asgi", "python_main"),
+    ] {
+        let (mut state, tmp) = fixture().await;
+        let owner = tenant(&state, "customer", Some("p_actual"), Some(10042)).await;
+        let (client, calls, task) = mock_rpc(&tmp, "").await;
+        state.agent_client = client;
+        let request = serde_json::from_value(json!({"domain":"preset.example.test","user_id":owner.id,"kind":"python","framework":framework,"entrypoint_value":entry,"entrypoint_type":protocol})).unwrap();
+        let response = panel_api::sites::create_static_site_handler(
+            State(state.clone()),
+            actor(999, "admin", "admin"),
+            Json(request),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::CREATED, "{framework}");
+        let captured = calls.lock().await;
+        let provision = captured
+            .iter()
+            .find(|c| c["type"] == "SiteProvision")
+            .unwrap();
+        assert_eq!(provision["data"]["starter"], starter);
+        let code = provision["data"]["index_content"].as_str().unwrap();
+        assert_eq!(code.contains("async def app"), protocol == "asgi");
+        assert!(code.contains("application = app"));
+        task.abort();
+    }
 }

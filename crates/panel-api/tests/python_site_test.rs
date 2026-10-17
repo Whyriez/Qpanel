@@ -86,13 +86,25 @@ async fn setup_test_context() -> TestContext {
     let runner = Arc::new(MockSystemRunner::new());
     // Configure mock responses for system binaries
     runner.set_response("nginx", 0, b"syntax is ok", b"");
-    runner.set_response("systemctl", 0, b"", b"");
+    runner.set_response(
+        "systemctl",
+        0,
+        b"ActiveState=active\nSubState=running\nMainPID=42\n",
+        b"",
+    );
+    runner.set_response("curl", 0, b"200", b"");
+    runner.set_response("runuser", 0, b"200", b"");
+    runner.add_existing_path("/opt/panel/runtimes/node/22.14.0/bin/node");
+    runner.add_existing_path("/opt/panel/runtimes/python/3.12.9/bin/python3");
+    // The settings-update scenario represents an entrypoint deployed by the user.
+    runner.add_existing_path("/home/p_alice/sites/pyapp.example.com/app/custom_proj/wsgi.py");
     runner.set_response("systemd-run", 0, b"Installed 15 packages", b"");
     runner.set_response("setfacl", 0, b"", b"");
     runner.set_response("chown", 0, b"", b"");
     runner.set_response("chmod", 0, b"", b"");
     runner.set_response("uv", 0, b"Installed Python 3.12.9\n", b"");
 
+    runner.add_existing_path("/run/panel/python/site_1/app.sock");
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
     ));

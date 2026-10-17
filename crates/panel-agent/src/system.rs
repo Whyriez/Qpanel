@@ -22,6 +22,7 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "getfacl",
     "pkill",
     "systemctl",
+    "runuser",
     "setquota",
     "repquota",
     "xfs_quota",
@@ -134,6 +135,35 @@ pub trait SystemRunner: Send + Sync {
     fn remove_dir_all(&self, path: &Path) -> Result<(), AgentError>;
     fn path_exists(&self, path: &Path) -> bool;
     fn write_file(&self, path: &Path, content: &[u8], mode: u32) -> Result<(), AgentError>;
+    /// Creates a new file without replacing a file concurrently written by a tenant.
+    fn write_file_if_absent(
+        &self,
+        path: &Path,
+        content: &[u8],
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> Result<bool, AgentError> {
+        if self.path_exists(path) {
+            return Ok(false);
+        }
+        self.write_file(path, content, mode)?;
+        self.set_ownership(path, uid, gid)?;
+        Ok(true)
+    }
+    fn prepare_owned_file(
+        &self,
+        path: &Path,
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> Result<(), AgentError> {
+        if !self.path_exists(path) {
+            self.write_file(path, &[], mode)?;
+        }
+        self.set_ownership(path, uid, gid)?;
+        self.set_permissions(path, mode)
+    }
     fn read_file(&self, path: &Path) -> Result<Vec<u8>, AgentError>;
     fn remove_file(&self, path: &Path) -> Result<(), AgentError>;
     fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>, AgentError>;
@@ -211,6 +241,126 @@ fn wait_for_download(
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+}
+
+#[cfg(unix)]
+// Descriptor-relative no-follow operations require libc; each FFI call is documented below.
+#[allow(unsafe_code)]
+fn open_owned_runtime_file(
+    path: &Path,
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    exclusive: bool,
+) -> Result<Option<std::fs::File>, AgentError> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    let mut directory = std::fs::File::open("/")?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| AgentError::InvalidInput("Parent starter tidak valid".into()))?;
+    if !path.is_absolute() {
+        return Err(AgentError::InvalidInput(
+            "Path starter harus absolut".into(),
+        ));
+    }
+    for component in parent.components() {
+        let std::path::Component::Normal(name) = component else {
+            if component == std::path::Component::RootDir {
+                continue;
+            }
+            return Err(AgentError::InvalidInput(
+                "Komponen path starter tidak valid".into(),
+            ));
+        };
+        let name = CString::new(name.as_bytes())
+            .map_err(|_| AgentError::InvalidInput("Path starter mengandung NUL".into()))?;
+        let mut created = false;
+        // SAFETY: directory owns a valid descriptor; name is a NUL-terminated component.
+        let mut fd = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
+            // SAFETY: same owned directory and validated component; never follow symlinks.
+            if unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o750) } < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::AlreadyExists {
+                    return Err(error.into());
+                }
+            } else {
+                created = true;
+            }
+            // SAFETY: as above; a raced symlink or non-directory is rejected.
+            fd = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+        }
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: openat returned a fresh owned descriptor.
+        directory = unsafe { std::fs::File::from_raw_fd(fd) };
+        if created {
+            // SAFETY: fchown acts on the opened inode, never on a replaced path.
+            if unsafe { libc::fchown(directory.as_raw_fd(), uid, gid) } < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+        }
+    }
+    let name = path
+        .file_name()
+        .ok_or_else(|| AgentError::InvalidInput("Nama starter tidak valid".into()))?;
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| AgentError::InvalidInput("Nama starter mengandung NUL".into()))?;
+    // SAFETY: descriptor and component are valid. O_EXCL prevents replacing user files.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY
+                | libc::O_CREAT
+                | if exclusive { libc::O_EXCL } else { 0 }
+                | libc::O_NONBLOCK
+                | libc::O_NOFOLLOW
+                | libc::O_CLOEXEC,
+            mode,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Ok(None);
+        }
+        return Err(error.into());
+    }
+    // SAFETY: fd is a fresh owned descriptor returned by openat.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || (metadata.uid() != 0 && metadata.uid() != uid)
+    {
+        return Err(AgentError::SecurityViolation(
+            "File runtime harus regular, tanpa hardlink dan milik tenant/root".into(),
+        ));
+    }
+    // SAFETY: ownership changes apply to the validated, opened inode.
+    if unsafe { libc::fchown(file.as_raw_fd(), uid, gid) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+    Ok(Some(file))
 }
 
 impl SystemRunner for RealSystemRunner {
@@ -460,6 +610,66 @@ impl SystemRunner for RealSystemRunner {
         }
         std::fs::write(path, content)?;
         self.set_permissions(path, mode)?;
+        Ok(())
+    }
+
+    fn write_file_if_absent(
+        &self,
+        path: &Path,
+        content: &[u8],
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> Result<bool, AgentError> {
+        use std::io::Write;
+        #[cfg(unix)]
+        let mut file = match open_owned_runtime_file(path, mode, uid, gid, true)? {
+            Some(file) => file,
+            None => return Ok(false),
+        };
+        #[cfg(not(unix))]
+        let mut file = {
+            let _ = (mode, uid, gid);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+            {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Ok(false);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
+        file.write_all(content)?;
+        Ok(true)
+    }
+
+    fn prepare_owned_file(
+        &self,
+        path: &Path,
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> Result<(), AgentError> {
+        #[cfg(unix)]
+        let _ = open_owned_runtime_file(path, mode, uid, gid, false)?;
+        #[cfg(not(unix))]
+        {
+            let _ = (mode, uid, gid);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(path)?;
+        }
         Ok(())
     }
 
@@ -889,6 +1099,82 @@ impl SystemRunner for MockSystemRunner {
 mod download_tests {
     use super::*;
     use tokio_util::sync::CancellationToken;
+
+    #[test]
+    #[allow(unsafe_code)] // Read the fixture process identity on Unix.
+    fn exclusive_starter_creation_preserves_existing_and_concurrent_project_data() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("app.py");
+        #[cfg(unix)]
+        // SAFETY: these calls only read the test process identity.
+        let identity = unsafe { (libc::getuid(), libc::getgid()) };
+        #[cfg(not(unix))]
+        let identity = (0, 0);
+        let handles: Vec<_> = [b"first".to_vec(), b"second".to_vec()]
+            .into_iter()
+            .map(|content| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    RealSystemRunner
+                        .write_file_if_absent(&path, &content, 0o644, identity.0, identity.1)
+                        .unwrap()
+                })
+            })
+            .collect();
+        let created = handles
+            .into_iter()
+            .map(|handle| usize::from(handle.join().unwrap()))
+            .sum::<usize>();
+        assert_eq!(created, 1);
+        let before = std::fs::read(&path).unwrap();
+        assert!(
+            !RealSystemRunner
+                .write_file_if_absent(&path, b"replacement", 0o644, identity.0, identity.1)
+                .unwrap()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        RealSystemRunner
+            .prepare_owned_file(&path, 0o640, identity.0, identity.1)
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "log repair must never truncate content"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(unsafe_code)] // Read the fixture process identity without changing it.
+    fn owned_runtime_files_reject_symlink_parents_and_linked_log_files() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("alias")).unwrap();
+        // SAFETY: these calls only query this test process's identity.
+        let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+        assert!(
+            RealSystemRunner
+                .write_file_if_absent(
+                    &root.path().join("alias/app.py"),
+                    b"starter",
+                    0o644,
+                    uid,
+                    gid
+                )
+                .is_err()
+        );
+        assert!(!outside.path().join("app.py").exists());
+        let original = root.path().join("original");
+        let linked = root.path().join("linked");
+        std::fs::write(&original, b"preserve").unwrap();
+        std::fs::hard_link(&original, &linked).unwrap();
+        assert!(
+            RealSystemRunner
+                .prepare_owned_file(&linked, 0o640, uid, gid)
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&original).unwrap(), b"preserve");
+    }
 
     // This is a child test fixture, never the panel-agent daemon or a system command.
     #[test]

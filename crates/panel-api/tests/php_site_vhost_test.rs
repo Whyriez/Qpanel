@@ -103,7 +103,7 @@ async fn setup_test_context_with_php_sockets(sockets_available: bool) -> TestCon
             b"",
         );
         if sockets_available {
-            runner.add_existing_path(format!("/run/panel/php/p_alice-{version}.sock"));
+            runner.add_existing_path(format!("/run/panel/php/p_alice-{version}/fpm.sock"));
         }
     }
 
@@ -325,7 +325,7 @@ async fn test_create_php_site_generic_preset_and_vhost() {
     assert!(vhost_content.contains("server_name app-generic.com;"));
     assert!(vhost_content.contains("client_max_body_size 64M;"));
     assert!(vhost_content.contains("try_files $uri $uri/ /index.php?$args;"));
-    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3.sock;"));
+    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3/fpm.sock;"));
     assert!(vhost_content.contains("include /etc/panel/nginx/snippets/security-headers.conf;"));
     assert!(vhost_content.contains("include /etc/panel/nginx/snippets/deny-sensitive.conf;"));
     assert!(vhost_content.contains(r"composer\.(?:json|lock)"));
@@ -377,7 +377,7 @@ async fn test_create_php_site_wordpress_preset_security_rules() {
     assert!(vhost_content.contains("location ~* ^/wp-content/uploads/.*\\.php$ {"));
     assert!(vhost_content.contains("location ~* ^/wp-includes/.*\\.php$ {"));
     assert!(vhost_content.contains("location = /wp-config.php {"));
-    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2.sock;"));
+    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2/fpm.sock;"));
 }
 
 #[tokio::test]
@@ -466,7 +466,7 @@ async fn test_create_php_site_custom_front_controller() {
     let vhost_content = fs::read_to_string(vhost_path).unwrap();
 
     assert!(vhost_content.contains("try_files $uri $uri/ /main.php?$args;"));
-    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.4.sock;"));
+    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.4/fpm.sock;"));
 }
 
 #[tokio::test]
@@ -585,7 +585,7 @@ async fn test_php_site_domain_redirects_and_recompile() {
     assert!(vhost_content.contains("server_name alias-php.com;"));
     assert!(vhost_content.contains("return 301 $scheme://main-php.com$request_uri;"));
     // Primary PHP pass should still be intact
-    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3.sock;"));
+    assert!(vhost_content.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3/fpm.sock;"));
 }
 
 #[tokio::test]

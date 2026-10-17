@@ -95,8 +95,8 @@ async fn setup_test_context() -> TestContext {
     runner.add_existing_path("/usr/bin/php8.3");
 
     // Pre-populate socket paths for mock health checks
-    runner.add_existing_path("/run/panel/php/p_alice-8.2.sock");
-    runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
+    runner.add_existing_path("/run/panel/php/p_alice-8.2/fpm.sock");
+    runner.add_existing_path("/run/panel/php/p_alice-8.3/fpm.sock");
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
@@ -302,7 +302,7 @@ async fn test_switch_php_version_success_without_downtime() {
         .join(format!("site_{}.conf", site.id));
     assert!(vhost_path.exists());
     let vhost_82 = fs::read_to_string(&vhost_path).unwrap();
-    assert!(vhost_82.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2.sock;"));
+    assert!(vhost_82.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2/fpm.sock;"));
 
     // 2. Perform zero-downtime PHP version switch to PHP 8.3
     let switch_req_payload = SwitchPhpVersionRequest {
@@ -337,8 +337,8 @@ async fn test_switch_php_version_success_without_downtime() {
 
     // 3. Verify Nginx vhost now atomically points to PHP 8.3 socket
     let vhost_83 = fs::read_to_string(&vhost_path).unwrap();
-    assert!(vhost_83.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3.sock;"));
-    assert!(!vhost_83.contains("unix:/run/panel/php/p_alice-8.2.sock;"));
+    assert!(vhost_83.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.3/fpm.sock;"));
+    assert!(!vhost_83.contains("unix:/run/panel/php/p_alice-8.2/fpm.sock;"));
 
     // 4. Verify DB record was updated to 8.3
     let site_repo = SqliteSiteRepository::new(ctx.pool.clone());
@@ -388,7 +388,7 @@ async fn test_switch_php_version_automatic_rollback_on_health_check_failure() {
         .join("sites-enabled")
         .join(format!("site_{}.conf", site.id));
     let initial_vhost = fs::read_to_string(&vhost_path).unwrap();
-    assert!(initial_vhost.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2.sock;"));
+    assert!(initial_vhost.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2/fpm.sock;"));
 
     // 2. Setup mock failure: PHP 8.3 master service fails health check
     ctx.runner.set_response(
@@ -433,8 +433,8 @@ async fn test_switch_php_version_automatic_rollback_on_health_check_failure() {
 
     // 4. Verify vhost in sites-enabled was automatically rolled back to 8.2
     let rolled_back_vhost = fs::read_to_string(&vhost_path).unwrap();
-    assert!(rolled_back_vhost.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2.sock;"));
-    assert!(!rolled_back_vhost.contains("unix:/run/panel/php/p_alice-8.3.sock;"));
+    assert!(rolled_back_vhost.contains("fastcgi_pass unix:/run/panel/php/p_alice-8.2/fpm.sock;"));
+    assert!(!rolled_back_vhost.contains("unix:/run/panel/php/p_alice-8.3/fpm.sock;"));
 
     // 5. Verify database record remains 8.2
     let site_repo = SqliteSiteRepository::new(ctx.pool.clone());

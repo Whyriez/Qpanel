@@ -155,16 +155,20 @@ impl PhpFpmMasterConfig {
         self.config_dir().join("php-fpm.conf")
     }
 
-    /// Path to master PID file, e.g. "/run/panel/php/p_alice-8.3.pid".
-    pub fn pid_path(&self) -> PathBuf {
+    /// Tenant-owned runtime directory; other tenants cannot create or unlink sockets here.
+    pub fn runtime_dir(&self) -> PathBuf {
         self.runtime_base_dir
-            .join(format!("{}-{}.pid", self.username, self.version.as_str()))
+            .join(format!("{}-{}", self.username, self.version.as_str()))
     }
 
-    /// Default Unix domain socket path, e.g. "/run/panel/php/p_alice-8.3.sock".
+    /// Path to master PID file, e.g. "/run/panel/php/p_alice-8.3/master.pid".
+    pub fn pid_path(&self) -> PathBuf {
+        self.runtime_dir().join("master.pid")
+    }
+
+    /// Default Unix domain socket path, e.g. "/run/panel/php/p_alice-8.3/fpm.sock".
     pub fn default_socket_path(&self) -> PathBuf {
-        self.runtime_base_dir
-            .join(format!("{}-{}.sock", self.username, self.version.as_str()))
+        self.runtime_dir().join("fpm.sock")
     }
 
     /// Log directory for this tenant, e.g. "/var/log/panel/p_alice".
@@ -227,7 +231,7 @@ process_control_timeout = 10s
         let slice = self.slice_name();
         let username = &self.username;
         let config_dir = to_posix_str(&self.config_dir());
-        let runtime_dir = to_posix_str(&self.runtime_base_dir);
+        let runtime_dir = to_posix_str(&self.runtime_dir());
         let tenant_log_dir = to_posix_str(&self.tenant_log_dir());
 
         format!(
@@ -252,6 +256,11 @@ KillMode=process
 Restart=on-failure
 RestartSec=3s
 LimitNOFILE=65535
+RuntimeDirectory=panel/php/{username}-{version}
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=restart
+LogsDirectory=panel/{username}
+LogsDirectoryMode=0750
 
 # Sandbox & Hardening (PRD 4.4 & 5.1)
 NoNewPrivileges=true
@@ -266,6 +275,9 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
 "#,
             username = username,
             uid = self.uid,
@@ -427,8 +439,7 @@ user = {username}
 group = {username}
 
 listen = {socket_path}
-listen.owner = {username}
-listen.group = www-data
+listen.acl_users = www-data
 listen.mode = 0660
 
 ; Process Manager: ondemand (RAM efficient for idle sites)
@@ -507,6 +518,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tenant_service_is_enableable_and_uses_private_writable_runtime() {
+        let master =
+            PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::parse("8.3").unwrap()).unwrap();
+        let unit = master.render_systemd_unit();
+        assert!(unit.contains("[Install]\nWantedBy=multi-user.target"));
+        assert!(unit.contains("RuntimeDirectory=panel/php/p_alice-8.3"));
+        assert!(unit.contains("ReadWritePaths=/run/panel/php/p_alice-8.3 "));
+        assert_eq!(
+            master.default_socket_path(),
+            PathBuf::from("/run/panel/php/p_alice-8.3/fpm.sock")
+        );
+        let pool = PhpFpmPoolConfig::new(&master, "site_1", "/home/p_alice/sites/example/app")
+            .unwrap()
+            .render_pool_conf();
+        assert!(pool.contains("listen.acl_users = www-data"));
+        assert!(!pool.contains("listen.group = www-data"));
+    }
+
+    #[test]
     fn test_validate_fpm_identifier() {
         assert!(validate_fpm_identifier("p_alice").is_ok());
         assert!(validate_fpm_identifier("site-1").is_ok());
@@ -533,11 +563,11 @@ mod tests {
         );
         assert_eq!(
             master.default_socket_path(),
-            PathBuf::from("/run/panel/php/p_alice-8.3.sock")
+            PathBuf::from("/run/panel/php/p_alice-8.3/fpm.sock")
         );
 
         let master_conf = master.render_master_conf();
-        assert!(master_conf.contains("pid = /run/panel/php/p_alice-8.3.pid"));
+        assert!(master_conf.contains("pid = /run/panel/php/p_alice-8.3/master.pid"));
         assert!(master_conf.contains("error_log = /var/log/panel/p_alice/php-fpm-8.3-error.log"));
         assert!(master_conf.contains("include = /etc/panel/php/p_alice-8.3/pool.d/*.conf"));
 
@@ -549,9 +579,9 @@ mod tests {
         assert!(unit.contains("ProtectSystem=strict"));
         assert!(unit.contains("TemporaryFileSystem=/home:ro"));
         assert!(unit.contains("BindPaths=/home/p_alice"));
-        assert!(
-            unit.contains("ReadWritePaths=/run/panel/php /var/log/panel/p_alice /home/p_alice/tmp")
-        );
+        assert!(unit.contains(
+            "ReadWritePaths=/run/panel/php/p_alice-8.3 /var/log/panel/p_alice /home/p_alice/tmp"
+        ));
         assert!(unit.contains("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"));
     }
 
@@ -570,9 +600,9 @@ mod tests {
         let rendered = pool.render_pool_conf();
         assert!(rendered.contains("[site-42]"));
         assert!(rendered.contains("user = p_alice"));
-        assert!(rendered.contains("listen = /run/panel/php/p_alice-8.3.sock"));
-        assert!(rendered.contains("listen.owner = p_alice"));
-        assert!(rendered.contains("listen.group = www-data"));
+        assert!(rendered.contains("listen = /run/panel/php/p_alice-8.3/fpm.sock"));
+        assert!(rendered.contains("listen.acl_users = www-data"));
+        assert!(!rendered.contains("listen.group = www-data"));
         assert!(rendered.contains("listen.mode = 0660"));
         assert!(rendered.contains("pm = ondemand"));
         assert!(rendered.contains("pm.max_children = 10"));

@@ -1110,6 +1110,36 @@ pub struct SiteHtpasswdRemovedResponse {
     pub removed: bool,
 }
 
+/// Fixed, agent-owned starter destinations; no free-form file path is accepted.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SiteStarter {
+    #[default]
+    Html,
+    Php,
+    Nodejs,
+    PythonApp,
+    PythonMain,
+    PythonWsgi,
+    PythonDjango,
+    Empty,
+}
+
+impl SiteStarter {
+    pub fn filename(self) -> Option<&'static str> {
+        match self {
+            Self::Html => Some("index.html"),
+            Self::Php => Some("index.php"),
+            Self::Nodejs => Some("server.js"),
+            Self::PythonApp => Some("app.py"),
+            Self::PythonMain => Some("main.py"),
+            Self::PythonWsgi => Some("wsgi.py"),
+            Self::PythonDjango => Some("myproject/wsgi.py"),
+            Self::Empty => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SiteProvisionRequest {
     pub site_id: i64,
@@ -1119,6 +1149,8 @@ pub struct SiteProvisionRequest {
     pub docroot: String,
     pub web_user: Option<String>,
     pub index_content: Option<String>,
+    #[serde(default)]
+    pub starter: SiteStarter,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

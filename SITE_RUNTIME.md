@@ -1,0 +1,83 @@
+# Pembuatan website PHP, Node.js dan Python
+
+Versi development tetap **0.1.0**. Perbaikan ini memerlukan pembaruan **panel-api
+dan panel-agent bersama**, lalu penerapan ulang konfigurasi website existing.
+Mengganti biner saja belum meregenerasi unit systemd dan vhost yang sudah ada.
+
+## Perubahan perilaku
+
+- PHP-FPM memiliki `[Install]` agar service tenant dapat di-enable. PID/socket
+  berada dalam direktori runtime milik tenant, dan log dapat ditulis oleh tenant.
+  Validasi konfigurasi dijalankan sebagai tenant, sehingga tidak membuat log baru
+  dengan owner root. Log lama diperbaiki melalui descriptor tanpa menimpa isinya.
+- Socket FPM memakai ACL `www-data` untuk koneksi Nginx. Service tetap berjalan
+  dengan user/group tenant, dengan sandbox yang sama.
+- Node.js membuat `server.js` dan `package.json` minimal dengan script `start`.
+  Kode JavaScript tidak lagi ditulis ke `index.html`.
+- Python membuat file sesuai entrypoint standar: `app.py`, `main.py`, `wsgi.py`,
+  atau `myproject/wsgi.py`. WSGI dan ASGI memiliki handler yang berbeda. Starter
+  ini adalah halaman awal yang dapat dijalankan, bukan instalasi penuh framework.
+- Python menyiapkan venv dan server Gunicorn/Uvicorn yang belum ada sebagai UID
+  tenant. Masing-masing persiapan memiliki batas runtime 30 detik dan stop dua
+  detik. Paket memerlukan akses registry; kegagalannya membatalkan provisioning.
+  Dependency framework/aplikasi milik pengguna tetap dikelola melalui deployment.
+- Proses diperiksa sebelum vhost Nginx dipublikasikan. Node diperiksa melalui HTTP
+  loopback; Python diperiksa melalui socket Unix dengan identitas `www-data`.
+  Service yang belum bisa melayani request tidak menghasilkan create sukses.
+
+Runtime harus sudah dipasang dari Runtime Manager. Entrypoint custom harus
+tersedia di folder aplikasi; starter tidak menebak atau menimpa kode custom.
+
+## Menghapus lalu memakai ulang domain
+
+Menghapus website membersihkan konfigurasi Nginx, proses dan environment service.
+Untuk Python, socket milik situs juga dibersihkan. Bila cleanup gagal, record
+situs/domain dipertahankan agar domain tidak dibuat ulang di atas proses lama.
+Provisioning gagal dengan cleanup yang belum lengkap mempertahankan situs dalam
+status suspended untuk ditinjau dan dicoba hapus lagi.
+
+File project tetap dipertahankan. Saat situs dibuat ulang dengan runtime berbeda,
+starter yang sesuai dibuat hanya jika file tersebut belum ada. Contoh: file
+`index.html` lama boleh masih tersimpan, tetapi Node menjalankan `server.js` dan
+Python menjalankan modul WSGI/ASGI. File lama bukan penentu runtime website.
+
+## Memasang perbaikan
+
+1. Commit/push perubahan. Setelah CI lulus, jalankan **Actions → Release → Run
+   workflow** dari **main**, tag **v0.1.0**, dengan **publish** aktif.
+2. Sesudah kedua build dan publikasi berhasil, pada server unduh ulang bootstrap
+   lalu jalankan upgrade:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/Whyriez/Vpanel/main/scripts/bootstrap-install.sh -o /tmp/bootstrap-install.sh
+   sudo env NUSA_PANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh --upgrade
+   ```
+
+3. Buat ulang situs percobaan yang sebelumnya gagal. Untuk aplikasi existing,
+   simpan ulang konfigurasi runtime/pool dan Site Rules agar unit, pool dan
+   vhost diregenerasi bersama. Jangan menghapus file aplikasi untuk regenerasi.
+4. Socket baru FPM: `/run/panel/php/<tenant>-<versi>/fpm.sock`.
+   Socket Python: `/run/panel/python/site_<id>/app.sock`. Path ini divalidasi
+   sebelum persiapan venv agar konsisten dengan cleanup. Override socket Python
+   lama perlu diselaraskan dengan path situs tersebut.
+
+Jangan memakai Re-run jobs dari run lama karena commit sumbernya tetap lama.
+Lihat [panduan pengemasan](RELEASE_PACKAGING.md) untuk pembaruan aset v0.1.0.
+
+## Pemeriksaan di server
+
+Gunakan nama tenant, versi dan ID website yang terlihat di panel. Contoh read-only:
+
+```bash
+systemctl cat panel-fpm@p_tokoalim-8.4.service
+systemctl status panel-fpm@p_tokoalim-8.4.service --no-pager
+journalctl -u panel-fpm@p_tokoalim-8.4.service --no-pager -n 60
+# Ganti site_1 dengan ID situs:
+systemctl status site-site_1.service --no-pager
+journalctl -u site-site_1.service --no-pager -n 60
+```
+
+Pengujian lokal memakai runner/protokol tiruan dan SQLite sementara. Starter
+Node/Python juga dapat diuji sebagai child process lokal tanpa daemon panel.
+Ini belum membuktikan systemd, FPM, ACL/socket, registry Python atau Nginx di
+server produksi telah berhasil.

@@ -169,7 +169,7 @@ pub async fn list_processes_handler(
                     .get("socket_path")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("/run/panel/python/site_{}.sock", site.id)),
+                    .unwrap_or_else(|| format!("/run/panel/python/site_{}/app.sock", site.id)),
             );
 
             let req = PythonSiteStatusRequest {

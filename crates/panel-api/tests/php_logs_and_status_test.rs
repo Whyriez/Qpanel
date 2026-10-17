@@ -124,7 +124,7 @@ async fn setup_test_context() -> TestContext {
     runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
 
     // Populate mock sockets & status files for Alice
-    let socket_path = PathBuf::from("/run/panel/php/p_alice-8.3.sock");
+    let socket_path = PathBuf::from("/run/panel/php/p_alice-8.3/fpm.sock");
     let mock_status_file = PathBuf::from("/run/panel/php/p_alice-8.3.status.json");
     runner.set_file_content(&socket_path, b"");
     let status_json = r#"{"pool":"site_1","process manager":"ondemand","start time":1728000000,"start since":100,"accepted conn":120,"listen queue":0,"max listen queue":2,"listen queue len":128,"idle processes":1,"active processes":2,"total processes":3,"max active processes":5,"max children reached":0,"slow requests":1}"#;

@@ -138,13 +138,24 @@ pub fn validate_socket_path(socket_path: &str) -> Result<(), AgentError> {
     Ok(())
 }
 
+fn validate_site_socket(site_id: &str, socket_path: &str) -> Result<(), AgentError> {
+    validate_socket_path(socket_path)?;
+    let expected = format!("/run/panel/python/{site_id}/app.sock");
+    if socket_path.strip_prefix("unix:").unwrap_or(socket_path) != expected {
+        return Err(AgentError::InvalidInput(format!(
+            "Socket Python harus memakai {expected}"
+        )));
+    }
+    Ok(())
+}
+
 /// Generates systemd service unit file content for a Python website process.
 /// Complies with PRD Section 5.1 sandboxing rules:
 /// - Runs under tenant UID/GID and tenant cgroup slice (`panel-u<uid>.slice`)
 /// - `ProtectSystem=strict`, `NoNewPrivileges=true`, `PrivateTmp=true`, `PrivateDevices=true`
 /// - `LimitNOFILE=65535`, `Restart=on-failure`, `RestartSec=2`
-/// - `ReadWritePaths=/home/<username> /run/panel/python`
-/// - `RuntimeDirectory=panel/python` with permissions `0775`
+/// - Writable tenant home and a private per-site runtime directory
+/// - Socket access for Nginx through an ACL applied by the tenant
 #[allow(clippy::too_many_arguments)]
 pub fn generate_python_site_unit(
     site_id: &str,
@@ -165,13 +176,14 @@ pub fn generate_python_site_unit(
     validate_site_id(site_id)?;
     validate_username(username)?;
     validate_entrypoint(entrypoint)?;
-    validate_socket_path(socket_path)?;
+    validate_site_socket(site_id, socket_path)?;
 
     let base_dir = base_runtime_dir.unwrap_or(DEFAULT_PYTHON_BASE_DIR);
     let norm_ver = normalize_python_version(python_version);
     let bin_dir = format!("{}/{}/bin", base_dir, norm_ver);
 
     let clean_socket = socket_path.strip_prefix("unix:").unwrap_or(socket_path);
+    let runtime_path = format!("/run/panel/python/{site_id}");
 
     let ep_str = match entrypoint {
         PythonSiteEntrypoint::Wsgi(s) | PythonSiteEntrypoint::Asgi(s) => s.as_str(),
@@ -221,7 +233,7 @@ ExecStart={exec_start}\n\
 LimitNOFILE=65535\n\
 NoNewPrivileges=true\n\
 ProtectSystem=strict\n\
-ReadWritePaths=/home/{username} /run/panel/python\n\
+ReadWritePaths=/home/{username} {runtime_path}\n\
 TemporaryFileSystem=/home:ro\n\
 BindPaths=/home/{username}\n\
 PrivateTmp=true\n\
@@ -230,8 +242,9 @@ ProtectKernelTunables=true\n\
 ProtectKernelModules=true\n\
 ProtectControlGroups=true\n\
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6\n\
-RuntimeDirectory=panel/python\n\
-RuntimeDirectoryMode=0775\n\
+RuntimeDirectory=panel/python/{site_id}\n\
+RuntimeDirectoryMode=0750\n\
+ExecStartPre=/usr/bin/setfacl -m u:www-data:--x,d:u:www-data:rwX {runtime_path}\n\
 UMask=0007\n\
 \n\
 [Install]\n\
@@ -267,6 +280,88 @@ pub fn generate_python_site_env(env_vars: &BTreeMap<String, String>) -> Result<S
     Ok(out)
 }
 
+fn resolve_python_binary(
+    runner: &dyn SystemRunner,
+    version_dir: &Path,
+) -> Result<String, AgentError> {
+    let children = runner.read_dir(version_dir).unwrap_or_default();
+    panel_runtime::python::python_binary_candidates(version_dir, &children)
+        .into_iter()
+        .find(|candidate| runner.path_exists(candidate))
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .ok_or_else(|| {
+            AgentError::InvalidInput(
+                "Runtime Python belum terpasang; pasang melalui Runtime Manager".into(),
+            )
+        })
+}
+
+fn prepare_python_environment(
+    runner: &dyn SystemRunner,
+    req: &PythonSiteApplyRequest,
+) -> Result<(), AgentError> {
+    let version = normalize_python_version(&req.python_version);
+    let version_dir = Path::new(
+        req.base_runtime_dir
+            .as_deref()
+            .unwrap_or(DEFAULT_PYTHON_BASE_DIR),
+    )
+    .join(&version);
+    let python = resolve_python_binary(runner, &version_dir)?;
+    let prefix = vec![
+        "--quiet".to_string(),
+        "--pipe".into(),
+        "--wait".into(),
+        "--collect".into(),
+        format!("--uid={}", req.uid),
+        format!("--gid={}", req.uid),
+        format!("--slice=panel-u{}.slice", req.uid),
+        format!("--working-directory={}", req.app_dir),
+        "--property=RuntimeMaxSec=30s".into(),
+        "--property=TimeoutStopSec=2s".into(),
+        "--property=NoNewPrivileges=yes".into(),
+        format!("--setenv=UV_CACHE_DIR=/home/{}/.cache/uv", req.username),
+    ];
+    let execute = |arguments: Vec<String>| -> Result<(), AgentError> {
+        let mut args = prefix.clone();
+        args.extend(arguments);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let result = runner.run_command("systemd-run", &args)?;
+        if !result.status.success() {
+            return Err(AgentError::InvalidInput(
+                "Persiapan virtual environment Python gagal".into(),
+            ));
+        }
+        Ok(())
+    };
+    let venv_python = format!("{}/bin/python", req.venv_dir);
+    if !runner.path_exists(Path::new(&venv_python)) {
+        execute(build_uv_venv_cmd(DEFAULT_UV_BIN, &req.venv_dir, &python))?;
+    }
+    let packages: &[&str] = match req.server_type {
+        PythonSiteServer::GunicornWsgi => &["gunicorn"],
+        PythonSiteServer::UvicornAsgi => &["uvicorn"],
+        PythonSiteServer::GunicornUvicornWorker => &["gunicorn", "uvicorn"],
+    };
+    let missing: Vec<_> = packages
+        .iter()
+        .filter(|name| !runner.path_exists(Path::new(&format!("{}/bin/{name}", req.venv_dir))))
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        let mut args = vec![
+            DEFAULT_UV_BIN.to_string(),
+            "pip".into(),
+            "install".into(),
+            "--python".into(),
+            venv_python,
+        ];
+        args.extend(missing.into_iter().map(str::to_string));
+        execute(args)?;
+    }
+    Ok(())
+}
+
 /// Applies a Python site by ensuring socket directory exists, generating env file and unit,
 /// reloading systemd daemon, and enabling/starting the service.
 pub fn apply_python_site(
@@ -276,8 +371,29 @@ pub fn apply_python_site(
     validate_site_id(&req.site_id)?;
     validate_username(&req.username)?;
     validate_entrypoint(&req.entrypoint)?;
-    validate_socket_path(&req.socket_path)?;
+    validate_site_socket(&req.site_id, &req.socket_path)?;
+    crate::node_site::validate_app_directory(&req.username, req.uid, &req.app_dir)?;
+    crate::node_site::validate_app_directory(&req.username, req.uid, &req.venv_dir)?;
 
+    if let PythonSiteEntrypoint::Wsgi(entry) | PythonSiteEntrypoint::Asgi(entry) = &req.entrypoint {
+        let module = entry.split(':').next().unwrap_or("");
+        let relative = if module.ends_with(".py") {
+            module.to_string()
+        } else {
+            format!("{}.py", module.replace('.', "/"))
+        };
+        if module.is_empty()
+            || module.contains("..")
+            || module.starts_with('/')
+            || module.starts_with('\\')
+            || !runner.path_exists(&Path::new(&req.app_dir).join(relative))
+        {
+            return Err(AgentError::InvalidInput(
+                "Entrypoint Python belum ada; unggah project atau gunakan starter standar".into(),
+            ));
+        }
+    }
+    prepare_python_environment(runner, req)?;
     let service_name = format!("site-{}.service", req.site_id);
     let unit_path_str = req
         .unit_path
@@ -294,7 +410,7 @@ pub fn apply_python_site(
     // Ensure socket base directory exists
     let socket_dir = Path::new(DEFAULT_PYTHON_SOCKET_DIR);
     if !runner.path_exists(socket_dir) {
-        let _ = runner.create_dir_all(socket_dir, 0o775, 0, 0);
+        runner.create_dir_all(socket_dir, 0o755, 0, 0)?;
     }
 
     // 1. Write environment file with permissions 0600
@@ -347,6 +463,16 @@ pub fn remove_python_site(
 ) -> Result<PythonSiteActionResponse, AgentError> {
     validate_site_id(&req.site_id)?;
 
+    if let Some(socket) = req.socket_path.as_deref() {
+        let socket = socket.strip_prefix("unix:").unwrap_or(socket);
+        let canonical = format!("/run/panel/python/{}/app.sock", req.site_id);
+        let legacy = format!("/run/panel/python/{}.sock", req.site_id);
+        if socket != canonical && socket != legacy {
+            return Err(AgentError::InvalidInput(
+                "Socket penghapusan harus milik situs".into(),
+            ));
+        }
+    }
     let service_name = format!("site-{}.service", req.site_id);
     let unit_path_str = req
         .unit_path
@@ -360,25 +486,32 @@ pub fn remove_python_site(
         .unwrap_or_else(|| format!("{}/site-{}.env", DEFAULT_ENV_DIR, req.site_id));
     let env_path = PathBuf::from(&env_path_str);
 
-    let _ = runner.run_command("systemctl", &["stop", &service_name]);
-    let _ = runner.run_command("systemctl", &["disable", &service_name]);
+    if runner.path_exists(&unit_path) {
+        runner.run_command("systemctl", &["stop", &service_name])?;
+        runner.run_command("systemctl", &["disable", &service_name])?;
+    } else if runner
+        .run_command("systemctl", &["is-active", "--quiet", &service_name])
+        .is_ok()
+    {
+        runner.run_command("systemctl", &["stop", &service_name])?;
+    }
 
     if runner.path_exists(&unit_path) {
-        let _ = runner.remove_file(&unit_path);
+        runner.remove_file(&unit_path)?;
     }
     if runner.path_exists(&env_path) {
-        let _ = runner.remove_file(&env_path);
+        runner.remove_file(&env_path)?;
     }
 
     if let Some(ref sock) = req.socket_path {
         let clean = sock.strip_prefix("unix:").unwrap_or(sock);
         let sock_path = PathBuf::from(clean);
         if runner.path_exists(&sock_path) {
-            let _ = runner.remove_file(&sock_path);
+            runner.remove_file(&sock_path)?;
         }
     }
 
-    let _ = runner.run_command("systemctl", &["daemon-reload"]);
+    runner.run_command("systemctl", &["daemon-reload"])?;
 
     Ok(PythonSiteActionResponse {
         site_id: req.site_id.clone(),
@@ -511,8 +644,48 @@ pub fn status_python_site(
         }
     }
 
-    let healthy = if req.socket_path.is_some() {
-        is_active && socket_exists
+    let healthy = if let Some(socket) = req.socket_path.as_deref() {
+        if is_active && socket_exists {
+            // Probe with the webserver identity so socket ACL errors cannot look healthy.
+            match runner.run_command(
+                "runuser",
+                &[
+                    "-u",
+                    "www-data",
+                    "--",
+                    "curl",
+                    "--noproxy",
+                    "*",
+                    "--silent",
+                    "--show-error",
+                    "--connect-timeout",
+                    "1",
+                    "--max-time",
+                    "2",
+                    "--unix-socket",
+                    socket.strip_prefix("unix:").unwrap_or(socket),
+                    "--output",
+                    "/dev/null",
+                    "--write-out",
+                    "%{http_code}",
+                    "http://localhost/",
+                ],
+            ) {
+                Ok(output) => {
+                    let status = String::from_utf8_lossy(&output.stdout)
+                        .trim()
+                        .parse::<u16>()
+                        .ok();
+                    output.status.success() && status.is_some_and(|code| (200..500).contains(&code))
+                }
+                Err(error) => {
+                    probe_message = Some(error.to_string());
+                    false
+                }
+            }
+        } else {
+            false
+        }
     } else {
         is_active
     };
@@ -545,7 +718,11 @@ pub fn run_python_site_job(
         .as_deref()
         .unwrap_or(DEFAULT_PYTHON_BASE_DIR);
     let norm_ver = normalize_python_version(&req.python_version);
-    let python_bin = format!("{}/{}/bin/python3", base_dir, norm_ver);
+    let python_bin = if matches!(req.job_type, PythonSiteJobType::UvVenvCreate) {
+        resolve_python_binary(runner, &Path::new(base_dir).join(&norm_ver))?
+    } else {
+        String::new()
+    };
 
     let start_time = Instant::now();
 
@@ -733,6 +910,84 @@ mod tests {
     use crate::system::{MockAction, MockSystemRunner};
 
     #[test]
+    fn python_environment_setup_is_bounded_and_runs_as_tenant_before_unit_install() {
+        let runner = MockSystemRunner::new();
+        let request = PythonSiteApplyRequest {
+            site_id: "site_1".into(),
+            username: "p_alice".into(),
+            uid: 10001,
+            python_version: "3.12.9".into(),
+            app_dir: "/home/p_alice/sites/app".into(),
+            venv_dir: "/home/p_alice/sites/app/.venv".into(),
+            socket_path: "/run/panel/python/site_1/app.sock".into(),
+            framework: PythonSiteFramework::Generic,
+            server_type: PythonSiteServer::GunicornWsgi,
+            entrypoint: PythonSiteEntrypoint::Wsgi("app:app".into()),
+            workers: 1,
+            env_vars: BTreeMap::new(),
+            auto_restart: true,
+            env_file_path: None,
+            unit_path: None,
+            base_runtime_dir: None,
+        };
+        let invalid_socket = PythonSiteApplyRequest {
+            socket_path: "/run/panel/python/site_1/custom.sock".into(),
+            ..request.clone()
+        };
+        assert!(apply_python_site(&runner, &invalid_socket).is_err());
+        assert!(runner.recorded_actions().is_empty());
+        assert!(apply_python_site(&runner, &request).is_err());
+        runner.add_existing_path("/home/p_alice/sites/app/app.py");
+        assert!(apply_python_site(&runner, &request).is_err());
+        runner.add_existing_path("/opt/panel/runtimes/python/3.12.9/bin/python3");
+        runner.set_response("systemd-run", 1, b"", b"dependency setup failed");
+        assert!(apply_python_site(&runner, &request).is_err());
+        assert!(
+            runner
+                .recorded_actions()
+                .iter()
+                .all(|action| !matches!(action, MockAction::WriteFile { .. }))
+        );
+        runner.set_response("systemd-run", 0, b"ready", b"");
+        apply_python_site(&runner, &request).unwrap();
+        let commands = runner.get_commands();
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.contains("--uid=10001")
+                    && command.contains("RuntimeMaxSec=30s")
+                    && command.contains("uv venv"))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|command| command.contains("--uid=10001")
+                    && command.contains("pip install --python")
+                    && command.ends_with("gunicorn"))
+        );
+        let unit = String::from_utf8(
+            runner
+                .read_file(Path::new("/etc/systemd/system/site-site_1.service"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(unit.contains("RuntimeDirectory=panel/python/site_1"));
+        assert!(unit.contains("ExecStartPre=/usr/bin/setfacl -m u:www-data:--x,d:u:www-data:rwX /run/panel/python/site_1"));
+        assert!(
+            remove_python_site(
+                &runner,
+                &PythonSiteRemoveRequest {
+                    site_id: "site_1".into(),
+                    socket_path: Some("/etc/shadow".into()),
+                    unit_path: None,
+                    env_file_path: None
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn test_generate_python_site_unit_django() {
         let unit = generate_python_site_unit(
             "site-py1",
@@ -741,7 +996,7 @@ mod tests {
             "3.12.9",
             "/home/p_alice/sites/django.test/app",
             "/home/p_alice/sites/django.test/.venv",
-            "/run/panel/python/site-py1.sock",
+            "/run/panel/python/site-py1/app.sock",
             PythonSiteFramework::Django,
             PythonSiteServer::GunicornWsgi,
             &PythonSiteEntrypoint::Wsgi("myproject.wsgi:application".to_string()),
@@ -759,14 +1014,14 @@ mod tests {
         assert!(unit.contains("Environment=PYTHONUNBUFFERED=1"));
         assert!(unit.contains("Environment=VIRTUAL_ENV=/home/p_alice/sites/django.test/.venv"));
         assert!(unit.contains("EnvironmentFile=-/etc/panel/env/site-py1.env"));
-        assert!(unit.contains("ExecStart=/home/p_alice/sites/django.test/.venv/bin/gunicorn --workers 3 --bind unix:/run/panel/python/site-py1.sock myproject.wsgi:application"));
+        assert!(unit.contains("ExecStart=/home/p_alice/sites/django.test/.venv/bin/gunicorn --workers 3 --bind unix:/run/panel/python/site-py1/app.sock myproject.wsgi:application"));
         assert!(unit.contains("Restart=on-failure"));
         assert!(unit.contains("LimitNOFILE=65535"));
         assert!(unit.contains("NoNewPrivileges=true"));
         assert!(unit.contains("ProtectSystem=strict"));
         assert!(unit.contains("ReadWritePaths=/home/p_alice /run/panel/python"));
         assert!(unit.contains("RuntimeDirectory=panel/python"));
-        assert!(unit.contains("RuntimeDirectoryMode=0775"));
+        assert!(unit.contains("RuntimeDirectoryMode=0750"));
         assert!(unit.contains("UMask=0007"));
     }
 
@@ -779,7 +1034,7 @@ mod tests {
             "3.11.11",
             "/home/p_bob/sites/fastapi.test/app",
             "/home/p_bob/sites/fastapi.test/.venv",
-            "/run/panel/python/site-py2.sock",
+            "/run/panel/python/site-py2/app.sock",
             PythonSiteFramework::FastApi,
             PythonSiteServer::UvicornAsgi,
             &PythonSiteEntrypoint::Asgi("main:app".to_string()),
@@ -790,7 +1045,7 @@ mod tests {
         )
         .expect("generate fastapi unit");
 
-        assert!(unit.contains("ExecStart=/home/p_bob/sites/fastapi.test/.venv/bin/uvicorn --workers 4 --uds /run/panel/python/site-py2.sock main:app"));
+        assert!(unit.contains("ExecStart=/home/p_bob/sites/fastapi.test/.venv/bin/uvicorn --workers 4 --uds /run/panel/python/site-py2/app.sock main:app"));
         assert!(unit.contains("Restart=no"));
     }
 
@@ -829,7 +1084,7 @@ mod tests {
             python_version: "3.12.9".to_string(),
             app_dir: "/home/p_alice/sites/app".to_string(),
             venv_dir: "/home/p_alice/sites/app/.venv".to_string(),
-            socket_path: "/run/panel/python/site-py1.sock".to_string(),
+            socket_path: "/run/panel/python/site-py1/app.sock".to_string(),
             framework: PythonSiteFramework::Flask,
             server_type: PythonSiteServer::GunicornWsgi,
             entrypoint: PythonSiteEntrypoint::Wsgi("app:app".to_string()),
@@ -841,9 +1096,12 @@ mod tests {
             base_runtime_dir: None,
         };
 
+        runner.add_existing_path("/opt/panel/runtimes/python/3.12.9/bin/python3");
+        runner.add_existing_path("/home/p_alice/sites/app/wsgi.py");
+        runner.add_existing_path("/home/p_alice/sites/app/app.py");
         let res_apply = apply_python_site(&runner, &req_apply).expect("apply python site");
         assert_eq!(res_apply.site_id, "site-py1");
-        assert_eq!(res_apply.socket_path, "/run/panel/python/site-py1.sock");
+        assert_eq!(res_apply.socket_path, "/run/panel/python/site-py1/app.sock");
         assert!(res_apply.active);
 
         let actions = runner.actions.lock().unwrap();
@@ -855,7 +1113,7 @@ mod tests {
 
         let req_remove = PythonSiteRemoveRequest {
             site_id: "site-py1".to_string(),
-            socket_path: Some("/run/panel/python/site-py1.sock".to_string()),
+            socket_path: Some("/run/panel/python/site-py1/app.sock".to_string()),
             unit_path: Some("/tmp/test-py.service".to_string()),
             env_file_path: Some("/tmp/test-py.env".to_string()),
         };

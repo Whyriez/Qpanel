@@ -19,6 +19,7 @@ Jika installer menolak template yang hilang, lihat
 belum memperbarui arsip GitHub Release.
 
 Instalasi menggunakan paket release lengkap. Lihat
+[panduan pembuatan website PHP/Node.js/Python](SITE_RUNTIME.md),
 [catatan perbaikan historis](docs/release-v0.1.1.md),
 [panduan administrator](docs/admin-guide.md), dan
 [arsitektur](docs/architecture.md).

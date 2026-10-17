@@ -90,7 +90,7 @@ async fn setup_test_context() -> TestContext {
     // The overview fixture creates a PHP site through the provisioning API.
     runner.add_existing_path("/usr/sbin/php-fpm8.3");
     runner.add_existing_path("/usr/bin/php8.3");
-    runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
+    runner.add_existing_path("/run/panel/php/p_alice-8.3/fpm.sock");
     runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
     runner.set_response(
         "systemctl is-enabled php8.3-fpm.service",

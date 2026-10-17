@@ -171,6 +171,28 @@ pub fn get_curated_python_catalog() -> Vec<PythonVersionEntry> {
 }
 
 /// Scans the Python runtime directory for installed versions.
+pub fn python_binary_candidates(version_dir: &Path, children: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots = vec![version_dir.to_path_buf()];
+    let version = version_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    for child in children {
+        if child.parent() == Some(version_dir)
+            && child
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&format!("cpython-{version}-")))
+        {
+            roots.push(child.clone());
+        }
+    }
+    roots
+        .into_iter()
+        .flat_map(|root| [root.join("bin/python3"), root.join("bin/python")])
+        .collect()
+}
+
 pub fn list_installed_python_versions(
     base_dir: &Path,
 ) -> Result<Vec<PythonInstalledVersion>, RuntimeError> {
@@ -197,15 +219,18 @@ pub fn list_installed_python_versions(
             None => continue,
         };
 
-        // Standard python executable path inside the runtime directory
-        let bin_candidate1 = path.join("bin").join("python3");
-        let bin_candidate2 = path.join("bin").join("python");
-
-        let bin_path = if bin_candidate1.exists() {
-            bin_candidate1
-        } else if bin_candidate2.exists() {
-            bin_candidate2
-        } else {
+        let children: Vec<_> = fs::read_dir(&path)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let Some(bin_path) = python_binary_candidates(&path, &children)
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+        else {
             continue;
         };
 
@@ -354,6 +379,20 @@ pub fn build_python_exec_start(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn discovers_uv_managed_interpreter_inside_version_directory() {
+        let root = tempdir().unwrap();
+        let binary = root
+            .path()
+            .join("3.12.9/cpython-3.12.9-linux-x86_64-gnu/bin/python3");
+        fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        fs::write(&binary, b"fixture interpreter").unwrap();
+        let installed = list_installed_python_versions(root.path()).unwrap();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].version, "3.12.9");
+        assert_eq!(PathBuf::from(&installed[0].bin_path), binary);
+    }
 
     #[test]
     fn test_normalize_python_version() {

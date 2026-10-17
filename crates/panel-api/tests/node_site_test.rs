@@ -87,7 +87,16 @@ async fn setup_test_context() -> TestContext {
     let runner = Arc::new(MockSystemRunner::new());
     // Configure mock responses for system binaries
     runner.set_response("nginx", 0, b"syntax is ok", b"");
-    runner.set_response("systemctl", 0, b"", b"");
+    runner.set_response(
+        "systemctl",
+        0,
+        b"ActiveState=active\nSubState=running\nMainPID=42\n",
+        b"",
+    );
+    runner.set_response("curl", 0, b"200", b"");
+    runner.set_response("runuser", 0, b"200", b"");
+    runner.add_existing_path("/opt/panel/runtimes/node/22.14.0/bin/node");
+    runner.add_existing_path("/opt/panel/runtimes/python/3.12.9/bin/python3");
     runner.set_response("systemd-run", 0, b"installed 42 packages", b"");
     runner.set_response("setfacl", 0, b"", b"");
     runner.set_response("chown", 0, b"", b"");
