@@ -52,8 +52,11 @@ chmod 0755 "${STAGE_DIR}/bin/"*
 # Copy templates and scripts
 cp -f "${SCRIPT_DIR}/templates/systemd/"*.service "${STAGE_DIR}/templates/systemd/"
 cp -f "${SCRIPT_DIR}/templates/nginx/nusa-panel.conf" "${STAGE_DIR}/templates/nginx/"
+cp -f "${SCRIPT_DIR}/templates/nginx/nusa-reject-unknown.conf" "${STAGE_DIR}/templates/nginx/"
 cp -f "${SCRIPT_DIR}/install.sh" "${STAGE_DIR}/"
 cp -f "${SCRIPT_DIR}/uninstall.sh" "${STAGE_DIR}/"
+mkdir -p "${STAGE_DIR}/docs"
+cp -f "${SCRIPT_DIR}/ADMIN_ACCOUNTS.md" "${STAGE_DIR}/docs/admin-accounts.md"
 chmod 0755 "${STAGE_DIR}/install.sh" "${STAGE_DIR}/uninstall.sh"
 
 # Copy web dist assets if present

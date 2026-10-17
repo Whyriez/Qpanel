@@ -48,7 +48,7 @@ server {
     server_name {{ primary_domain }}{% for alias in alias_domains %} {{ alias }}{% endfor %};
 
     root {{ docroot }};
-    index {{ index_files | default("index.html index.htm") }};
+    index {{ index_files | default("index.html index.htm", true) }};
 
     access_log {{ log_dir }}/access.log panel_json;
     error_log {{ log_dir }}/error.log warn;
@@ -153,12 +153,12 @@ server {
     server_name {{ primary_domain }}{% for alias in alias_domains %} {{ alias }}{% endfor %};
 
     root {{ docroot }};
-    index {{ index_files | default("index.php index.html index.htm") }};
+    index {{ index_files | default("index.php index.html index.htm", true) }};
 
     access_log {{ log_dir }}/access.log panel_json;
     error_log {{ log_dir }}/error.log warn;
 
-    client_max_body_size {{ upload_max_size | default("64M") }};
+    client_max_body_size {{ upload_max_size | default("64M", true) }};
 
     include {{ snippets_dir }}/acme.conf;
     include {{ snippets_dir }}/security-headers.conf;
@@ -243,7 +243,7 @@ server {
         {% elif preset == "wordpress" %}
         try_files $uri $uri/ /index.php?$args;
         {% elif preset == "custom" %}
-        try_files $uri $uri/ /{{ custom_entry_file | default("index.php") }}?$args;
+        try_files $uri $uri/ /{{ custom_entry_file | default("index.php", true) }}?$args;
         {% else %}
         try_files $uri $uri/ /index.php?$args;
         {% endif %}
@@ -278,8 +278,8 @@ server {
         fastcgi_param PATH_INFO $fastcgi_path_info;
 
         {% if fastcgi_cache and fastcgi_cache.enabled %}
-        fastcgi_cache {{ fastcgi_cache.zone_name | default("panel_php_cache") }};
-        fastcgi_cache_valid 200 301 302 {{ fastcgi_cache.valid_time | default("60m") }};
+        fastcgi_cache {{ fastcgi_cache.zone_name | default("panel_php_cache", true) }};
+        fastcgi_cache_valid 200 301 302 {{ fastcgi_cache.valid_time | default("60m", true) }};
         {% if fastcgi_cache.use_stale %}
         fastcgi_cache_use_stale error timeout updating invalid_header http_500 http_503;
         {% endif %}
@@ -360,7 +360,7 @@ server {
     access_log {{ log_dir }}/access.log panel_json;
     error_log {{ log_dir }}/error.log warn;
 
-    client_max_body_size {{ upload_max_size | default("100M") }};
+    client_max_body_size {{ upload_max_size | default("100M", true) }};
 
     include {{ snippets_dir }}/acme.conf;
     include {{ snippets_dir }}/security-headers.conf;
@@ -415,10 +415,10 @@ server {
         proxy_set_header X-Forwarded-Port $server_port;
 
         # Timeouts and buffering
-        proxy_connect_timeout {{ proxy_connect_timeout | default("60s") }};
-        proxy_send_timeout {{ proxy_send_timeout | default("60s") }};
-        proxy_read_timeout {{ proxy_read_timeout | default("60s") }};
-        proxy_buffering {{ proxy_buffering | default("on") }};
+        proxy_connect_timeout {{ proxy_connect_timeout | default("60s", true) }};
+        proxy_send_timeout {{ proxy_send_timeout | default("60s", true) }};
+        proxy_read_timeout {{ proxy_read_timeout | default("60s", true) }};
+        proxy_buffering {{ proxy_buffering | default("on", true) }};
     }
 
     {% if static_assets_enabled and docroot %}
@@ -503,7 +503,7 @@ server {
     access_log {{ log_dir }}/access.log panel_json;
     error_log {{ log_dir }}/error.log warn;
 
-    client_max_body_size {{ upload_max_size | default("100M") }};
+    client_max_body_size {{ upload_max_size | default("100M", true) }};
 
     include {{ snippets_dir }}/acme.conf;
     include {{ snippets_dir }}/security-headers.conf;
@@ -568,10 +568,10 @@ server {
         proxy_set_header X-Forwarded-Port $server_port;
 
         # Timeouts and buffering
-        proxy_connect_timeout {{ proxy_connect_timeout | default("60s") }};
-        proxy_send_timeout {{ proxy_send_timeout | default("60s") }};
-        proxy_read_timeout {{ proxy_read_timeout | default("60s") }};
-        proxy_buffering {{ proxy_buffering | default("on") }};
+        proxy_connect_timeout {{ proxy_connect_timeout | default("60s", true) }};
+        proxy_send_timeout {{ proxy_send_timeout | default("60s", true) }};
+        proxy_read_timeout {{ proxy_read_timeout | default("60s", true) }};
+        proxy_buffering {{ proxy_buffering | default("on", true) }};
     }
 }
 
@@ -718,10 +718,10 @@ server {
         {% endif %}
 
         # Timeouts and buffering
-        proxy_connect_timeout {{ proxy_connect_timeout | default("60s") }};
-        proxy_send_timeout {{ proxy_send_timeout | default("60s") }};
-        proxy_read_timeout {{ proxy_read_timeout | default("60s") }};
-        proxy_buffering {{ proxy_buffering | default("on") }};
+        proxy_connect_timeout {{ proxy_connect_timeout | default("60s", true) }};
+        proxy_send_timeout {{ proxy_send_timeout | default("60s", true) }};
+        proxy_read_timeout {{ proxy_read_timeout | default("60s", true) }};
+        proxy_buffering {{ proxy_buffering | default("on", true) }};
     }
 }
 
@@ -1185,6 +1185,9 @@ pub fn validate_nodejs_vhost_inputs(ctx: &NodejsVhostContext) -> Result<(), Webs
     }
     validate_path_input(&ctx.log_dir, "log_dir")?;
     validate_path_input(&ctx.snippets_dir, "snippets_dir")?;
+    if let Some(ref upload) = ctx.upload_max_size {
+        validate_upload_size_input(upload)?;
+    }
 
     if let Some(ref cert) = ctx.ssl_cert {
         validate_path_input(cert, "ssl_cert")?;
@@ -1459,6 +1462,9 @@ pub fn validate_proxy_vhost_inputs(ctx: &ReverseProxyVhostContext) -> Result<(),
 
     validate_path_input(&ctx.log_dir, "log_dir")?;
     validate_path_input(&ctx.snippets_dir, "snippets_dir")?;
+    if let Some(ref upload) = ctx.upload_max_size {
+        validate_upload_size_input(upload)?;
+    }
 
     if let Some(ref cert) = ctx.ssl_cert {
         validate_path_input(cert, "ssl_cert")?;
@@ -1517,6 +1523,9 @@ pub fn validate_python_vhost_inputs(ctx: &PythonVhostContext) -> Result<(), Webs
 
     validate_path_input(&ctx.log_dir, "log_dir")?;
     validate_path_input(&ctx.snippets_dir, "snippets_dir")?;
+    if let Some(ref upload) = ctx.upload_max_size {
+        validate_upload_size_input(upload)?;
+    }
 
     if let Some(ref cert) = ctx.ssl_cert {
         validate_path_input(cert, "ssl_cert")?;
@@ -1946,15 +1955,23 @@ fn validate_socket_input(raw: &str, field_name: &str) -> Result<(), WebserverErr
     Ok(())
 }
 
+// client_max_body_size uses Nginx's signed 64-bit offset parser on our Linux targets.
+// Accept bytes or one K/M/G suffix, including 0, without silently rewriting input.
 fn validate_upload_size_input(raw: &str) -> Result<(), WebserverError> {
-    let s = raw.trim();
-    if s.is_empty() {
-        return Err(WebserverError::SecurityViolation(
-            "upload_max_size cannot be empty".to_string(),
-        ));
-    }
-    let digits = s.trim_end_matches(['k', 'K', 'm', 'M', 'g', 'G']);
-    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+    let (digits, scale) = match raw.as_bytes().last() {
+        Some(b'k' | b'K') => (&raw[..raw.len() - 1], 1024_i64),
+        Some(b'm' | b'M') => (&raw[..raw.len() - 1], 1024_i64 * 1024),
+        Some(b'g' | b'G') => (&raw[..raw.len() - 1], 1024_i64 * 1024 * 1024),
+        _ => (raw, 1),
+    };
+    if digits.is_empty()
+        || !digits.bytes().all(|b| b.is_ascii_digit())
+        || digits
+            .parse::<i64>()
+            .ok()
+            .and_then(|value| value.checked_mul(scale))
+            .is_none()
+    {
         return Err(WebserverError::SecurityViolation(format!(
             "Invalid upload_max_size: '{raw}'"
         )));

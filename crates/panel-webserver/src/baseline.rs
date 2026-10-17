@@ -207,25 +207,7 @@ http {{
 
     /// Generates `conf.d/00-default.conf`: catch-all server rejecting unknown hosts with HTTP 444.
     pub fn render_default_catchall(&self) -> String {
-        r#"# Default catch-all server block
-# Drops connections to unknown hosts immediately without sending headers (HTTP 444).
-
-server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
-    server_name _;
-    return 444;
-}
-
-server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
-    server_name _;
-    ssl_reject_handshake on;
-    return 444;
-}
-"#
-        .to_string()
+        include_str!("../../../templates/nginx/nusa-reject-unknown.conf").to_owned()
     }
 
     /// Generates `conf.d/10-panel.conf`: vhost for the Qpanel web interface.

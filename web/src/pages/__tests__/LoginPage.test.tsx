@@ -17,7 +17,8 @@ describe('LoginPage Component', () => {
     expect(html).toContain('Masuk');
     expect(html).toContain('Nama pengguna');
     expect(html).toContain('Kata sandi');
-    expect(html).toContain('Siapkan akun administrator');
+    expect(html).toContain('Bantuan akses admin');
+    expect(html).not.toContain('Token Setup');
     expect(html).toContain('Ruang kendali untuk hosting Anda.');
     expect(html).not.toMatch(/Rust|WCAG|v0\.1\.0/);
     expect(html).toContain('for="login-username"');

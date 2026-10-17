@@ -4,6 +4,9 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CliError {
+    #[error("Database operation failed: {0}")]
+    Sqlx(#[from] sqlx::Error),
+
     #[error("Database error: {0}")]
     Db(#[from] panel_db::error::DbError),
 

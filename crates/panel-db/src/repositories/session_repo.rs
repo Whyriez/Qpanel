@@ -1,7 +1,7 @@
 //! Session repository for authentication session tokens.
 
 use crate::error::DbError;
-use crate::models::{CreateSession, Session};
+use crate::models::{CreateSession, Session, User};
 use crate::pool::DbPool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -13,6 +13,21 @@ pub struct SqliteSessionRepository {
 impl SqliteSessionRepository {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
+    }
+
+    /// Reject an in-flight login if its verified credentials were reset meanwhile.
+    /// INSERT ... SELECT is one atomic write, ordered with credential transactions.
+    pub async fn create_if_credentials_match(
+        &self,
+        input: &CreateSession,
+        verified_user: &User,
+    ) -> Result<bool, DbError> {
+        let result = sqlx::query("INSERT INTO sessions (id,user_id,token_hash,ip_address,user_agent,expires_at,created_at) SELECT ?,id,?,?,?,?,unixepoch() FROM users WHERE id=? AND password_hash=? AND username=? AND status='active' AND totp_enabled=? AND totp_secret IS ?")
+            .bind(&input.id).bind(&input.token_hash).bind(&input.ip_address).bind(&input.user_agent).bind(input.expires_at)
+            .bind(verified_user.id).bind(&verified_user.password_hash).bind(&verified_user.username)
+            .bind(verified_user.totp_enabled).bind(&verified_user.totp_secret)
+            .execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn create(&self, input: &CreateSession) -> Result<Session, DbError> {

@@ -64,92 +64,33 @@ async fn post(state: &AppState, path: &str, payload: Value) -> (StatusCode, Valu
         serde_json::from_slice(&res.into_body().collect().await.unwrap().to_bytes()).unwrap();
     (status, value)
 }
-fn setup_payload() -> Value {
-    json!({"token":"test-secret","username":"admin","email":"admin@example.com","password":"StrongSecret123!"})
-}
-async fn token_exists(state: &AppState) -> bool {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM settings WHERE key='setup.first_run_token'")
-        .fetch_one(&state.pool)
-        .await
-        .unwrap()
-        == 1
-}
 #[tokio::test]
-async fn setup_persists_cli_visible_admin_consumes_token_and_login_works() {
+async fn public_setup_is_retired_even_with_a_valid_legacy_token() {
     let (state, _tmp) = fixture().await;
+    for path in ["/api/v1/auth/setup/validate", "/api/v1/auth/setup"] {
+        for token in ["test-secret", "wrong"] {
+            let (status, body) = post(
+                &state,
+                path,
+                json!({"token":token,"username":"admin","password":"StrongSecret123!"}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::GONE);
+            assert!(
+                body["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("panelctl admin bootstrap")
+            );
+        }
+    }
     assert_eq!(
-        post(
-            &state,
-            "/api/v1/auth/setup/validate",
-            json!({"token":"test-secret"})
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    let (status, body) = post(&state, "/api/v1/auth/setup", setup_payload()).await;
-    assert_eq!(status, StatusCode::CREATED);
-    assert_eq!(body["created"], true);
-    let user = SqliteUserRepository::new(state.pool.clone())
-        .find_by_username("admin")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(user.role, "admin");
-    assert_eq!(user.status, "active");
-    assert!(user.linux_username.is_none());
-    assert!(!token_exists(&state).await);
-    assert_eq!(
-        post(
-            &state,
-            "/api/v1/auth/login",
-            json!({"username":"admin","password":"StrongSecret123!"})
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    assert_eq!(
-        post(&state, "/api/v1/auth/setup", setup_payload()).await.0,
-        StatusCode::CONFLICT
-    );
-}
-#[tokio::test]
-async fn invalid_token_never_creates_admin() {
-    let (state, _tmp) = fixture().await;
-    let mut payload = setup_payload();
-    payload["token"] = json!("wrong");
-    assert_eq!(
-        post(&state, "/api/v1/auth/setup", payload).await.0,
-        StatusCode::UNAUTHORIZED
-    );
-    assert!(token_exists(&state).await);
-    assert!(
-        SqliteUserRepository::new(state.pool.clone())
-            .find_by_username("admin")
-            .await
-            .unwrap()
-            .is_none()
-    );
-}
-
-#[tokio::test]
-async fn concurrent_setup_creates_exactly_one_administrator() {
-    let (state, _tmp) = fixture().await;
-    let (first, second) = tokio::join!(
-        post(&state, "/api/v1/auth/setup", setup_payload()),
-        post(&state, "/api/v1/auth/setup", setup_payload())
-    );
-    assert!([first.0, second.0].contains(&StatusCode::CREATED));
-    assert!([first.0, second.0].contains(&StatusCode::CONFLICT));
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE role='admin'")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
             .fetch_one(&state.pool)
             .await
             .unwrap(),
-        1
+        0
     );
-    assert!(!token_exists(&state).await);
 }
 
 #[tokio::test]
@@ -218,36 +159,6 @@ async fn terminal_denies_none_and_sftp_policies_including_admin_selected_tenant(
                     .contains("Kebijakan shell")
             );
         }
-    }
-}
-#[tokio::test]
-async fn insertion_and_token_consumption_failures_roll_back_and_allow_retry() {
-    for trigger in [
-        "CREATE TRIGGER injected BEFORE INSERT ON users BEGIN SELECT RAISE(ABORT,'injected'); END",
-        "CREATE TRIGGER injected BEFORE DELETE ON settings BEGIN SELECT RAISE(ABORT,'injected'); END",
-    ] {
-        let (state, _tmp) = fixture().await;
-        sqlx::query(trigger).execute(&state.pool).await.unwrap();
-        assert_eq!(
-            post(&state, "/api/v1/auth/setup", setup_payload()).await.0,
-            StatusCode::INTERNAL_SERVER_ERROR
-        );
-        assert!(token_exists(&state).await);
-        assert!(
-            SqliteUserRepository::new(state.pool.clone())
-                .find_by_username("admin")
-                .await
-                .unwrap()
-                .is_none()
-        );
-        sqlx::query("DROP TRIGGER injected")
-            .execute(&state.pool)
-            .await
-            .unwrap();
-        assert_eq!(
-            post(&state, "/api/v1/auth/setup", setup_payload()).await.0,
-            StatusCode::CREATED
-        );
     }
 }
 async fn tenant(
@@ -322,6 +233,14 @@ async fn mock_rpc(
                         "SiteProvisioned",
                         json!({"docroot":data["docroot"],"placeholder_written":true,"acls_applied":true}),
                     ),
+                    "NodeSiteApply" => (
+                        "NodeSiteApplied",
+                        json!({"site_id":data["site_id"],"service_name":"panel-node-fixture","unit_path":"/fixture/node.service","env_path":"/fixture/node.env","port":data["port"],"active":true,"message":"fixture only"}),
+                    ),
+                    "PythonSiteApply" => (
+                        "PythonSiteApplied",
+                        json!({"site_id":data["site_id"],"service_name":"panel-python-fixture","unit_path":"/fixture/python.service","env_path":"/fixture/python.env","socket_path":data["socket_path"],"active":true,"message":"fixture only"}),
+                    ),
                     "PhpFpmMasterEnsure" => (
                         "PhpFpmMasterEnsure",
                         json!({"service_name":"panel-php","config_dir":"/etc/panel/php","default_socket_path":"/run/panel/php/p_actual-8.3.sock","is_active":true}),
@@ -360,6 +279,88 @@ async fn mock_rpc(
 }
 
 #[tokio::test]
+async fn node_and_python_create_and_reapply_send_valid_optional_nginx_directives() {
+    use axum::{Json, response::IntoResponse};
+    use panel_db::repositories::{SqliteDomainRepository, SqliteSiteRepository};
+    for kind in ["nodejs", "python"] {
+        let (mut state, tmp) = fixture().await;
+        let owner = tenant(&state, "customer", Some("p_actual"), Some(10042)).await;
+        let (client, calls, task) = mock_rpc(&tmp, "").await;
+        state.agent_client = client;
+        let request = serde_json::from_value(
+            json!({"domain":"app.example.test","user_id":owner.id,"kind":kind,"port":20042}),
+        )
+        .unwrap();
+        let response = panel_api::sites::create_static_site_handler(
+            State(state.clone()),
+            actor(999, "admin", "admin"),
+            Json(request),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::CREATED, "{kind}");
+        let sites = SqliteSiteRepository::new(state.pool.clone())
+            .find_by_user_id(owner.id)
+            .await
+            .unwrap();
+        assert_eq!(sites.len(), 1);
+        let site = &sites[0];
+        let domains = SqliteDomainRepository::new(state.pool.clone())
+            .find_by_site_id(site.id)
+            .await
+            .unwrap();
+        // Existing sites with JSON nulls use the same defaults on regeneration.
+        let mut site = site.clone();
+        let mut settings: Value = serde_json::from_str(&site.settings_json).unwrap();
+        for field in [
+            "upload_max_size",
+            "proxy_connect_timeout",
+            "proxy_send_timeout",
+            "proxy_read_timeout",
+            "proxy_buffering",
+        ] {
+            settings[field] = Value::Null;
+        }
+        site.settings_json = settings.to_string();
+        panel_api::sites::recompile_and_apply_site_vhost(&state, &site, &owner, &domains)
+            .await
+            .unwrap();
+        let captured = calls.lock().await;
+        let vhosts: Vec<_> = captured
+            .iter()
+            .filter(|c| c["type"] == "SiteApply")
+            .collect();
+        assert_eq!(vhosts.len(), 2);
+        for request in vhosts {
+            assert_eq!(request["data"]["test_config"], true);
+            assert_eq!(request["data"]["reload"], true);
+            let config = request["data"]["config_content"].as_str().unwrap();
+            for directive in [
+                "client_max_body_size 100M;",
+                "proxy_connect_timeout 60s;",
+                "proxy_send_timeout 60s;",
+                "proxy_read_timeout 60s;",
+                "proxy_buffering on;",
+            ] {
+                assert!(config.contains(directive), "{kind}: missing {directive}");
+            }
+        }
+        let runtime = if kind == "nodejs" {
+            "NodeSiteApply"
+        } else {
+            "PythonSiteApply"
+        };
+        let runtime_request = captured
+            .iter()
+            .find(|call| call["type"] == runtime)
+            .unwrap();
+        assert_eq!(runtime_request["data"]["username"], "p_actual");
+        assert_eq!(runtime_request["data"]["uid"], 10042);
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn php_presets_use_installed_runtime_authoritative_identity_and_health_check() {
     use axum::{Json, response::IntoResponse};
     for preset in ["generic", "wordpress", "laravel", "custom"] {
@@ -378,6 +379,15 @@ async fn php_presets_use_installed_runtime_authoritative_identity_and_health_che
         assert_eq!(response.status(), StatusCode::CREATED, "{preset}");
         let calls = calls.lock().await;
         assert!(calls.iter().any(|c| c["type"] == "PhpFpmHealthCheck"));
+        let health = calls
+            .iter()
+            .position(|c| c["type"] == "PhpFpmHealthCheck")
+            .unwrap();
+        let vhost = calls.iter().position(|c| c["type"] == "SiteApply").unwrap();
+        assert!(
+            health < vhost,
+            "FPM must be ready before publishing the vhost"
+        );
         let provision = calls.iter().find(|c| c["type"] == "SiteProvision").unwrap();
         assert_eq!(provision["data"]["username"], "p_actual");
         assert_eq!(provision["data"]["uid"], 10042);
@@ -418,7 +428,26 @@ async fn php_provisioning_failures_remove_site_and_pool_instead_of_reporting_suc
         )
         .await
         .into_response();
-        assert!(response.status().is_server_error(), "{failure}");
+        assert_eq!(
+            response.status(),
+            if failure == "SiteApply" {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            },
+            "{failure}"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            body["error"]
+                .as_str()
+                .unwrap()
+                .contains("Injected fixture failure"),
+            "{body}"
+        );
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sites")
                 .fetch_one(&state.pool)
@@ -427,6 +456,9 @@ async fn php_provisioning_failures_remove_site_and_pool_instead_of_reporting_suc
             0
         );
         let calls = calls.lock().await;
+        if failure != "SiteApply" {
+            assert!(!calls.iter().any(|call| call["type"] == "SiteApply"));
+        }
         assert!(calls.iter().any(|c| c["type"] == "SiteRemove"));
         assert!(calls.iter().any(|c| c["type"] == "PhpFpmPoolRemove"));
         task.abort();
@@ -542,22 +574,6 @@ async fn context_uses_database_identity_and_enforces_selection_and_rbac() {
             .unwrap_err()
             .0,
         StatusCode::BAD_REQUEST
-    );
-}
-#[tokio::test]
-async fn duplicate_username_retains_token() {
-    let (state, _tmp) = fixture().await;
-    tenant(&state, "admin", None, None).await;
-    assert_eq!(
-        post(&state, "/api/v1/auth/setup", setup_payload()).await.0,
-        StatusCode::CONFLICT
-    );
-    assert!(token_exists(&state).await);
-    let mut payload = setup_payload();
-    payload["username"] = json!("administrator");
-    assert_eq!(
-        post(&state, "/api/v1/auth/setup", payload).await.0,
-        StatusCode::CREATED
     );
 }
 #[tokio::test]

@@ -57,9 +57,12 @@ pub struct LoginResponse {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ChangePasswordRequest {
     #[schema(example = "OldPassword123!")]
+    #[serde(alias = "old_password")]
     pub current_password: String,
     #[schema(example = "NewPassword456!")]
-    pub new_password: String,
+    pub new_password: Option<String>,
+    /// Optional administrator login name; never changes a tenant Linux identity.
+    pub username: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -308,22 +311,27 @@ pub async fn login_handler(
     let expires_at = now + state.auth_config.session_duration_secs as i64;
 
     let session_repo = SqliteSessionRepository::new(state.pool.clone());
-    if let Err(e) = session_repo
-        .create(&CreateSession {
+    match session_repo
+        .create_if_credentials_match(&CreateSession {
             id: session_id.clone(),
             user_id: user.id,
             token_hash,
             ip_address: client_ip.clone(),
             user_agent: None,
             expires_at,
-        })
+        }, &user)
         .await
     {
-        return (
+        Ok(true) => {},
+        Ok(false) => return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error":"Kredensial akun telah berubah. Silakan masuk kembali."})),
+        ).into_response(),
+        Err(e) => return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("Failed to create session: {}", e) })),
         )
-            .into_response();
+            .into_response(),
     }
 
     // Record successful login audit log
@@ -463,7 +471,7 @@ pub async fn csrf_handler(RequireAuth(user): RequireAuth) -> impl IntoResponse {
     path = "/api/v1/auth/password",
     request_body = ChangePasswordRequest,
     responses(
-        (status = 200, description = "Password updated successfully, session rotated", body = LoginResponse),
+        (status = 200, description = "Credentials updated atomically; other sessions and API tokens revoked", body = LoginResponse),
         (status = 400, description = "Incorrect current password or invalid new password"),
         (status = 401, description = "Not authenticated"),
         (status = 403, description = "Invalid CSRF token")
@@ -475,145 +483,192 @@ pub async fn change_password_handler(
     RequireCsrf(auth_user): RequireCsrf,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Response {
-    // 1. Fetch user from database
+    let fail = |status: StatusCode, message: &str| {
+        (status, Json(serde_json::json!({"error":message}))).into_response()
+    };
+    if auth_user.impersonated_by.is_some() {
+        return fail(
+            StatusCode::FORBIDDEN,
+            "Akhiri impersonasi sebelum mengubah kredensial.",
+        );
+    }
     let user_repo = SqliteUserRepository::new(state.pool.clone());
     let user = match user_repo.find_by_id(auth_user.id).await {
         Ok(Some(u)) => u,
-        _ => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "User not found" })),
-            )
-                .into_response();
-        }
+        _ => return fail(StatusCode::NOT_FOUND, "Akun tidak ditemukan."),
     };
-
-    // 2. Verify current password
-    let is_valid = verify_password(&payload.current_password, &user.password_hash).unwrap_or(false);
-    if !is_valid {
+    if payload.current_password.len() > 4096 {
+        return fail(StatusCode::BAD_REQUEST, "Kata sandi terlalu panjang.");
+    }
+    let verification_key = format!("credentials:{}", user.id);
+    if state
+        .lockout_manager
+        .check_lockout(&verification_key)
+        .is_err()
+    {
+        return fail(
+            StatusCode::LOCKED,
+            "Terlalu banyak percobaan. Tunggu sebelum mencoba kembali.",
+        );
+    }
+    let current = payload.current_password;
+    let hash = user.password_hash.clone();
+    let verified = tokio::task::spawn_blocking(move || verify_password(&current, &hash))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or(false);
+    if !verified {
+        let locked = state
+            .lockout_manager
+            .record_failure(&verification_key)
+            .is_some();
         state.audit_writer.log_async(
-            Some(auth_user.id),
-            &auth_user.username,
-            "auth.password_change",
+            Some(user.id),
+            &user.username,
+            "auth.credentials_change",
             "auth",
             "failure",
             None,
-            Some(r#"{"reason":"incorrect_current_password"}"#.to_string()),
+            None,
         );
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "Current password is incorrect" })),
-        )
-            .into_response();
+        return fail(
+            if locked {
+                StatusCode::LOCKED
+            } else {
+                StatusCode::BAD_REQUEST
+            },
+            "Kata sandi saat ini tidak benar.",
+        );
     }
-
-    // 3. Validate new password length
-    if payload.new_password.len() < 8 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "New password must be at least 8 characters long"
-            })),
-        )
-            .into_response();
+    state.lockout_manager.record_success(&verification_key);
+    let username = payload.username.as_deref().unwrap_or(&user.username);
+    if username != user.username && user.role != "admin" {
+        return fail(
+            StatusCode::FORBIDDEN,
+            "Perubahan username mandiri tersedia untuk administrator.",
+        );
     }
-
-    // 4. Hash new password and update in database
-    let new_hash = match hash_password(&payload.new_password) {
-        Ok(h) => h,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("Failed to hash password: {}", e) })),
-            )
-                .into_response();
+    if !(3..=32).contains(&username.len())
+        || !username
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "Username harus 3-32 karakter: huruf, angka, garis bawah, atau tanda hubung.",
+        );
+    }
+    if payload.new_password.is_none() && username == user.username {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            "Ubah username atau masukkan kata sandi baru.",
+        );
+    }
+    let new_hash = if let Some(password) = payload.new_password {
+        if !(8..=4096).contains(&password.len()) {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                "Kata sandi baru harus 8-4096 byte.",
+            );
         }
+        match tokio::task::spawn_blocking(move || hash_password(&password)).await {
+            Ok(Ok(hash)) => hash,
+            _ => {
+                return fail(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Gagal mengamankan kata sandi.",
+                );
+            }
+        }
+    } else {
+        user.password_hash.clone()
     };
-
-    if let Err(e) = user_repo.update_password(user.id, &new_hash).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("Failed to update password: {}", e) })),
-        )
-            .into_response();
-    }
-
-    // 5. Session rotation: delete old session and create a new one
-    let session_repo = SqliteSessionRepository::new(state.pool.clone());
-    let _ = session_repo.delete(&auth_user.session_id).await;
-
     let new_session_id = uuid::Uuid::new_v4().to_string();
     let new_token = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     );
-    let token_hash = hash_token(&new_token);
-
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let expires_at = now + state.auth_config.session_duration_secs as i64;
-
-    if let Err(e) = session_repo
-        .create(&CreateSession {
-            id: new_session_id.clone(),
-            user_id: user.id,
-            token_hash,
-            ip_address: None,
-            user_agent: None,
-            expires_at,
-        })
-        .await
-    {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("Failed to rotate session: {}", e) })),
-        )
-            .into_response();
+    // Compare the verified hash and session again under the write lock. A concurrent
+    // password reset or credential change cannot be overwritten by a stale request.
+    let update = async {
+        let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let result = sqlx::query("UPDATE users SET username=?, password_hash=?, updated_at=? WHERE id=? AND password_hash=? AND status='active' AND EXISTS (SELECT 1 FROM sessions WHERE id=? AND user_id=users.id AND expires_at>?)")
+            .bind(username).bind(new_hash).bind(now).bind(user.id).bind(&user.password_hash).bind(&auth_user.session_id).bind(now)
+            .execute(&mut *tx).await?;
+        if result.rows_affected() != 1 { return Ok::<bool, sqlx::Error>(false); }
+        sqlx::query("DELETE FROM sessions WHERE user_id=?").bind(user.id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM api_tokens WHERE user_id=?").bind(user.id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)")
+            .bind(&new_session_id).bind(user.id).bind(hash_token(&new_token))
+            .bind(now + state.auth_config.session_duration_secs as i64).bind(now).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(true)
+    }.await;
+    match update {
+        Ok(true) => {}
+        Ok(false) => {
+            return fail(
+                StatusCode::CONFLICT,
+                "Akun atau sesi telah berubah. Masuk kembali sebelum mencoba lagi.",
+            );
+        }
+        Err(ref e)
+            if e.as_database_error()
+                .is_some_and(|e| e.is_unique_violation()) =>
+        {
+            return fail(StatusCode::CONFLICT, "Username sudah digunakan.");
+        }
+        Err(e) => {
+            tracing::error!(error=%e, "Credential transaction failed");
+            return fail(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Perubahan akun dibatalkan. Silakan coba lagi.",
+            );
+        }
     }
-
     let new_csrf = generate_csrf_token(&new_session_id);
-    let is_secure = state
+    let secure = state
         .auth_config
         .cookie_secure
         .unwrap_or(state.environment != "development");
-    let cookie_val = build_session_cookie(
-        &new_token,
-        state.auth_config.session_duration_secs,
-        is_secure,
-    );
-
     let mut headers = HeaderMap::new();
-    if let Ok(cookie_header) = cookie_val.parse() {
-        headers.insert(SET_COOKIE, cookie_header);
+    if let Ok(value) =
+        build_session_cookie(&new_token, state.auth_config.session_duration_secs, secure).parse()
+    {
+        headers.insert(SET_COOKIE, value);
     }
-
+    state.lockout_manager.record_success(username);
     state.audit_writer.log_async(
         Some(user.id),
-        &user.username,
-        "auth.password_change",
+        username,
+        "auth.credentials_change",
         "auth",
         "success",
         None,
         None,
     );
-
-    let response_body = LoginResponse {
-        user: Some(UserInfo {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            email: user.email,
-            totp_enabled: user.totp_enabled,
-            impersonated_by: None,
+    (
+        headers,
+        Json(LoginResponse {
+            user: Some(UserInfo {
+                id: user.id,
+                username: username.to_string(),
+                role: user.role,
+                email: user.email,
+                totp_enabled: user.totp_enabled,
+                impersonated_by: None,
+            }),
+            csrf_token: Some(new_csrf),
+            requires_2fa: false,
         }),
-        csrf_token: Some(new_csrf),
-        requires_2fa: false,
-    };
-
-    (headers, Json(response_body)).into_response()
+    )
+        .into_response()
 }
 
 #[utoipa::path(

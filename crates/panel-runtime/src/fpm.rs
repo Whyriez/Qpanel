@@ -186,6 +186,16 @@ impl PhpFpmMasterConfig {
 
     /// Renders `php-fpm.conf` for the master process.
     pub fn render_master_conf(&self) -> String {
+        self.render_master_conf_with_pools(&[self.pool_dir().join("*.conf")])
+    }
+
+    /// Renders a validation master with an explicit set of agent-controlled pools.
+    pub fn render_master_conf_with_pools(&self, pools: &[PathBuf]) -> String {
+        let includes = pools
+            .iter()
+            .map(|path| format!("include = {}", to_posix_str(path)))
+            .collect::<Vec<_>>()
+            .join("\n");
         format!(
             r#"; Qpanel - PHP-FPM Master Configuration
 ; Tenant: {username} (UID: {uid})
@@ -199,14 +209,14 @@ log_level = warning
 daemonize = no
 process_control_timeout = 10s
 
-include = {pool_dir}/*.conf
+{includes}
 "#,
             username = self.username,
             uid = self.uid,
             version = self.version.as_str(),
             pid_path = to_posix_str(&self.pid_path()),
             error_log_path = to_posix_str(&self.error_log_path()),
-            pool_dir = to_posix_str(&self.pool_dir()),
+            includes = includes,
         )
     }
 

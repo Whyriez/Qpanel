@@ -124,7 +124,7 @@ for scenario in delayed sqlite-slow loopback duplicate existing-nginx timeout re
     [[ "$output" != *'curl: Connection refused'* ]]
     case "$scenario" in
         delayed|sqlite-slow|loopback|duplicate|existing-nginx)
-            [[ "$status" == 0 && "$output" == *'QPANEL INSTALLED'* ]]
+            [[ "$status" == 0 && "$output" == *'Instalasi berhasil'* ]]
             ! grep -qx rollback "$trace"
             # Exactly one binding probe, after internal readiness and before proxy activation.
             [[ "$(grep -c '^binding:checked$' "$trace")" == 1 ]]
@@ -142,7 +142,7 @@ for scenario in delayed sqlite-slow loopback duplicate existing-nginx timeout re
             fi
             ;;
         *)
-            [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'QPANEL INSTALLED'* ]]
+            [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'Instalasi berhasil'* ]]
             [[ "$(grep -c '^rollback$' "$trace")" == 1 ]]
             case "$scenario" in
                 timeout|redirect)
@@ -189,35 +189,28 @@ output="$(bash -c '
 [[ -z "$output" ]]
 pass 'fresh install state detection suppresses missing-unit noise'
 
-# Status is an internal migration probe. Suppress its noise, preserve failures.
+# Bootstrap output remains private until health gates; migration failures still fail installation.
 for mode in uninitialized migration-failure; do
     status=0
     output="$(bash -c '
         source "$1/install.sh"
         runuser() {
-            case "$*" in
-                *"setup-token status")
-                    echo "Status: Uninitialized. No admin account and no setup token generated."
-                    echo "Run panelctl setup-token to generate a setup token." >&2
-                    [[ "$2" != panel-api ]] && exit 99
-                    [[ "$probe_mode" != migration-failure ]] ;;
-                *"SELECT COUNT(*)"*) printf "0\n" ;;
-                *"SELECT value"*) printf "fixture-existing-token\n" ;;
-                *) echo "Unexpected command" >&2; exit 99 ;;
-            esac
+            [[ "$*" == "-u panel-api -- /usr/local/bin/panelctl --db-path /var/lib/panel/panel.db admin bootstrap --installer-output" ]] || exit 99
+            [[ "$probe_mode" != migration-failure ]] || return 1
+            printf "created admin_123456abcdef Qp!1234567890abcdef1234567890abcdef\n"
         }
         chown() { :; }; chmod() { :; }
         probe_mode="$2"
         initialize_database
-        [[ "$SETUP_TOKEN" == fixture-existing-token ]]
+        [[ "$ADMIN_USERNAME" == admin_123456abcdef ]]
     ' test "$REPO" "$mode" 2>&1)" || status=$?
-    [[ "$output" != *'Status: Uninitialized'* && "$output" != *'Run panelctl'* ]]
+    [[ "$output" != *Qp!* ]]
     if [[ "$mode" == uninitialized ]]; then
         [[ "$status" == 0 && -z "$output" ]]
     else
-        [[ "$status" != 0 && "$output" == *'Inisialisasi/migrasi SQLite gagal'* ]]
+        [[ "$status" != 0 && "$output" == *'Inisialisasi akun/migrasi SQLite gagal'* ]]
     fi
-    pass "internal setup status: $mode"
+    pass "internal account bootstrap: $mode"
 done
 
 printf '%s startup race checks passed (mocked; no VM/agent/services executed).\n' "$count"

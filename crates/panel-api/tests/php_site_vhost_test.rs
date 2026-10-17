@@ -662,7 +662,7 @@ async fn test_php_site_rejects_missing_runtime_or_socket_without_leaving_records
         (
             "8.3",
             false,
-            StatusCode::BAD_GATEWAY,
+            StatusCode::UNPROCESSABLE_ENTITY,
             "Health check PHP-FPM gagal; pembuatan situs dibatalkan.",
         ),
     ] {
@@ -696,7 +696,7 @@ async fn test_php_site_rejects_missing_runtime_or_socket_without_leaving_records
             String::from_utf8_lossy(&body)
         );
         let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(error["error"], expected_error);
+        assert!(error["error"].as_str().unwrap().starts_with(expected_error));
 
         let counts: (i64, i64) =
             sqlx::query_as("SELECT (SELECT COUNT(*) FROM sites), (SELECT COUNT(*) FROM domains)")

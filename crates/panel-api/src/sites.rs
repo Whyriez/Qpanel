@@ -1138,6 +1138,34 @@ async fn rollback_created_site(
     }
 }
 
+fn site_provisioning_failure(
+    error: crate::agent_client::AgentClientError,
+    stage: &'static str,
+) -> axum::response::Response {
+    // An agent-reported provisioning rejection is not a proxy failure. Returning
+    // 502 makes it indistinguishable from an unavailable origin behind a gateway.
+    let (status, message) = match error {
+        crate::agent_client::AgentClientError::AgentError(detail) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "{stage}; pembuatan situs dibatalkan. {}",
+                detail.chars().take(2048).collect::<String>()
+            ),
+        ),
+        _ => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "{stage}; pembuatan situs dibatalkan. Agent tidak dapat dihubungi atau responsnya tidak valid. Periksa layanan agent."
+            ),
+        ),
+    };
+    (
+        status,
+        Json(serde_json::json!({"error":message,"code":"site_provisioning_failed"})),
+    )
+        .into_response()
+}
+
 /// Creates a site with runtime prerequisites, atomic Nginx apply, and failure cleanup.
 #[allow(clippy::cognitive_complexity)]
 pub async fn create_static_site_handler(
@@ -1555,7 +1583,7 @@ pub async fn create_static_site_handler(
             is_php.then_some(&php_version),
         )
         .await;
-        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":format!("Provisioning direktori situs gagal; pembuatan situs dibatalkan: {e}")}))).into_response();
+        return site_provisioning_failure(e, "Provisioning direktori situs gagal");
     }
 
     // 7b. If PHP site, ensure PHP-FPM master and pool exist
@@ -1568,7 +1596,7 @@ pub async fn create_static_site_handler(
         {
             tracing::error!(error=%e, "Ensure PHP-FPM master failed");
             rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
-            return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Master PHP-FPM gagal disiapkan; pembuatan situs dibatalkan."}))).into_response();
+            return site_provisioning_failure(e, "Master PHP-FPM gagal disiapkan");
         }
 
         let pool_req = panel_proto::PhpFpmPoolApplyRequest {
@@ -1590,7 +1618,38 @@ pub async fn create_static_site_handler(
         if let Err(e) = state.agent_client.apply_php_fpm_pool(pool_req).await {
             tracing::error!(error=%e, "Apply PHP-FPM pool failed");
             rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
-            return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Pool PHP-FPM gagal diterapkan; pembuatan situs dibatalkan."}))).into_response();
+            return site_provisioning_failure(e, "Pool PHP-FPM gagal diterapkan");
+        }
+    }
+
+    // Check FPM readiness before publishing the site's Nginx vhost.
+    if is_php {
+        let failure = match state
+            .agent_client
+            .check_php_fpm_health(
+                linux_uname,
+                &php_version,
+                format!("site_{}", created_site.id),
+            )
+            .await
+        {
+            Ok(health)
+                if health.healthy
+                    && health.service_active
+                    && health.socket_exists
+                    && health.pool_exists =>
+            {
+                None
+            }
+            Ok(health) => Some(crate::agent_client::AgentClientError::AgentError(
+                health.message,
+            )),
+            Err(error) => Some(error),
+        };
+        if let Some(error) = failure {
+            tracing::error!(error=%error, "PHP-FPM readiness check failed");
+            rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
+            return site_provisioning_failure(error, "Health check PHP-FPM gagal");
         }
     }
 
@@ -1607,13 +1666,6 @@ pub async fn create_static_site_handler(
         )
         .await;
         return (status, Json(serde_json::json!({ "error": msg }))).into_response();
-    }
-
-    if is_php
-        && !matches!(state.agent_client.check_php_fpm_health(linux_uname, &php_version, format!("site_{}",created_site.id)).await, Ok(health) if health.healthy && health.service_active && health.socket_exists && health.pool_exists)
-    {
-        rollback_created_site(&state, &created_site, linux_uname, Some(&php_version)).await;
-        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error":"Health check PHP-FPM gagal; pembuatan situs dibatalkan."}))).into_response();
     }
 
     // 9. Audit log
@@ -3182,6 +3234,45 @@ fn render_python_placeholder(domain: &str) -> String {
 #[allow(clippy::expect_used)]
 mod placeholder_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn provisioning_rejection_keeps_bounded_diagnostics_in_json() {
+        let response = site_provisioning_failure(
+            crate::agent_client::AgentClientError::AgentError(format!(
+                "No pool defined: {}",
+                "é".repeat(4000)
+            )),
+            "Pool PHP-FPM gagal diterapkan",
+        );
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.headers()["content-type"], "application/json");
+        let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .expect("body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON error");
+        let message = body["error"].as_str().expect("message");
+        assert!(message.contains("No pool defined"));
+        assert!(message.chars().count() < 2200, "bounded UTF-8 diagnostic");
+        assert_eq!(body["code"], "site_provisioning_failed");
+    }
+
+    #[tokio::test]
+    async fn unavailable_agent_is_a_service_error_without_internal_socket_path() {
+        let response = site_provisioning_failure(
+            crate::agent_client::AgentClientError::Connect {
+                path: std::path::PathBuf::from("/private/operator/agent.sock"),
+                source: std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "offline"),
+            },
+            "Master PHP-FPM gagal disiapkan",
+        );
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .expect("body");
+        let body = std::str::from_utf8(&bytes).expect("UTF-8");
+        assert!(body.contains("Agent tidak dapat dihubungi"));
+        assert!(!body.contains("/private/operator"));
+    }
 
     #[test]
     fn runtime_welcome_pages_share_design_and_preserve_output_formats() {

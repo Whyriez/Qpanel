@@ -104,7 +104,65 @@ impl NginxManager {
         Ok(())
     }
 
-    /// Install only missing dependencies, then publish the HTTP include last.
+    fn is_packaged_default(&self, path: &Path) -> Result<bool, AgentError> {
+        use md5::{Digest, Md5};
+        if self.runner.read_link(path).is_ok() {
+            return Ok(false);
+        }
+        let bytes = self.runner.read_file(path)?;
+        let digest = format!("{:x}", Md5::digest(bytes));
+        for package in ["nginx-common", "nginx"] {
+            let Ok(metadata) = self
+                .runner
+                .run_command("dpkg-query", &["-W", "-f=${Conffiles}\n", package])
+            else {
+                continue;
+            };
+            if String::from_utf8_lossy(&metadata.stdout)
+                .lines()
+                .any(|line| {
+                    let fields: Vec<_> = line.split_whitespace().collect();
+                    fields.len() == 2 && fields[0] == path.to_string_lossy() && fields[1] == digest
+                })
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn packaged_default_paths(&self) -> Result<Vec<PathBuf>, AgentError> {
+        let mut paths = Vec::new();
+        let enabled = Path::new("/etc/nginx/sites-enabled/default");
+        if self.runner.path_exists(enabled) {
+            let stock = match self.runner.read_link(enabled) {
+                Ok(target)
+                    if [
+                        Path::new("/etc/nginx/sites-available/default"),
+                        Path::new("../sites-available/default"),
+                    ]
+                    .contains(&target.as_path()) =>
+                {
+                    self.is_packaged_default(Path::new("/etc/nginx/sites-available/default"))?
+                }
+                _ => false,
+            };
+            if !stock {
+                return Err(AgentError::InvalidInput("Vhost default Nginx telah diubah atau checksum paket tidak tersedia. Berkas dipertahankan; nonaktifkan default tersebut secara eksplisit sebelum memasang penolak hostname.".into()));
+            }
+            paths.push(enabled.to_path_buf());
+        }
+        let default = Path::new("/etc/nginx/conf.d/default.conf");
+        if self.runner.path_exists(default) {
+            if !self.is_packaged_default(default)? {
+                return Err(AgentError::InvalidInput("conf.d/default.conf bukan default paket terverifikasi. Berkas custom dipertahankan; periksa konfigurasi default Nginx.".into()));
+            }
+            paths.push(default.to_path_buf());
+        }
+        Ok(paths)
+    }
+
+    /// Install missing dependencies and the unknown-host guard, then publish the include last.
     /// All paths originate in the agent, never from an API-supplied host path.
     fn ensure_host_baseline(
         &self,
@@ -152,6 +210,18 @@ impl NginxManager {
             )));
         }
 
+        let reject_path = Path::new("/etc/nginx/conf.d/00-qpanel-reject-unknown.conf");
+        let reject_content = config.render_default_catchall();
+        if self.runner.read_link(reject_path).is_ok() {
+            return Err(AgentError::InvalidInput("Guard hostname berupa symlink custom; berkas dipertahankan. Gunakan konfigurasi root-owned reguler.".into()));
+        }
+        if self.runner.path_exists(reject_path)
+            && self.runner.read_file(reject_path)? != reject_content.as_bytes()
+        {
+            return Err(AgentError::InvalidInput("Konfigurasi penolak hostname Qpanel berisi perubahan operator; periksa berkas 00-qpanel-reject-unknown.conf. Berkas tidak ditimpa.".into()));
+        }
+        let defaults = self.packaged_default_paths()?;
+
         for dir in [
             config.base_dir.clone(),
             config.conf_d_dir(),
@@ -168,6 +238,7 @@ impl NginxManager {
         }
 
         let files = [
+            (reject_path.to_path_buf(), reject_content),
             (
                 config.snippets_dir().join("acme.conf"),
                 config.render_acme_snippet(),
@@ -188,7 +259,18 @@ impl NginxManager {
             (bridge.to_path_buf(), bridge_content),
         ];
         let mut created = Vec::new();
+        let mut disabled = Vec::new();
         let result = (|| {
+            for path in defaults {
+                let quarantine = if path == Path::new("/etc/nginx/sites-enabled/default") {
+                    PathBuf::from("/etc/nginx/sites-available")
+                        .join(format!("default.qpanel-disabled-{}", uuid::Uuid::new_v4()))
+                } else {
+                    path.with_extension(format!("conf.qpanel-disabled-{}", uuid::Uuid::new_v4()))
+                };
+                self.runner.move_path(&path, &quarantine)?;
+                disabled.push((path, quarantine));
+            }
             for (path, content) in files {
                 if self.runner.path_exists(&path) {
                     continue;
@@ -206,14 +288,19 @@ impl NginxManager {
                 publish?;
                 created.push(path);
             }
-            if !created.is_empty() {
+            if !created.is_empty() || !disabled.is_empty() {
                 self.check_config(main_conf)?;
             }
             Ok::<(), AgentError>(())
         })();
         if result.is_err() {
             for path in created.iter().rev() {
-                self.runner.remove_file(path)?;
+                if let Err(error) = self.runner.remove_file(path) {
+                    warn!(%error, "Nginx guard rollback cleanup failed");
+                }
+            }
+            for (path, quarantine) in disabled.iter().rev() {
+                self.runner.move_path(quarantine, path)?;
             }
         }
         result
@@ -1380,6 +1467,125 @@ mod tests {
             Path::new(HOST_MAIN),
             Path::new(HOST_BRIDGE),
         )
+    }
+
+    #[test]
+    fn host_baseline_rejects_unknown_hosts_before_any_site_is_registered() {
+        let (runner, manager) = host_fixture();
+        prepare_host(&manager).unwrap();
+        let guard = String::from_utf8(
+            runner
+                .read_file(Path::new("/etc/nginx/conf.d/00-qpanel-reject-unknown.conf"))
+                .expect("guard must be loaded by system conf.d"),
+        )
+        .unwrap();
+        assert!(guard.contains("listen 80 default_server;"));
+        assert!(guard.contains("listen [::]:80 default_server;"));
+        assert!(guard.contains("listen 443 ssl default_server;"));
+        assert!(guard.contains("ssl_reject_handshake on;"));
+        assert_eq!(guard.matches("return 444;").count(), 2);
+        assert!(!guard.contains("proxy_pass") && !guard.contains("root "));
+        assert_eq!(runner.read_file(Path::new(HOST_MAIN)).unwrap(), DISTRO_MAIN);
+    }
+
+    fn stock_default_fixture(runner: &MockSystemRunner) {
+        use md5::{Digest, Md5};
+        let stock = b"server { listen 80 default_server; server_name _; root /var/www/html; }\n";
+        let metadata = format!(
+            " /etc/nginx/sites-available/default {:x}\n /etc/nginx/conf.d/default.conf {:x}\n",
+            Md5::digest(stock),
+            Md5::digest(stock)
+        );
+        runner.set_response(
+            "dpkg-query -W -f=${Conffiles}\n nginx-common",
+            0,
+            metadata.as_bytes(),
+            b"",
+        );
+        runner.set_file_content("/etc/nginx/sites-available/default", stock);
+        runner.set_file_content("/etc/nginx/conf.d/default.conf", stock);
+        runner
+            .create_symlink(
+                Path::new("../sites-available/default"),
+                Path::new("/etc/nginx/sites-enabled/default"),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn host_guard_quarantines_only_checksum_verified_package_defaults() {
+        let (runner, manager) = host_fixture();
+        stock_default_fixture(&runner);
+        let custom = Path::new("/etc/nginx/conf.d/customer.conf");
+        runner.set_file_content(custom, b"server { server_name customer.test; }");
+        prepare_host(&manager).unwrap();
+        assert!(!runner.path_exists(Path::new("/etc/nginx/sites-enabled/default")));
+        assert!(!runner.path_exists(Path::new("/etc/nginx/conf.d/default.conf")));
+        assert!(runner.path_exists(Path::new("/etc/nginx/sites-available/default")));
+        assert_eq!(
+            runner.read_file(custom).unwrap(),
+            b"server { server_name customer.test; }"
+        );
+        let moves: Vec<_> = runner
+            .recorded_actions()
+            .into_iter()
+            .filter_map(|action| match action {
+                crate::system::MockAction::MovePath { from, to }
+                    if from == Path::new("/etc/nginx/sites-enabled/default")
+                        || from == Path::new("/etc/nginx/conf.d/default.conf") =>
+                {
+                    Some(to)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moves.len(), 2);
+        for path in moves {
+            assert!(runner.path_exists(&path));
+            assert!(path.to_string_lossy().contains("qpanel-disabled"));
+        }
+    }
+
+    #[test]
+    fn host_guard_preserves_modified_defaults_and_conflicting_guard_without_mutation() {
+        for changed in [
+            "/etc/nginx/sites-available/default",
+            "/etc/nginx/conf.d/default.conf",
+            "/etc/nginx/conf.d/00-qpanel-reject-unknown.conf",
+        ] {
+            let (runner, manager) = host_fixture();
+            stock_default_fixture(&runner);
+            runner.set_file_content(changed, b"# operator custom config");
+            let files = runner.files.lock().unwrap().clone();
+            let links = runner.symlinks.lock().unwrap().clone();
+            assert!(prepare_host(&manager).is_err(), "{changed}");
+            assert_eq!(*runner.files.lock().unwrap(), files);
+            assert_eq!(*runner.symlinks.lock().unwrap(), links);
+        }
+    }
+
+    #[test]
+    fn host_guard_validation_failure_restores_packaged_defaults() {
+        let (runner, manager) = host_fixture();
+        stock_default_fixture(&runner);
+        let files = runner.files.lock().unwrap().clone();
+        let links = runner.symlinks.lock().unwrap().clone();
+        runner.set_response("nginx", 1, b"", b"duplicate operator default_server");
+        assert!(prepare_host(&manager).is_err());
+        // MockSystemRunner stores created directory markers in its file map.
+        // Empty baseline directories may remain; every original file/link must return.
+        let directories: std::collections::HashSet<_> = runner
+            .recorded_actions()
+            .into_iter()
+            .filter_map(|action| match action {
+                crate::system::MockAction::CreateDir { path, .. } => Some(path),
+                _ => None,
+            })
+            .collect();
+        let mut restored = runner.files.lock().unwrap().clone();
+        restored.retain(|path, _| !directories.contains(path));
+        assert_eq!(restored, files);
+        assert_eq!(*runner.symlinks.lock().unwrap(), links);
     }
 
     #[test]

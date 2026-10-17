@@ -250,22 +250,15 @@ export async function logout(): Promise<{ message: string }> {
 }
 
 export async function changePassword(
-  oldPassword: string,
-  newPassword: string
-): Promise<{ message: string; csrf_token: string }> {
-  const res = await request<{ message: string; csrf_token: string }>(
-    '/api/v1/auth/password',
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        old_password: oldPassword,
-        new_password: newPassword,
-      }),
-    }
-  );
-  if (res.csrf_token) {
-    setCsrfToken(res.csrf_token);
-  }
+  currentPassword: string,
+  newPassword?: string,
+  username?: string,
+): Promise<LoginResponse> {
+  const res = await request<LoginResponse>('/api/v1/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword, username }),
+  });
+  if (res.csrf_token) setCsrfToken(res.csrf_token);
   return res;
 }
 

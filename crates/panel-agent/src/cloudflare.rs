@@ -229,6 +229,35 @@ fn list(response: Value, keys: &[&str]) -> Value {
 fn ingress_rule(hostname: &str, tls: bool) -> Value {
     json!({"hostname":hostname,"service": if tls {"https://127.0.0.1:443"} else {"http://127.0.0.1:80"},"originRequest":{"httpHostHeader":hostname,"originServerName":hostname,"noTLSVerify":false}})
 }
+
+fn validate_ingress_boundary(ingress: &[Value]) -> Result<(), AgentError> {
+    let rejects = |rule: &Value| {
+        rule["service"]
+            .as_str()
+            .and_then(|service| service.strip_prefix("http_status:"))
+            .and_then(|status| status.parse::<u16>().ok())
+            .is_some_and(|status| (400..=599).contains(&status))
+    };
+    let last = ingress
+        .last()
+        .ok_or_else(|| invalid("Konfigurasi ingress kosong."))?;
+    if last.get("hostname").is_some() || last.get("path").is_some() || !rejects(last) {
+        return Err(conflict(
+            "Catch-all tunnel harus menolak hostname tidak dikenal, misalnya http_status:404. Konfigurasi tunnel dipertahankan; jangan arahkan catch-all ke origin web.",
+        ));
+    }
+    for rule in &ingress[..ingress.len() - 1] {
+        let exact_host = rule["hostname"]
+            .as_str()
+            .is_some_and(|host| !host.is_empty() && !host.contains('*'));
+        if !exact_host && !rejects(rule) {
+            return Err(conflict(
+                "Tunnel memuat wildcard atau rute tanpa hostname yang dapat mengekspos origin. Gunakan rute hostname eksplisit; konfigurasi tidak diubah.",
+            ));
+        }
+    }
+    Ok(())
+}
 fn zone(
     runner: &dyn SystemRunner,
     cred: &Credentials,
@@ -636,6 +665,29 @@ pub fn execute(runner: &dyn SystemRunner, request: CloudflareRequest) -> Result<
                     if !runner.path_exists(Path::new("/usr/bin/cloudflared")) {
                         return Err(invalid("Pasang konektor cloudflared terlebih dahulu."));
                     }
+                    let remote = api(
+                        runner,
+                        &cred,
+                        "GET",
+                        &format!("{base}/{key}/configurations"),
+                        None,
+                    )?;
+                    let config = remote["result"].get("config").ok_or_else(|| {
+                        invalid(
+                            "Respons konfigurasi tunnel tidak lengkap; konektor tidak dijalankan.",
+                        )
+                    })?;
+                    if let Some(rules) = config["ingress"].as_array() {
+                        if !rules.is_empty() {
+                            validate_ingress_boundary(rules)?;
+                        }
+                    } else if !config.is_null()
+                        && config.as_object().is_none_or(|object| !object.is_empty())
+                    {
+                        return Err(invalid(
+                            "Konfigurasi tunnel tidak dapat diverifikasi; konektor tidak dijalankan.",
+                        ));
+                    }
                     let response = api(runner, &cred, "GET", &format!("{base}/{key}/token"), None)?;
                     let token = response["result"]
                         .as_str()
@@ -767,14 +819,7 @@ fn publish(
     if ingress.is_empty() {
         ingress.push(json!({"service":"http_status:404"}));
     }
-    if ingress
-        .last()
-        .is_some_and(|r| r.get("hostname").is_some() || r.get("path").is_some())
-    {
-        return Err(invalid(
-            "Konfigurasi tunnel belum memiliki aturan catch-all yang valid.",
-        ));
-    }
+    validate_ingress_boundary(&ingress)?;
     ingress.insert(0, ingress_rule(&hostname, tls));
     config["ingress"] = json!(ingress);
     api(runner, cred, "PUT", &path, Some(json!({"config":config})))?;
@@ -1237,6 +1282,98 @@ mod tests {
             json!({}),
         );
     }
+
+    #[test]
+    fn publication_rejects_routes_exposing_unregistered_hosts_without_remote_writes() {
+        for ingress in [
+            json!([{"service":"http://127.0.0.1:80"}]),
+            json!([{"hostname":"*.example.com","service":"http://127.0.0.1:80","originRequest":{"httpHostHeader":"known.example.com"}},{"service":"http_status:404"}]),
+            json!([{"path":"/.*","service":"http://localhost:80"},{"service":"http_status:404"}]),
+            json!([{"service":"hello_world"}]),
+            json!([{"service":"http_status:200"}]),
+        ] {
+            let fixture = Fixture::new();
+            fixture.zone();
+            fixture.reply(
+                "GET",
+                &format!("zones/{ZONE}/dns_records?name=app.example.com&per_page=100"),
+                json!([]),
+            );
+            fixture.reply(
+                "GET",
+                &format!("accounts/{ACCOUNT}/cfd_tunnel/{TUNNEL}/configurations"),
+                json!({"config":{"ingress":ingress}}),
+            );
+            assert!(fixture.cf(publish_request()).is_err());
+            assert!(
+                fixture
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|request| request.0 == "GET")
+            );
+            assert!(
+                manifest(&fixture).unwrap().tunnels[TUNNEL]
+                    .routes
+                    .is_empty()
+            );
+            fixture.pending();
+        }
+    }
+
+    #[test]
+    fn ingress_boundary_accepts_explicit_hosts_and_denial_only_catchalls() {
+        for status in [400, 403, 404, 410, 503] {
+            validate_ingress_boundary(&[
+                json!({"hostname":"app.example.com","service":"http://127.0.0.1:80"}),
+                json!({"service":format!("http_status:{status}")}),
+            ])
+            .unwrap();
+        }
+        assert!(validate_ingress_boundary(&[]).is_err());
+        assert!(
+            validate_ingress_boundary(&[json!({"hostname":"*","service":"http_status:404"})])
+                .is_err()
+        );
+    }
+    #[test]
+    fn connector_refuses_unsafe_ingress_before_fetching_secrets_or_starting_service() {
+        for configuration in [
+            json!({"config":{"ingress":[{"service":"http://127.0.0.1:80"}]}}),
+            json!({}),
+            json!({"config":{"ingress":"invalid"}}),
+            json!({"config":{"originRequest":{"httpHostHeader":"known.example.com"}}}),
+        ] {
+            let fixture = Fixture::new();
+            fixture.inner.add_existing_path("/usr/bin/cloudflared");
+            fixture.reply(
+                "GET",
+                &format!("accounts/{ACCOUNT}/cfd_tunnel/{TUNNEL}/configurations"),
+                configuration,
+            );
+            assert!(
+                fixture
+                    .cf(CloudflareRequest::TunnelAction {
+                        tunnel_id: TUNNEL.into(),
+                        operation: TunnelAction::Start
+                    })
+                    .is_err()
+            );
+            assert!(!fixture.inner.path_exists(Path::new(&token_path(TUNNEL))));
+            assert!(!fixture.inner.path_exists(Path::new(&unit_path(TUNNEL))));
+            assert!(
+                !fixture
+                    .inner
+                    .get_commands()
+                    .iter()
+                    .any(|command| command.starts_with("systemctl"))
+            );
+            assert_eq!(fixture.requests.lock().unwrap().len(), 1);
+            fixture.pending();
+        }
+    }
+
     #[test]
     fn publication_preserves_existing_ingress_and_uses_only_local_nginx_with_verified_tls() {
         let fixture = Fixture::new();
@@ -1309,6 +1446,11 @@ mod tests {
         let fixture = Fixture::new();
         fixture.inner.add_existing_path("/usr/bin/cloudflared");
         fixture.inner.set_response("systemctl", 0, b"active\n", b"");
+        fixture.reply(
+            "GET",
+            &format!("accounts/{ACCOUNT}/cfd_tunnel/{TUNNEL}/configurations"),
+            json!({"config":old_config()}),
+        );
         fixture.reply(
             "GET",
             &format!("accounts/{ACCOUNT}/cfd_tunnel/{TUNNEL}/token"),

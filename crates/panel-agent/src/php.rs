@@ -22,7 +22,10 @@ use panel_runtime::php::{
     missing_php_package_candidates,
 };
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tracing::{info, warn};
+
+static FPM_CONFIG_LOCK: Mutex<()> = Mutex::new(());
 
 const DEBIAN_PHP_SOURCE: &str = "/etc/apt/sources.list.d/nusa-php.sources";
 const DEBIAN_PHP_SOURCE_CONTENT: &[u8] = b"Types: deb\nURIs: https://packages.sury.org/php/\nSuites: bookworm\nComponents: main\nSigned-By: /usr/share/keyrings/debsuryorg-archive-keyring.gpg\n";
@@ -566,6 +569,16 @@ pub fn ensure_php_fpm_master(
     runner: &dyn SystemRunner,
     req: PhpFpmMasterEnsureRequest,
 ) -> Result<PhpFpmMasterEnsureResponse, AgentError> {
+    let _operation = FPM_CONFIG_LOCK
+        .lock()
+        .map_err(|_| AgentError::Internal("Kunci konfigurasi PHP-FPM gagal".into()))?;
+    ensure_php_fpm_master_inner(runner, req)
+}
+
+fn ensure_php_fpm_master_inner(
+    runner: &dyn SystemRunner,
+    req: PhpFpmMasterEnsureRequest,
+) -> Result<PhpFpmMasterEnsureResponse, AgentError> {
     let version =
         PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
     let master = PhpFpmMasterConfig::new(&req.username, req.uid, version)
@@ -676,31 +689,59 @@ fn validate_and_swap_staging_pool(
     staging_path: &Path,
     target_path: &Path,
 ) -> Result<(), AgentError> {
-    runner.write_file(staging_path, pool.render_pool_conf().as_bytes(), 0o644)?;
-
-    let fpm_bin = format!("php-fpm{}", version.as_str());
-    let master_conf_str = master.master_conf_path().to_string_lossy().to_string();
-
-    let check_res = runner.run_command(&fpm_bin, &["-t", "-y", &master_conf_str]);
-    let err_msg = match check_res {
-        Ok(out) if !out.status.success() => Some(String::from_utf8_lossy(&out.stderr).to_string()),
-        Err(AgentError::CommandFailed { stderr, .. }) => Some(stderr),
-        Err(e) => return Err(e),
-        _ => None,
-    };
-
-    if let Some(err_msg) = err_msg {
-        let _ = runner.remove_file(staging_path);
-        warn!(
-            "PHP-FPM syntax check failed for pool {}: {}",
-            pool.pool_name, err_msg
-        );
-        return Err(AgentError::InvalidInput(format!(
-            "Validasi sintaks PHP-FPM gagal: {err_msg}"
-        )));
-    }
-
-    runner.move_path(staging_path, target_path)
+    let validation_path = master.config_dir().join("php-fpm.validation.conf.staging");
+    let result = (|| {
+        runner.write_file(staging_path, pool.render_pool_conf().as_bytes(), 0o644)?;
+        let mut includes = Vec::new();
+        for path in runner.read_dir(&master.pool_dir())? {
+            if path.parent() != Some(master.pool_dir().as_path())
+                || path.extension().and_then(|value| value.to_str()) != Some("conf")
+                || path == target_path
+            {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    AgentError::InvalidInput("Nama konfigurasi pool tidak valid".into())
+                })?;
+            validate_fpm_identifier(name)
+                .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
+            includes.push(path);
+        }
+        includes.sort();
+        includes.push(staging_path.to_path_buf());
+        // The live *.conf glob intentionally excludes staging files. Validate a
+        // separate master containing the candidate and every OTHER active pool.
+        runner.write_file(
+            &validation_path,
+            master.render_master_conf_with_pools(&includes).as_bytes(),
+            0o644,
+        )?;
+        let fpm_bin = format!("php-fpm{}", version.as_str());
+        let config = validation_path.to_string_lossy();
+        let checked = runner.run_command(&fpm_bin, &["-t", "-y", &config]);
+        match checked {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => {
+                return Err(AgentError::InvalidInput(format!(
+                    "Validasi sintaks PHP-FPM gagal: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )));
+            }
+            Err(AgentError::CommandFailed { stderr, .. }) => {
+                return Err(AgentError::InvalidInput(format!(
+                    "Validasi sintaks PHP-FPM gagal: {stderr}"
+                )));
+            }
+            Err(error) => return Err(error),
+        }
+        runner.move_path(staging_path, target_path)
+    })();
+    let _ = runner.remove_file(&validation_path);
+    let _ = runner.remove_file(staging_path);
+    result
 }
 
 fn activate_master_service(
@@ -736,13 +777,16 @@ pub fn apply_php_fpm_pool(
     runner: &dyn SystemRunner,
     req: PhpFpmPoolApplyRequest,
 ) -> Result<PhpFpmPoolApplyResponse, AgentError> {
+    let _operation = FPM_CONFIG_LOCK
+        .lock()
+        .map_err(|_| AgentError::Internal("Kunci konfigurasi PHP-FPM gagal".into()))?;
     let version =
         PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
     let master = PhpFpmMasterConfig::new(&req.username, req.uid, version)
         .map_err(|e| AgentError::InvalidInput(e.to_string()))?;
 
     // Step 1: Ensure master instance and systemd service exist
-    ensure_php_fpm_master(
+    ensure_php_fpm_master_inner(
         runner,
         PhpFpmMasterEnsureRequest {
             username: req.username.clone(),
@@ -834,6 +878,9 @@ pub fn remove_php_fpm_pool(
     runner: &dyn SystemRunner,
     req: PhpFpmPoolRemoveRequest,
 ) -> Result<PhpFpmPoolRemoveResponse, AgentError> {
+    let _operation = FPM_CONFIG_LOCK
+        .lock()
+        .map_err(|_| AgentError::Internal("Kunci konfigurasi PHP-FPM gagal".into()))?;
     let version =
         PhpVersion::parse(&req.version).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
     let master = PhpFpmMasterConfig::new(&req.username, 10000, version)
@@ -1264,7 +1311,7 @@ pub fn check_php_fpm_health(
     let pool_file = master.pool_dir().join(format!("{}.conf", req.pool_name));
     let pool_exists = runner.path_exists(&pool_file);
 
-    let healthy = service_active && (socket_exists || pool_exists);
+    let healthy = service_active && socket_exists && pool_exists;
     let message = if healthy {
         format!(
             "Master PHP {} dan pool {} beroperasi secara normal",
@@ -1273,6 +1320,8 @@ pub fn check_php_fpm_health(
         )
     } else if !service_active {
         format!("Service {} tidak aktif", master.service_name())
+    } else if !pool_exists {
+        format!("Pool {} belum tersedia", req.pool_name)
     } else {
         format!("Socket {} tidak ditemukan", socket_path.display())
     };
@@ -1901,6 +1950,169 @@ mod tests {
             PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/broken-pool.conf.staging");
         assert!(!files.contains_key(&target_path));
         assert!(!files.contains_key(&staging_path));
+    }
+
+    fn create_pool_request() -> PhpFpmPoolApplyRequest {
+        PhpFpmPoolApplyRequest {
+            username: "p_alice".into(),
+            uid: 10001,
+            version: "8.3".into(),
+            pool_name: "site_1".into(),
+            docroot: "/home/p_alice/sites/example.test/public".into(),
+            socket_path: None,
+            max_children: None,
+            process_idle_timeout_secs: None,
+            max_requests: None,
+            open_basedir: None,
+            disable_functions: None,
+            settings: None,
+            admin_ini: None,
+            reload: true,
+        }
+    }
+
+    #[test]
+    fn first_php_pool_validates_candidate_instead_of_empty_live_glob() {
+        let runner = MockSystemRunner::new();
+        let master =
+            PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::parse("8.3").unwrap()).unwrap();
+        runner.set_response(
+            &format!(
+                "php-fpm8.3 -t -y {}",
+                master.master_conf_path().to_string_lossy()
+            ),
+            1,
+            b"",
+            b"ERROR: No pool defined. at least one pool section must be specified in config file",
+        );
+        let result = apply_php_fpm_pool(&runner, create_pool_request());
+        assert!(
+            result.is_ok(),
+            "first PHP site must validate its staged pool: {result:?}"
+        );
+        let files = runner.files.lock().unwrap();
+        assert!(files.contains_key(&PathBuf::from(
+            "/etc/panel/php/p_alice-8.3/pool.d/site_1.conf"
+        )));
+        assert!(
+            !files
+                .keys()
+                .any(|path| path.to_string_lossy().ends_with(".staging"))
+        );
+    }
+
+    #[test]
+    fn php_pool_validation_includes_candidate_and_other_pools_without_old_target() {
+        let runner = MockSystemRunner::new();
+        let root = PathBuf::from("/etc/panel/php/p_alice-8.3");
+        let target = root.join("pool.d/site_1.conf");
+        runner.set_file_content(&target, b"[site_1]\nlisten=/old.sock\n");
+        runner.set_file_content(
+            root.join("pool.d/site_2.conf"),
+            b"[site_2]\nlisten=/other.sock\n",
+        );
+        apply_php_fpm_pool(&runner, create_pool_request()).unwrap();
+        let actions = runner.recorded_actions();
+        let candidate_master = actions
+            .iter()
+            .find_map(|action| match action {
+                MockAction::WriteFile { path, content, .. }
+                    if path == &root.join("php-fpm.validation.conf.staging") =>
+                {
+                    Some(String::from_utf8(content.clone()).unwrap())
+                }
+                _ => None,
+            })
+            .expect("separate candidate master");
+        let includes: Vec<_> = candidate_master
+            .lines()
+            .filter(|line| line.starts_with("include = "))
+            .collect();
+        assert_eq!(
+            includes,
+            [
+                "include = /etc/panel/php/p_alice-8.3/pool.d/site_2.conf",
+                "include = /etc/panel/php/p_alice-8.3/pool.d/site_1.conf.staging",
+            ]
+        );
+        let check = actions
+            .iter()
+            .position(|action| {
+                matches!(action,
+            MockAction::Command { binary, .. } if binary == "php-fpm8.3")
+            })
+            .unwrap();
+        let swap = actions
+            .iter()
+            .position(|action| {
+                matches!(action,
+            MockAction::MovePath { to, .. } if to == &target)
+            })
+            .unwrap();
+        assert!(check < swap, "validate before publishing the candidate");
+        let live = runner.read_file(&root.join("php-fpm.conf")).unwrap();
+        assert!(String::from_utf8(live).unwrap().contains("pool.d/*.conf"));
+    }
+
+    #[test]
+    fn invalid_php_candidate_preserves_live_pool_and_cleans_validation_files() {
+        let runner = MockSystemRunner::new();
+        let target = PathBuf::from("/etc/panel/php/p_alice-8.3/pool.d/site_1.conf");
+        let previous = b"[site_1]\nlisten=/previous.sock\n";
+        runner.set_file_content(&target, previous);
+        runner.set_response("php-fpm8.3", 1, b"", b"candidate pool invalid");
+        assert!(apply_php_fpm_pool(&runner, create_pool_request()).is_err());
+        assert_eq!(runner.read_file(&target).unwrap(), previous);
+        let files = runner.files.lock().unwrap();
+        assert!(
+            !files
+                .keys()
+                .any(|path| path.to_string_lossy().ends_with(".staging"))
+        );
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|command| command.starts_with("systemctl reload panel-fpm@")
+                    || command.starts_with("systemctl enable --now panel-fpm@"))
+        );
+    }
+
+    #[test]
+    fn php_health_requires_active_service_socket_and_pool() {
+        for (socket, pool, active) in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+            (true, true, true),
+        ] {
+            let runner = MockSystemRunner::new();
+            if socket {
+                runner.add_existing_path("/run/panel/php/p_alice-8.3.sock");
+            }
+            if pool {
+                runner.add_existing_path("/etc/panel/php/p_alice-8.3/pool.d/site_1.conf");
+            }
+            if !active {
+                runner.set_response("systemctl", 1, b"", b"inactive");
+            }
+            let health = check_php_fpm_health(
+                &runner,
+                PhpFpmHealthCheckRequest {
+                    username: "p_alice".into(),
+                    version: "8.3".into(),
+                    pool_name: "site_1".into(),
+                },
+            )
+            .unwrap();
+            assert_eq!(health.healthy, active && socket && pool, "{health:?}");
+            if active && pool && !socket {
+                assert!(health.message.contains("Socket"));
+            }
+            if active && !pool {
+                assert!(health.message.contains("Pool"));
+            }
+        }
     }
 
     #[test]

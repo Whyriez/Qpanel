@@ -10,6 +10,7 @@ export MOCK_REPO TRACE
 mkdir -p "$MOCK_REPO/scripts" "$MOCK_REPO/templates" "$MOCK_REPO/target/release/build"
 cp "$REPO/scripts/compile-release.sh" "$REPO/scripts/build-release.sh" "$REPO/scripts/check-glibc.sh" "$MOCK_REPO/scripts/"
 cp "$REPO/install.sh" "$REPO/uninstall.sh" "$MOCK_REPO/"
+cp "$REPO/ADMIN_ACCOUNTS.md" "$MOCK_REPO/"
 cp -r "$REPO/templates/systemd" "$REPO/templates/nginx" "$MOCK_REPO/templates/"
 printf '[workspace.package]\nversion = "0.1.1"\n' > "$MOCK_REPO/Cargo.toml"
 printf 'incompatible GLIBC_2.39 cached host build script\n' > "$MOCK_REPO/target/release/build/legacy-build-script"
@@ -67,6 +68,8 @@ for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
         [[ "$(cat "$extract/nusa-panel-v0.1.1-$target/bin/$binary")" == "fresh native $target $binary" ]]
     done
     [[ -f "$extract/nusa-panel-v0.1.1-$target/templates/nginx/nusa-panel.conf" ]]
+    cmp -s "$REPO/templates/nginx/nusa-reject-unknown.conf" "$extract/nusa-panel-v0.1.1-$target/templates/nginx/nusa-reject-unknown.conf"
+    cmp -s "$REPO/ADMIN_ACCOUNTS.md" "$extract/nusa-panel-v0.1.1-$target/docs/admin-accounts.md"
     [[ -f "$extract/nusa-panel-v0.1.1-$target/templates/systemd/panel-api.service" ]]
     cmp -s "$REPO/templates/systemd/panel-proc-hardening.service" "$extract/nusa-panel-v0.1.1-$target/templates/systemd/panel-proc-hardening.service"
     [[ "$output" == *'[SUKSES]'* ]]

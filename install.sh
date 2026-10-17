@@ -2,6 +2,8 @@
 # Qpanel production install/upgrade. Never run on a development host.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -Eeuo pipefail
+# Never trace generated credentials, including when invoked with bash -x.
+set +x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT_EXPLICIT=false
@@ -22,12 +24,15 @@ NGINX_WAS_ACTIVE=false
 API_WAS_ENABLED=false
 AGENT_WAS_ENABLED=false
 NGINX_WAS_ENABLED=false
-SETUP_TOKEN=""
+ADMIN_USERNAME=""
+ADMIN_PASSWORD=""
 MANAGED_FILES=(
     /usr/local/bin/panel-api /usr/local/bin/panel-agent /usr/local/bin/panelctl
     /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service
     /etc/systemd/system/panel-proc-hardening.service
     /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf
+    /etc/nginx/conf.d/00-qpanel-reject-unknown.conf
+    /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default
     /etc/panel/public-port
 )
 
@@ -41,6 +46,8 @@ Penggunaan: ./install.sh [opsi]
   --force-os       Lewati pemeriksaan versi distro
   --skip-firewall  Jangan menambahkan aturan firewall
   -h, --help       Tampilkan bantuan
+Instalasi baru membuat username/password admin otomatis. Upgrade mempertahankan akun.
+Bantuan administrasi: panelctl --help dan panelctl admin --help.
 PANEL_PUBLIC_PORT juga dapat mengatur port publik. API internal selalu 127.0.0.1:7700.
 EOF
 }
@@ -113,7 +120,8 @@ find_release() {
     done
     [[ -r "$SCRIPT_DIR/templates/systemd/panel-api.service" &&
        -r "$SCRIPT_DIR/templates/systemd/panel-agent.service" &&
-       -r "$SCRIPT_DIR/templates/nginx/nusa-panel.conf" ]] || {
+       -r "$SCRIPT_DIR/templates/nginx/nusa-panel.conf" &&
+       -r "$SCRIPT_DIR/templates/nginx/nusa-reject-unknown.conf" ]] || {
         fail 'Template systemd/Nginx paket tidak lengkap'; return 1;
     }
 }
@@ -187,6 +195,7 @@ on_error() {
     set +e
     [[ "$TRANSACTION" != true ]] || rollback
     [[ -z "$STAGING_DIR" ]] || rm -rf "$STAGING_DIR"
+    ADMIN_USERNAME=""; ADMIN_PASSWORD=""
     echo '[ERROR] Instalasi belum berhasil. Periksa: journalctl -u panel-api -u panel-agent -u nginx --no-pager -n 100' >&2
     exit "$code"
 }
@@ -223,24 +232,14 @@ install_binaries_and_units() {
 }
 
 initialize_database() {
-    # The setup-token command runs migrations, always under the service identity.
-    # It is idempotent: an existing administrator/token is never overwritten.
-    if ! runuser -u panel-api -- /usr/local/bin/panelctl --db-path /var/lib/panel/panel.db setup-token status >/dev/null 2>&1; then
-        fail 'Inisialisasi/migrasi SQLite gagal sebagai panel-api; periksa akses database dan konfigurasi panelctl'
+    ADMIN_USERNAME=""; ADMIN_PASSWORD=""
+    local result
+    if ! result="$(runuser -u panel-api -- /usr/local/bin/panelctl --db-path /var/lib/panel/panel.db admin bootstrap --installer-output)"; then
+        fail 'Inisialisasi akun/migrasi SQLite gagal sebagai panel-api; periksa panelctl dan akses database'
         return 1
     fi
-    local admins token
-    admins="$(runuser -u panel-api -- sqlite3 /var/lib/panel/panel.db "SELECT COUNT(*) FROM users WHERE role='admin';")"
-    if [[ "$admins" == 0 ]]; then
-        token="$(runuser -u panel-api -- sqlite3 /var/lib/panel/panel.db "SELECT value FROM settings WHERE key='setup.first_run_token';")"
-        if [[ -n "$token" ]]; then
-            SETUP_TOKEN="$token"
-        else
-            runuser -u panel-api -- /usr/local/bin/panelctl --db-path /var/lib/panel/panel.db setup-token generate >/dev/null
-            SETUP_TOKEN="$(runuser -u panel-api -- sqlite3 /var/lib/panel/panel.db "SELECT value FROM settings WHERE key='setup.first_run_token';")"
-            [[ -n "$SETUP_TOKEN" ]] || { fail 'Token first-run tidak berhasil dibuat'; return 1; }
-        fi
-    fi
+    read_bootstrap_result "$result"
+    unset result
     chown -R panel-api:panel /var/lib/panel
     local file
     for file in /var/lib/panel/panel.db{,-wal,-shm} /var/lib/panel/panel.operations.db{,-wal,-shm}; do
@@ -248,34 +247,132 @@ initialize_database() {
     done
 }
 
+# Fixed protocol from the packaged CLI; never eval output or persist plaintext secrets.
+read_bootstrap_result() {
+    ADMIN_USERNAME=""; ADMIN_PASSWORD=""
+    if [[ "$1" == preserved ]]; then return 0; fi
+    if [[ "$1" =~ ^created\ (admin_[a-f0-9]{12})\ (Qp![a-f0-9]{32})$ ]]; then
+        ADMIN_USERNAME="${BASH_REMATCH[1]}"
+        ADMIN_PASSWORD="${BASH_REMATCH[2]}"
+    else
+        fail 'Respons bootstrap panelctl tidak valid; instalasi dibatalkan'
+        return 1
+    fi
+}
+
+print_installation_summary() {
+    local server_ip="$1"
+    printf '\n  Qpanel | Instalasi berhasil\n  ----------------------------------------\n'
+    printf '  Panel     : http://%s:%s\n' "$server_ip" "$PANEL_PUBLIC_PORT"
+    printf '  Status    : API, agent, Nginx, dan SQLite siap\n'
+    printf '  Snapshot  : %s\n' "$BACKUP_DIR"
+    if [[ -n "$ADMIN_USERNAME" && -n "$ADMIN_PASSWORD" ]]; then
+        printf '\n  Akun administrator\n  Username  : %s\n  Password  : %s\n' "$ADMIN_USERNAME" "$ADMIN_PASSWORD"
+        printf '  Simpan sekarang. Password hanya ditampilkan sekali.\n'
+    else
+        printf '\n  Akun administrator yang sudah ada dipertahankan.\n'
+    fi
+    printf '\n  Langkah berikutnya\n'
+    printf '  Buka panel dan masuk dengan username serta password.\n'
+    printf '  Ubah kredensial melalui Profil & keamanan, lalu aktifkan 2FA.\n'
+    printf '\n  Bantuan CLI\n'
+    printf '  panelctl --help                          Daftar semua perintah\n'
+    printf '  panelctl admin --help                    Pengelolaan akun\n'
+    printf '  sudo panelctl admin list                 Lihat username admin\n'
+    printf '  sudo panelctl admin reset-password --username NAMA\n'
+    printf '                                           Buat password pemulihan\n'
+    printf '  sudo panelctl doctor                     Diagnosis layanan\n'
+    printf '  panelctl backup --help                   Bantuan backup\n'
+    printf '  Panduan: docs/admin-accounts.md (di paket rilis)\n\n'
+    ADMIN_USERNAME=""; ADMIN_PASSWORD=""
+}
+
 render_panel_site() {
     sed "s/@PANEL_PUBLIC_PORT@/${PANEL_PUBLIC_PORT}/g" "$SCRIPT_DIR/templates/nginx/nusa-panel.conf"
 }
 
+is_packaged_nginx_default() {
+    local path="$1" digest metadata package
+    [[ -f "$path" && ! -L "$path" ]] || return 1
+    digest="$(md5sum -- "$path")"; digest="${digest%% *}"
+    for package in nginx-common nginx; do
+        metadata="$(dpkg-query -W '-f=${Conffiles}\n' "$package" 2>/dev/null)" || continue
+        if awk -v path="$path" -v digest="$digest" 'NF == 2 && $1 == path && $2 == digest { found=1 } END { exit !found }' <<< "$metadata"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 install_nginx_proxy() {
-    install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
-    STAGING_DIR="$(mktemp -d /etc/nginx/.nusa-stage-XXXXXXXX)"
-    mkdir "$STAGING_DIR/sites-enabled"
-    cp -a /etc/nginx/sites-enabled/. "$STAGING_DIR/sites-enabled/"
+    install_nginx_proxy_at /etc/nginx /etc/panel/public-port
+}
+
+# Internal helper with explicit roots for rootless filesystem fixtures, not CLI/API inputs.
+install_nginx_proxy_at() {
+    local nginx_root="$1" port_file="$2" reject quarantine directives
+    local disable_sites_default=false disable_conf_default=false
+    reject="$nginx_root/conf.d/00-qpanel-reject-unknown.conf"
+    if [[ -e "$reject" || -L "$reject" ]]; then
+        [[ ! -L "$reject" ]] && cmp -s "$reject" "$SCRIPT_DIR/templates/nginx/nusa-reject-unknown.conf" || {
+            fail 'Catch-all Qpanel berisi perubahan operator; berkas tidak ditimpa'; return 1;
+        }
+    fi
+    if [[ -e "$nginx_root/sites-enabled/default" || -L "$nginx_root/sites-enabled/default" ]]; then
+      if [[ -L "$nginx_root/sites-enabled/default" ]] &&
+       [[ "$(readlink -f "$nginx_root/sites-enabled/default")" == "$nginx_root/sites-available/default" ]] &&
+       is_packaged_nginx_default "$nginx_root/sites-available/default"; then
+        disable_sites_default=true
+      else
+        fail 'Vhost default Nginx sudah diubah atau checksum paket tidak tersedia; nonaktifkan default tersebut secara eksplisit. Berkas dipertahankan'; return 1
+      fi
+    fi
+    if [[ -e "$nginx_root/conf.d/default.conf" || -L "$nginx_root/conf.d/default.conf" ]]; then
+      if is_packaged_nginx_default "$nginx_root/conf.d/default.conf"; then disable_conf_default=true
+      else fail 'conf.d/default.conf bukan default paket yang terverifikasi; berkas custom dipertahankan'; return 1
+      fi
+    fi
+    install -d -m 0755 "$nginx_root/conf.d" "$nginx_root/sites-available" "$nginx_root/sites-enabled"
+    STAGING_DIR="$(mktemp -d "$nginx_root/.nusa-stage-XXXXXXXX")"
+    mkdir "$STAGING_DIR/sites-enabled" "$STAGING_DIR/sites-available" "$STAGING_DIR/conf.d"
+    cp -a "$nginx_root/sites-enabled/." "$STAGING_DIR/sites-enabled/"
+    cp -a "$nginx_root/sites-available/." "$STAGING_DIR/sites-available/"
+    cp -a "$nginx_root/conf.d/." "$STAGING_DIR/conf.d/"
+    if [[ "$disable_sites_default" == true ]]; then rm -f "$STAGING_DIR/sites-enabled/default"; fi
+    if [[ "$disable_conf_default" == true ]]; then rm -f "$STAGING_DIR/conf.d/default.conf"; fi
+    cp "$SCRIPT_DIR/templates/nginx/nusa-reject-unknown.conf" "$STAGING_DIR/conf.d/00-qpanel-reject-unknown.conf"
     rm -f "$STAGING_DIR/sites-enabled/nusa-panel.conf"
     render_panel_site > "$STAGING_DIR/nusa-panel.conf"
     ln -s "$STAGING_DIR/nusa-panel.conf" "$STAGING_DIR/sites-enabled/nusa-panel.conf"
     # Validate against the real global configuration and every existing tenant site.
     # Refuse unsupported custom include layouts instead of overwriting global nginx.conf.
-    grep -Eq 'include[[:space:]]+/etc/nginx/sites-enabled/\*;' /etc/nginx/nginx.conf || {
+    directives="$(sed 's/#.*//' "$nginx_root/nginx.conf")"
+    grep -Eq "include[[:space:]]+$nginx_root/sites-enabled/\*;" <<< "$directives" &&
+    grep -Eq "include[[:space:]]+$nginx_root/conf.d/\*.conf;" <<< "$directives" || {
         fail 'Nginx tidak memuat /etc/nginx/sites-enabled/*; konfigurasi custom dipertahankan'; return 1;
     }
-    sed "s|include[[:space:]]\+/etc/nginx/sites-enabled/\*;|include $STAGING_DIR/sites-enabled/*;|g" \
-        /etc/nginx/nginx.conf > "$STAGING_DIR/nginx.conf"
-    nginx -t -c "$STAGING_DIR/nginx.conf"
-    install -m 0644 "$STAGING_DIR/nusa-panel.conf" /etc/nginx/sites-available/.nusa-panel.new
-    mv -f /etc/nginx/sites-available/.nusa-panel.new /etc/nginx/sites-available/nusa-panel.conf
-    rm -f /etc/nginx/sites-enabled/.nusa-panel.new
-    ln -s /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/.nusa-panel.new
-    mv -Tf /etc/nginx/sites-enabled/.nusa-panel.new /etc/nginx/sites-enabled/nusa-panel.conf
-    nginx -t
-    printf '%s\n' "$PANEL_PUBLIC_PORT" > /etc/panel/public-port
-    chmod 0644 /etc/panel/public-port
+    sed -e "s|include[[:space:]]\+$nginx_root/sites-enabled/\*;|include $STAGING_DIR/sites-enabled/*;|g" \
+        -e "s|include[[:space:]]\+$nginx_root/conf.d/\*.conf;|include $STAGING_DIR/conf.d/*.conf;|g" \
+        "$nginx_root/nginx.conf" > "$STAGING_DIR/nginx.conf"
+    nginx -t -c "$STAGING_DIR/nginx.conf" || return 1
+    install -m 0644 "$STAGING_DIR/nusa-panel.conf" "$nginx_root/sites-available/.nusa-panel.new"
+    mv -f "$nginx_root/sites-available/.nusa-panel.new" "$nginx_root/sites-available/nusa-panel.conf"
+    rm -f "$nginx_root/sites-enabled/.nusa-panel.new"
+    ln -s "$nginx_root/sites-available/nusa-panel.conf" "$nginx_root/sites-enabled/.nusa-panel.new"
+    mv -Tf "$nginx_root/sites-enabled/.nusa-panel.new" "$nginx_root/sites-enabled/nusa-panel.conf"
+    install -m 0644 "$STAGING_DIR/conf.d/00-qpanel-reject-unknown.conf" "$reject.new"
+    mv -f "$reject.new" "$reject"
+    if [[ "$disable_sites_default" == true ]]; then
+        quarantine="$(mktemp "$nginx_root/sites-available/default.qpanel-disabled-XXXXXXXX")"
+        mv -f "$nginx_root/sites-enabled/default" "$quarantine"
+    fi
+    if [[ "$disable_conf_default" == true ]]; then
+        quarantine="$(mktemp "$nginx_root/conf.d/default.conf.qpanel-disabled-XXXXXXXX")"
+        mv -f "$nginx_root/conf.d/default.conf" "$quarantine"
+    fi
+    nginx -t || return 1
+    printf '%s\n' "$PANEL_PUBLIC_PORT" > "$port_file"
+    chmod 0644 "$port_file"
     rm -rf "$STAGING_DIR"
     STAGING_DIR=""
 }
@@ -405,10 +502,7 @@ main() {
     server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')" || server_ip="127.0.0.1"
     server_ip="${server_ip:-127.0.0.1}"
     [[ "$server_ip" != *:* ]] || server_ip="[$server_ip]"
-    printf '\nQPANEL INSTALLED\nPanel: http://%s:%s\nInternal API: 127.0.0.1:7700\n' "$server_ip" "$PANEL_PUBLIC_PORT"
-    printf 'Services: panel-agent active, panel-api active, nginx active\nHealth: SQLite OK, IPC Agent OK, Internal API OK, Web Proxy OK\n'
-    [[ -z "$SETUP_TOKEN" ]] || printf 'Token pengaturan: %s\n' "$SETUP_TOKEN"
-    printf 'Snapshot sebelum perubahan: %s\n' "$BACKUP_DIR"
+    print_installation_summary "$server_ip"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

@@ -232,7 +232,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onOpenWizard }) => {
                 className="text-xs text-[var(--primary)] hover:underline flex items-center justify-center gap-1.5 mx-auto"
               >
                 <KeyRound className="w-3.5 h-3.5" />
-                <span>{t("auth.firstRunSetup")}</span>
+                <span>Bantuan akses admin</span>
               </button>
             </div>
           )}

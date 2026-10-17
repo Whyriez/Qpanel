@@ -37,12 +37,12 @@ server {
     server_name {{ primary_domain }}{% for alias in alias_domains %} {{ alias }}{% endfor %};
 
     root {{ docroot }};
-    index {{ index_files | default("index.php index.html index.htm") }};
+    index {{ index_files | default("index.php index.html index.htm", true) }};
 
     access_log {{ log_dir }}/access.log panel_json;
     error_log {{ log_dir }}/error.log warn;
 
-    client_max_body_size {{ upload_max_size | default("64M") }};
+    client_max_body_size {{ upload_max_size | default("64M", true) }};
 
     include {{ snippets_dir }}/acme.conf;
     include {{ snippets_dir }}/security-headers.conf;
@@ -125,7 +125,7 @@ server {
         {% elif preset == "wordpress" %}
         try_files $uri $uri/ /index.php?$args;
         {% elif preset == "custom" %}
-        try_files $uri $uri/ /{{ custom_entry_file | default("index.php") }}?$args;
+        try_files $uri $uri/ /{{ custom_entry_file | default("index.php", true) }}?$args;
         {% else %}
         try_files $uri $uri/ /index.php?$args;
         {% endif %}
@@ -160,8 +160,8 @@ server {
         fastcgi_param PATH_INFO $fastcgi_path_info;
 
         {% if fastcgi_cache and fastcgi_cache.enabled %}
-        fastcgi_cache {{ fastcgi_cache.zone_name | default("panel_php_cache") }};
-        fastcgi_cache_valid 200 301 302 {{ fastcgi_cache.valid_time | default("60m") }};
+        fastcgi_cache {{ fastcgi_cache.zone_name | default("panel_php_cache", true) }};
+        fastcgi_cache_valid 200 301 302 {{ fastcgi_cache.valid_time | default("60m", true) }};
         {% if fastcgi_cache.use_stale %}
         fastcgi_cache_use_stale error timeout updating invalid_header http_500 http_503;
         {% endif %}

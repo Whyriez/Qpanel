@@ -31,7 +31,7 @@ server {
     server_name {{ primary_domain }}{% for alias in alias_domains %} {{ alias }}{% endfor %};
 
     root {{ docroot }};
-    index {{ index_files | default("index.html index.htm") }};
+    index {{ index_files | default("index.html index.htm", true) }};
 
     access_log {{ log_dir }}/access.log panel_json;
     error_log {{ log_dir }}/error.log warn;

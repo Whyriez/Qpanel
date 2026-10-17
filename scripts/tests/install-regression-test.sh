@@ -139,7 +139,7 @@ for failing in validate_health install_nginx_proxy; do
         check_port_available() { :; }; install() { :; }
         begin_transaction() { TRANSACTION=true; }
         setup_identity() { :; }; install_binaries_and_units() { :; }
-        initialize_database() { :; }; install_nginx_proxy() { :; }
+        initialize_database() { ADMIN_USERNAME=fixture_admin; ADMIN_PASSWORD=fixture_secret_never_print; }; install_nginx_proxy() { :; }
         systemctl() { :; }; wait_agent_ready() { :; }; validate_health() { :; }; configure_firewall() { :; }
         wait_health() { :; }; validate_api_binding() { :; }; activate_nginx_proxy() { :; }
         rollback() { echo ROLLBACK_CALLED; }
@@ -150,7 +150,7 @@ for failing in validate_health install_nginx_proxy; do
         fi
         main --unattended
     ' test "$REPO" "$failing" 2>&1)" || status=$?
-    [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'QPANEL INSTALLED'* ]]
+    [[ "$status" != 0 && "$output" == *ROLLBACK_CALLED* && "$output" != *'Instalasi berhasil'* && "$output" != *fixture_secret_never_print* ]]
     pass "$failing failure invokes rollback and suppresses success"
 done
 
@@ -188,3 +188,5 @@ done
 printf '%s regression checks passed. VM acceptance was not run.\n' "$count"
 bash "$REPO/scripts/tests/install-startup-race-test.sh"
 bash "$REPO/scripts/tests/release-build-test.sh"
+bash "$REPO/scripts/tests/nginx-unknown-host-test.sh"
+bash "$REPO/scripts/tests/admin-bootstrap-installer-test.sh"

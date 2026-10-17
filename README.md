@@ -24,5 +24,19 @@ sudo bash install.sh --unattended
 sudo bash install.sh --unattended --port 19090
 ```
 
+Instalasi baru membuat username dan password administrator otomatis, ditampilkan
+sekali setelah pemeriksaan kesehatan berhasil. Upgrade mempertahankan akun lama.
+Ubah kredensial melalui **Profil & keamanan**, atau pulihkan melalui SSH:
+
+```bash
+sudo panelctl admin list
+sudo panelctl admin reset-password --username NAMA
+panelctl --help
+panelctl admin --help
+```
+
+Lihat [panduan akun administrator](ADMIN_ACCOUNTS.md) untuk instalasi, pemulihan,
+2FA, password custom melalui stdin, dan daftar bantuan CLI.
+
 Development dan integration test sistem mengikuti [AGENTS.md](AGENTS.md).
 Jangan menjalankan `panel-agent` di laptop/host pengembang.

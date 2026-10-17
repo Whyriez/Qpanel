@@ -343,7 +343,7 @@ async fn create_site_web_acl_failure_stops_before_apply_and_preserves_existing_d
         .body(Body::from(serde_json::to_string(&payload).unwrap()))
         .unwrap();
     let response = ctx.app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert!(String::from_utf8_lossy(&body).contains("ACL Nginx gagal"));
     assert!(String::from_utf8_lossy(&body).contains("ACL unsupported"));

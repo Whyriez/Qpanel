@@ -1867,6 +1867,7 @@ dependencies = [
  "chrono",
  "flate2",
  "libc",
+ "md-5",
  "mimalloc",
  "panel-core",
  "panel-db",

@@ -5,10 +5,11 @@ use panel_cli::{
     BenchmarkComparison, BenchmarkOptions, BenchmarkRunResult, BenchmarkTarget, BenchmarkTool,
     DoctorCliOptions, MeasuredSystemMetrics, MemoryProfileOptions, ReconcileCliOptions,
     SetupStatus, SystemBackupCommands, TuningProfile, UninstallCliOptions, UpgradeCliOptions,
-    create_admin, detect_available_tools, export_results_to_json, generate_markdown_report,
-    generate_setup_token, get_setup_status, handle_system_backup_command, list_admins, reset_2fa,
-    reset_password, run_builtin_benchmark, run_doctor, run_memory_profile, run_reconcile,
-    run_uninstall, run_upgrade, validate_non_functional_targets, verify_setup_token,
+    bootstrap_admin, create_admin, detect_available_tools, export_results_to_json,
+    generate_admin_password, generate_markdown_report, get_setup_status,
+    handle_system_backup_command, list_admins, reset_2fa, reset_password, run_builtin_benchmark,
+    run_doctor, run_memory_profile, run_reconcile, run_uninstall, run_upgrade,
+    validate_non_functional_targets,
 };
 use panel_db::pool::{init_pool, run_migrations};
 use serde::Deserialize;
@@ -23,7 +24,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(
     name = "panelctl",
-    about = "Qpanel Control Tool - Admin bootstrap and management",
+    about = "Qpanel - administrasi akun, diagnosis, backup, dan upgrade",
+    after_help = "Mulai: panelctl admin --help\nPemulihan: sudo panelctl admin list\n           sudo panelctl admin reset-password --username NAMA\nDiagnosis: sudo panelctl doctor\nBantuan perintah: panelctl <perintah> --help",
     version
 )]
 struct Cli {
@@ -40,22 +42,23 @@ enum Commands {
     /// Internal bounded IPC probe; does not open or migrate the database.
     #[command(hide = true)]
     IpcCheck,
-    /// Administrator account management
+    /// Kelola akun administrator dan pemulihan akses
     Admin {
         #[command(subcommand)]
         command: AdminCommands,
     },
-    /// First-run setup token management
+    /// Legacy setup tokens are retired; use admin bootstrap
+    #[command(hide = true)]
     SetupToken {
         #[command(subcommand)]
         command: Option<SetupTokenSubcommand>,
     },
-    /// Performance benchmark harness (P10-T1)
+    /// Ukur kinerja HTTP dan bandingkan hasil benchmark
     Benchmark {
         #[command(subcommand)]
         command: BenchmarkCommands,
     },
-    /// Memory profiling and PRD Section 9 RAM target validation (P10-T3)
+    /// Tinjau penggunaan memori dan target kinerja panel
     #[command(alias = "optimize-check")]
     MemoryProfile {
         /// Export report as JSON to stdout
@@ -74,7 +77,7 @@ enum Commands {
         #[arg(long)]
         api_latency_p95_ms: Option<f64>,
     },
-    /// System health check and diagnostic tool (P10-T5)
+    /// Periksa kesehatan layanan dan konfigurasi panel
     Doctor {
         /// Export report as JSON to stdout
         #[arg(long)]
@@ -84,7 +87,7 @@ enum Commands {
         #[arg(long)]
         fix: bool,
     },
-    /// Reconcile actual host state with database desired state (P10-T5)
+    /// Bandingkan dan selaraskan konfigurasi server dengan database
     Reconcile {
         /// Report state drifts without applying changes
         #[arg(long)]
@@ -94,12 +97,12 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// System panel database and configuration backup operations (P10-T5)
+    /// Buat, periksa, dan pulihkan backup sistem panel
     Backup {
         #[command(subcommand)]
         command: SystemBackupCommands,
     },
-    /// Automated panel upgrade with database migrations and rollback (P10-T6)
+    /// Upgrade panel dengan migrasi database dan rollback
     Upgrade {
         /// Directory containing newer binaries (e.g. ./bin or /tmp/nusa-update/bin)
         #[arg(long)]
@@ -125,7 +128,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Clean uninstallation of Qpanel services and optional data purge (P10-T6)
+    /// Copot layanan panel dengan opsi penghapusan data
     Uninstall {
         /// Purge all panel databases, configuration files, and backup snapshots
         #[arg(long)]
@@ -143,29 +146,46 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum AdminCommands {
-    /// Create a new administrator account
+    /// Buat kredensial acak hanya jika administrator belum ada
+    Bootstrap {
+        /// Output JSON; password baru ditampilkan sekali dan tidak disimpan plaintext
+        #[arg(long)]
+        json: bool,
+        /// Internal installer protocol: created USER PASSWORD or preserved
+        #[arg(long, hide = true, conflicts_with = "json")]
+        installer_output: bool,
+    },
+    /// Tambah administrator; password dibuat otomatis jika input tidak diberikan
     Create {
         /// Administrator username (3-32 characters: alphanumeric, dash, underscore)
         #[arg(short, long)]
         username: String,
 
-        /// Password (minimum 8 characters). Prompts interactively if omitted.
-        #[arg(short, long)]
+        /// Legacy argv password; prefer --password-stdin or automatic generation.
+        #[arg(short, long, hide = true, conflicts_with = "password_stdin")]
         password: Option<String>,
+
+        /// Baca password dari stdin non-interaktif (minimal 8 karakter)
+        #[arg(long)]
+        password_stdin: bool,
 
         /// Administrator email address
         #[arg(short, long)]
         email: Option<String>,
     },
-    /// Reset password for an administrator account
+    /// Reset password administrator; password baru dibuat otomatis secara default
     ResetPassword {
         /// Administrator username
         #[arg(short, long)]
         username: String,
 
-        /// New password (minimum 8 characters). Prompts interactively if omitted.
-        #[arg(short, long)]
+        /// Legacy argv password; prefer --password-stdin or automatic generation.
+        #[arg(short, long, hide = true, conflicts_with = "password_stdin")]
         password: Option<String>,
+
+        /// Baca password dari stdin non-interaktif (minimal 8 karakter)
+        #[arg(long)]
+        password_stdin: bool,
     },
     /// Reset two-factor authentication for an account (emergency rescue)
     Reset2fa {
@@ -173,7 +193,7 @@ enum AdminCommands {
         #[arg(short, long)]
         username: String,
     },
-    /// List all administrator accounts
+    /// Daftar username, email, dan status seluruh administrator
     List,
 }
 
@@ -251,16 +271,31 @@ enum BenchmarkCommands {
     Tools,
 }
 
-fn prompt_password(prompt: &str) -> Result<String, Box<dyn Error>> {
-    print!("{}", prompt);
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Err("Password cannot be empty".into());
+fn resolve_password(
+    password: Option<String>,
+    stdin: bool,
+) -> Result<(String, bool), Box<dyn Error>> {
+    if let Some(password) = password {
+        return Ok((password, false));
     }
-    Ok(trimmed.to_string())
+    if stdin {
+        use std::io::IsTerminal;
+        if io::stdin().is_terminal() {
+            return Err(
+                "--password-stdin membutuhkan pipe; tanpa opsi ini password dibuat otomatis."
+                    .into(),
+            );
+        }
+        let mut input = String::new();
+        use std::io::Read;
+        io::stdin().take(4097).read_to_string(&mut input)?;
+        let password = input.trim_end_matches(['\r', '\n']).to_string();
+        if password.len() > 4096 {
+            return Err("Password maksimal 4096 byte.".into());
+        }
+        return Ok((password, false));
+    }
+    Ok((generate_admin_password(), true))
 }
 
 fn normalize_db_url(path_or_url: &str) -> String {
@@ -418,40 +453,71 @@ async fn handle_admin_command(
     pool: &panel_db::pool::DbPool,
 ) -> Result<(), Box<dyn Error>> {
     match command {
+        AdminCommands::Bootstrap {
+            json,
+            installer_output,
+        } => {
+            let credentials = bootstrap_admin(pool).await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({"created": credentials.is_some(), "credentials": credentials})
+                );
+            } else if installer_output {
+                match credentials {
+                    Some(c) => println!("created {} {}", c.username, c.password),
+                    None => println!("preserved"),
+                }
+            } else if let Some(c) = credentials {
+                println!(
+                    "\nAdministrator Qpanel berhasil dibuat\n  Username : {}\n  Password : {}\n\nSimpan kredensial ini; password hanya ditampilkan sekali.\nUbah melalui Profil & keamanan setelah masuk.\nBantuan: panelctl admin --help",
+                    c.username, c.password
+                );
+            } else {
+                println!(
+                    "Administrator sudah ada; kredensial tetap dipertahankan.\nLihat akun: sudo panelctl admin list\nReset: sudo panelctl admin reset-password --username NAMA"
+                );
+            }
+        }
         AdminCommands::Create {
             username,
             password,
+            password_stdin,
             email,
         } => {
-            let pass = match password {
-                Some(p) => p,
-                None => prompt_password(&format!("Enter password for admin '{}': ", username))?,
-            };
+            let (pass, generated) = resolve_password(password, password_stdin)?;
             let id = create_admin(pool, &username, &pass, email).await?;
-            println!(
-                "Admin user '{}' (ID: {}) created successfully.",
-                username, id
-            );
+            println!("Administrator '{}' berhasil dibuat (ID: {}).", username, id);
+            if generated {
+                println!("Password: {pass}\nSimpan sekarang; password hanya ditampilkan sekali.");
+            }
         }
-        AdminCommands::ResetPassword { username, password } => {
-            let pass = match password {
-                Some(p) => p,
-                None => prompt_password(&format!("Enter new password for user '{}': ", username))?,
-            };
+        AdminCommands::ResetPassword {
+            username,
+            password,
+            password_stdin,
+        } => {
+            let (pass, generated) = resolve_password(password, password_stdin)?;
             reset_password(pool, &username, &pass).await?;
-            println!("Password for user '{}' updated successfully.", username);
+            println!(
+                "Password administrator '{}' berhasil direset. Seluruh sesi dan API token akun dicabut.",
+                username
+            );
+            if generated {
+                println!("Password: {pass}\nSimpan sekarang; password hanya ditampilkan sekali.");
+            }
         }
         AdminCommands::Reset2fa { username } => {
             reset_2fa(pool, &username).await?;
             println!(
-                "Two-factor authentication for user '{}' has been reset successfully.",
+                "2FA akun '{}' berhasil direset. Sesi dan API token akun telah dicabut.",
                 username
             );
         }
         AdminCommands::List => {
             let admins = list_admins(pool).await?;
             if admins.is_empty() {
-                println!("No administrator accounts found.");
+                println!("Belum ada akun administrator. Jalankan sudo panelctl admin bootstrap.");
             } else {
                 println!(
                     "{:<6} {:<20} {:<30} {:<10}",
@@ -477,67 +543,19 @@ async fn handle_setup_token_command(
     command: Option<SetupTokenSubcommand>,
     pool: &panel_db::pool::DbPool,
 ) -> Result<(), Box<dyn Error>> {
-    match command {
-        None | Some(SetupTokenSubcommand::Generate) => {
-            let status = get_setup_status(pool).await?;
-            match status {
-                SetupStatus::Completed => {
-                    println!(
-                        "Setup token cannot be generated: an administrator account already exists."
-                    );
-                    return Err("Administrator account already exists".into());
-                }
-                SetupStatus::Pending { token, .. } => {
-                    println!("==================================================");
-                    println!("Active First-Run Setup Token:");
-                    println!("  {}", token);
-                    println!("==================================================");
-                    println!("Use this token in the web setup wizard or run:");
-                    println!("  panelctl admin create --username <USER> --password <PASS>");
-                }
-                SetupStatus::Uninitialized => {
-                    let token = generate_setup_token(pool).await?;
-                    println!("==================================================");
-                    println!("Qpanel First-Run Setup Token Generated:");
-                    println!("  {}", token);
-                    println!("==================================================");
-                    println!("Use this token in the web setup wizard or run:");
-                    println!("  panelctl admin create --username <USER> --password <PASS>");
-                }
-            }
-        }
-        Some(SetupTokenSubcommand::Status) => {
-            let status = get_setup_status(pool).await?;
-            match status {
-                SetupStatus::Completed => {
-                    println!("Status: Complete. Administrator account is configured.");
-                }
-                SetupStatus::Pending { token, created_at } => {
-                    println!("Status: Pending initial setup.");
-                    println!("Active Token: {}", token);
-                    if let Some(ts) = created_at {
-                        println!("Generated At (UNIX): {}", ts);
-                    }
-                }
-                SetupStatus::Uninitialized => {
-                    println!(
-                        "Status: Uninitialized. No admin account and no setup token generated."
-                    );
-                    println!("Run `panelctl setup-token` to generate a setup token.");
-                }
-            }
-        }
-        Some(SetupTokenSubcommand::Verify { token }) => {
-            let is_valid = verify_setup_token(pool, &token).await?;
-            if is_valid {
-                println!("Token is valid for first-run setup.");
+    if matches!(command, Some(SetupTokenSubcommand::Status)) {
+        let initialized = matches!(get_setup_status(pool).await?, SetupStatus::Completed);
+        println!(
+            "Administrator: {}",
+            if initialized {
+                "sudah tersedia"
             } else {
-                println!("Token is invalid or setup has already been completed.");
-                std::process::exit(1);
+                "belum tersedia; jalankan sudo panelctl admin bootstrap"
             }
-        }
+        );
+        return Ok(());
     }
-    Ok(())
+    Err("Setup token sudah dihentikan. Gunakan sudo panelctl admin bootstrap atau panelctl admin --help.".into())
 }
 
 async fn handle_benchmark_command(command: BenchmarkCommands) -> Result<(), Box<dyn Error>> {

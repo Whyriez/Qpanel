@@ -28,6 +28,8 @@ export const SecurityProfilePage: React.FC = () => {
   const { user, refreshUser } = useAuth();
 
   // Change Password State
+  const [loginUsername, setLoginUsername] = useState(user?.username || '');
+  useEffect(() => { setLoginUsername(user?.username || ''); }, [user?.username]);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -72,6 +74,7 @@ export const SecurityProfilePage: React.FC = () => {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (passwordLoading) return;
     setPasswordMessage(null);
 
     if (newPassword !== confirmPassword) {
@@ -81,7 +84,7 @@ export const SecurityProfilePage: React.FC = () => {
       });
       return;
     }
-    if (newPassword.length < 8) {
+    if (newPassword && newPassword.length < 8) {
       setPasswordMessage({
         text: 'Kata sandi baru minimal 8 karakter.',
         isError: true,
@@ -91,9 +94,10 @@ export const SecurityProfilePage: React.FC = () => {
 
     setPasswordLoading(true);
     try {
-      const res = await changePassword(currentPassword, newPassword);
+      await changePassword(currentPassword, newPassword || undefined, user?.role === 'admin' ? loginUsername.trim() : undefined);
+      await refreshUser();
       setPasswordMessage({
-        text: res.message || t('profile.passwordUpdated'),
+        text: 'Kredensial diperbarui. Sesi lain dan API token akun telah dicabut.',
         isError: false,
       });
       setCurrentPassword('');
@@ -245,12 +249,13 @@ export const SecurityProfilePage: React.FC = () => {
           <div className="flex items-center gap-2 border-b border-[var(--line)] pb-3">
             <Lock className="w-4 h-4 text-[var(--primary)]" />
             <h2 className="font-semibold text-xs text-[var(--ink)]">
-              {t('profile.changePassword')}
+              {user?.role === 'admin' ? 'Username dan kata sandi' : t('profile.changePassword')}
             </h2>
           </div>
 
           {passwordMessage && (
             <div
+              role={passwordMessage.isError ? 'alert' : 'status'}
               className={`p-2.5 rounded-[var(--radius-sm)] text-xs flex items-center gap-2 ${
                 passwordMessage.isError
                   ? 'bg-[var(--danger)]/10 text-[var(--danger)] border border-[var(--danger)]/20'
@@ -262,13 +267,26 @@ export const SecurityProfilePage: React.FC = () => {
             </div>
           )}
 
+          <p className="text-xs text-[var(--ink-muted)]">Konfirmasi dengan kata sandi saat ini. Perubahan mencabut sesi lain dan API token akun.</p>
           <form onSubmit={handleChangePassword} className="space-y-3">
+            {user?.role === 'admin' && <div className="space-y-1">
+              <label htmlFor="account-username" className="block text-[11px] font-medium text-[var(--ink)]">Username login</label>
+              <input id="account-username" autoComplete="username" required minLength={3} maxLength={32} pattern="([A-Za-z0-9_]|-)+"
+                value={loginUsername} onChange={e => setLoginUsername(e.target.value)} disabled={passwordLoading}
+                aria-describedby="account-username-hint"
+                className="w-full bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] px-3 py-1.5 text-xs text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]" />
+              <p id="account-username-hint" className="text-xs text-[var(--ink-muted)]">3-32 karakter: huruf, angka, garis bawah, atau tanda hubung.</p>
+            </div>}
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-[var(--ink)]">
+              <label htmlFor="account-current-password" className="block text-[11px] font-medium text-[var(--ink)]">
                 {t('profile.currentPassword')}
               </label>
               <input
+                id="account-current-password"
                 type="password"
+                autoComplete="current-password"
+                maxLength={4096}
+                disabled={passwordLoading}
                 required
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
@@ -277,26 +295,32 @@ export const SecurityProfilePage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-[var(--ink)]">
+              <label htmlFor="account-new-password" className="block text-[11px] font-medium text-[var(--ink)]">
                 {t('profile.newPassword')}
               </label>
               <input
+                id="account-new-password"
                 type="password"
-                required
+                autoComplete="new-password"
+                maxLength={4096}
+                disabled={passwordLoading}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 8 karakter"
+                placeholder="Min. 8 karakter; kosongkan jika hanya ubah username"
                 className="w-full bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] px-3 py-1.5 text-xs text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-[var(--ink)]">
+              <label htmlFor="account-confirm-password" className="block text-[11px] font-medium text-[var(--ink)]">
                 {t('profile.confirmPassword')}
               </label>
               <input
+                id="account-confirm-password"
                 type="password"
-                required
+                autoComplete="new-password"
+                maxLength={4096}
+                disabled={passwordLoading}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] px-3 py-1.5 text-xs text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"

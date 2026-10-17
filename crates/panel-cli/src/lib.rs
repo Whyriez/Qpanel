@@ -4,7 +4,8 @@ pub mod commands;
 pub mod error;
 
 pub use commands::admin::{
-    create_admin, list_admins, reset_2fa, reset_password, validate_admin_username,
+    BootstrapCredentials, bootstrap_admin, create_admin, generate_admin_password, list_admins,
+    reset_2fa, reset_password, validate_admin_username,
 };
 pub use commands::benchmark::{
     BenchmarkComparison, BenchmarkOptions, BenchmarkRunResult, BenchmarkTarget, BenchmarkTool,

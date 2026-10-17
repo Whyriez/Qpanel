@@ -1,8 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use panel_cli::{
-    SetupStatus, create_admin, generate_setup_token, get_setup_status, list_admins, reset_password,
-};
+use panel_cli::{SetupStatus, create_admin, get_setup_status, list_admins, reset_password};
 use panel_core::auth::verify_password;
 use panel_db::pool::{init_pool, run_migrations};
 use panel_db::repositories::SqliteUserRepository;
@@ -146,15 +144,9 @@ async fn test_creating_admin_clears_setup_token() {
         .expect("init pool");
     run_migrations(&pool).await.expect("run migrations");
 
-    // Generate token first
-    let token = generate_setup_token(&pool)
-        .await
-        .expect("generate setup token");
-    assert!(!token.is_empty());
-
-    let status = get_setup_status(&pool).await.expect("status");
-    assert!(matches!(status, SetupStatus::Pending { .. }));
-
+    // Simulate an unfinished legacy installation before the tokenless upgrade.
+    sqlx::query("INSERT INTO settings (key,value,updated_at) VALUES ('setup.first_run_token','legacy-token',0)")
+        .execute(&pool).await.unwrap();
     // Create admin
     create_admin(&pool, "admin_final", "Password123!", None)
         .await
