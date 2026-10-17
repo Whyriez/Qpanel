@@ -13,6 +13,12 @@ members = [
     "crates/panel-cli",
     "tests/isolation",
 ]
+exclude = ["vendor/utoipa-swagger-ui"]
+
+# Temporary security backport until upstream Swagger UI supports zip >= 9.
+# See vendor/utoipa-swagger-ui/QPANEL-PATCH.md.
+[patch.crates-io]
+utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui" }
 
 [workspace.package]
 version = "0.1.1"
@@ -85,7 +91,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 rustls-native-certs = "0.8"
 instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "ring", "rcgen"] }
 time = "0.3"
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
 libc = "0.2"

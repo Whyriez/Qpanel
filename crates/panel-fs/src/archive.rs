@@ -452,7 +452,10 @@ fn extract_zip_safe(
             .by_index(i)
             .map_err(|e| FsError::Archive(format!("Failed to read zip entry index {i}: {e}")))?;
 
-        let entry_name = entry.name().to_string();
+        let entry_name = entry
+            .name()
+            .map_err(|e| FsError::Archive(format!("Invalid zip entry name: {e}")))?
+            .into_owned();
 
         // 1. Anti Zip-Slip validation
         let safe_rel_path = sanitize_archive_entry_path(&entry_name, destination_dir)?;
