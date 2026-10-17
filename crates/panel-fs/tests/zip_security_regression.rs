@@ -128,10 +128,7 @@ fn swagger_extracts_distribution_assets_without_repository_files() {
     assert!(!destination.path().join("swagger/README.md").exists());
 }
 
-#[cfg(unix)]
-#[test]
-fn extractors_never_restore_privileged_unix_bits() {
-    use std::os::unix::fs::PermissionsExt;
+fn privileged_permissions_zip() -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer
         .add_directory("swagger/dist/", SimpleFileOptions::default())
@@ -154,16 +151,35 @@ fn extractors_never_restore_privileged_unix_bits() {
                 .copy_from_slice(&(attrs | (0o7000 << 16)).to_le_bytes());
         }
     }
+    bytes
+}
+
+#[test]
+fn zip_reader_masks_privileged_bits_from_hostile_raw_metadata() {
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(privileged_permissions_zip())).expect("read metadata");
+    assert_eq!(archive.len(), 2, "fixture contains a directory and a file");
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index).expect("entry");
+        // external_attributes() is raw ZIP metadata; unix_mode() is sanitized by ZIP 9.
+        let raw_mode = entry.external_attributes() >> 16;
+        assert_eq!(raw_mode & 0o7000, 0o7000, "fixture has hostile raw bits");
+        let sanitized_mode = entry.unix_mode().expect("sanitized mode");
+        assert_eq!(sanitized_mode & 0o7000, 0, "reader removes privileged bits");
+        assert_eq!(
+            sanitized_mode,
+            raw_mode & !0o7000,
+            "ordinary mode bits remain"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn extractors_never_restore_privileged_unix_bits() {
+    use std::os::unix::fs::PermissionsExt;
+    let bytes = privileged_permissions_zip();
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes.clone())).expect("read metadata");
-    assert_eq!(
-        archive
-            .by_index(1)
-            .expect("entry")
-            .unix_mode()
-            .expect("mode")
-            & 0o7000,
-        0o7000
-    );
     let jail = tempdir().expect("jail");
     std::fs::write(jail.path().join("attack.zip"), &bytes).expect("zip fixture");
     let fs = ConfinedFs::new(jail.path(), SymlinkPolicy::DenyAll).expect("confined fs");

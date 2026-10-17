@@ -20,8 +20,8 @@ Local changes:
 - Move the distribution extractor from `build.rs` to `extract.rs` so the actual
   build implementation can be exercised by the panel-fs regression suite.
 - Keep enclosed-path validation, reject symlink assets, and mask extracted Unix
-  permissions with `0o777`, dropping SUID, SGID and sticky bits. Upgrading ZIP
-  alone would not fix the build script's own permission restoration.
+  permissions with `0o777`, dropping SUID, SGID and sticky bits. This explicit
+  mask is defense in depth: ZIP 9 also sanitizes these bits in `unix_mode()`.
 - Omit registry cache markers, the package lockfile and the unused original
   pre-normalization manifest. Preserve both licenses and upstream documentation.
 
@@ -35,7 +35,10 @@ cargo deny --all-features check --show-stats
 
 The regression tests import `extract.rs` directly; they cover normal assets,
 traversal, absolute/relative symlink targets, and (on Unix) hostile raw permission
-metadata. The API smoke test makes in-process requests for embedded assets and
+metadata. A cross-platform reader test checks that raw `external_attributes()`
+contain the hostile bits while `unix_mode()` removes them, so fixture validation
+does not confuse raw metadata with the sanitized mode. The API smoke test makes
+in-process requests for embedded assets and
 the panel OpenAPI schema; it does not start a daemon.
 
 Remove this patch when a published upstream version supports ZIP >=9.0.0 and is
