@@ -1385,7 +1385,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "isolation-tests"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "panel-agent",
  "panel-core",
@@ -1860,7 +1860,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "panel-agent"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -1891,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "panel-analytics"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "libc",
@@ -1912,7 +1912,7 @@ dependencies = [
 
 [[package]]
 name = "panel-api"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1957,7 +1957,7 @@ dependencies = [
 
 [[package]]
 name = "panel-cli"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "flate2",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "panel-core"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -2000,7 +2000,7 @@ dependencies = [
 
 [[package]]
 name = "panel-db"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "panel-core",
@@ -2016,7 +2016,7 @@ dependencies = [
 
 [[package]]
 name = "panel-fs"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -2037,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "panel-proto"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2053,7 +2053,7 @@ dependencies = [
 
 [[package]]
 name = "panel-runtime"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "flate2",
  "panel-core",
@@ -2068,7 +2068,7 @@ dependencies = [
 
 [[package]]
 name = "panel-webserver"
-version = "0.1.1"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "minijinja",

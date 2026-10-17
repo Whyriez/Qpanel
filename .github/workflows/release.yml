@@ -7,12 +7,20 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag rilis (contoh: v1.0.0)'
+        description: 'Tag rilis sesuai Cargo.toml (development: v0.1.0)'
         required: true
-        default: 'v0.1.1'
+        default: 'v0.1.0'
+      publish:
+        description: 'Publikasikan atau perbarui aset release pada tag ini'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build-release:
@@ -105,8 +113,12 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.publish)
         with:
           files: |
             dist/*
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          overwrite_files: true
+          fail_on_unmatched_files: true
           generate_release_notes: true

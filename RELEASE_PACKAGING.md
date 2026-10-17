@@ -26,31 +26,45 @@ Build lokal (`scripts/build-release.sh`) dan workflow Release sekarang memanggil
 Installer menyebut file template yang hilang dan berhenti sebelum menjalankan
 biner, memasang paket, atau mengubah konfigurasi. Guard Nginx tetap wajib.
 
-## Menerbitkan perbaikan
+## Membangun ulang release development v0.1.0
 
-Push ke `main` atau mengunduh ulang bootstrap tidak memperbaiki tarball yang
-sudah dipublikasikan. Pengelola perlu membuat release baru dari commit perbaikan.
+Versi development tetap **0.1.0** sampai pemilik proyek memutuskan menaikkannya
+setelah fitur aman atau pada pengembangan fitur berikutnya. Workspace Cargo,
+dependency internal, lockfile, frontend, tag dan nama paket memakai versi yang
+sama. Validasi tag/Cargo tetap aktif; perbaikan bug tidak memerlukan bump versi.
 
-1. Commit dan push perubahan. Pastikan CI lulus.
-2. Pilih versi baru yang belum pernah dipublikasikan. Selaraskan versi workspace,
-   versi dependency internal di `Cargo.toml`, dan `Cargo.lock` bila perlu.
-   Nama tag harus `v` diikuti versi tersebut. Jangan menamai biner `0.1.1`
-   sebagai paket `v0.1.0`, atau memindahkan tag lama ke commit lain.
-3. Untuk memeriksa artifact terlebih dahulu, jalankan **Actions → Release → Run
-   workflow** pada branch perbaikan dengan tag yang sama dengan versi Cargo.
-   Mode ini hanya menghasilkan artifact; belum membuat GitHub Release.
-4. Setelah artifact diperiksa, buat dan push tag baru pada commit perbaikan.
-   Contoh Bash berikut mengambil versi dari Cargo, bukan memakai tag lama:
+Push ke `main` atau mengunduh ulang bootstrap belum memperbarui tarball yang
+sudah terbit. Untuk mengganti aset development `v0.1.0` dengan build terbaru:
+
+1. Commit dan push perubahan ke `main`. Pastikan CI lulus.
+2. Buka **Actions → Release → Run workflow**, pilih branch **main**, dan isi
+   tag **v0.1.0**. Pilih branch yang sudah memuat perbaikan; `Re-run jobs` dari
+   run/tag lama tetap menggunakan commit lama.
+3. Aktifkan **Publikasikan atau perbarui aset release pada tag ini** (`publish`).
+   Opsi ini default mati; jika tidak diaktifkan, run hanya menghasilkan artifact
+   untuk diperiksa dan tidak mengganti unduhan publik.
+4. Tunggu kedua build arsitektur dan job publikasi berhasil. Workflow memakai
+   `tag_name: v0.1.0` dan mengganti tarball serta `SHA256SUMS` di release tersebut.
+   Tidak perlu menghapus atau memindahkan tag development yang sudah ada.
+5. Setelah publikasi selesai, ulang bootstrap. Untuk memilih versi secara
+   eksplisit pada server Linux:
 
    ```bash
-   version=$(awk '/^\[workspace.package\]/{p=1;next} /^\[/{p=0} p && /^version *=/{split($0,a,"\"");print a[2];exit}' Cargo.toml)
-   git tag -a "v${version}" -m "Qpanel v${version}"
-   git push origin "v${version}"
+   sudo env NUSA_PANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh
+   # Instalasi existing:
+   sudo env NUSA_PANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh --upgrade
    ```
 
-5. Tunggu workflow Release dari tag tersebut berhasil dan kedua tarball beserta
-   `SHA256SUMS` tersedia. Bootstrap baru boleh dicoba lagi setelah release baru
-   tersedia. Untuk memastikan versi, gunakan `NUSA_PANEL_VERSION=v<versi-baru>`.
+Hanya jalankan salah satu command sesuai kondisi server. Rebuild development
+dapat menghasilkan checksum berbeda meski versinya tetap 0.1.0; unduh tarball
+dan checksum dari publikasi yang sama, lalu verifikasi kembali. Source archive
+otomatis GitHub tetap mengikuti commit tag; untuk menginstal build branch terbaru,
+gunakan tarball biner dari workflow dan lihat commit pada run tersebut.
+
+Penggantian aset existing mengikuti input `tag_name` dan `overwrite_files` pada
+[action release](https://github.com/softprops/action-gh-release/tree/v2#inputs).
+Kenaikan versi berikutnya dilakukan saat diminta, dengan menyelaraskan Cargo,
+dependency internal, lockfile, frontend dan tag, lalu menerbitkan tag versi baru.
 
 ## Memeriksa artifact sebelum instalasi
 

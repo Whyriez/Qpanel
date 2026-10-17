@@ -16,7 +16,7 @@ mkdir -p "$MOCK_REPO/web/dist/assets"
 printf 'fixture index\n' > "$MOCK_REPO/web/dist/index.html"
 printf 'fixture JavaScript\n' > "$MOCK_REPO/web/dist/assets/index-fixture.js"
 printf '{"scripts":{"build":"fixture-only"}}\n' > "$MOCK_REPO/web/package.json"
-printf '[workspace.package]\nversion = "0.1.1"\n' > "$MOCK_REPO/Cargo.toml"
+printf '[workspace.package]\nversion = "0.1.0"\n' > "$MOCK_REPO/Cargo.toml"
 printf 'incompatible GLIBC_2.39 cached host build script\n' > "$MOCK_REPO/target/release/build/legacy-build-script"
 
 rustc() { [[ "$*" == -vV ]] || return 99; printf 'host: %s\n' "$FAKE_HOST"; }
@@ -51,6 +51,9 @@ count=0
 pass() { count=$((count + 1)); printf 'PASS %s\n' "$1"; }
 
 for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+    bash "$REPO/scripts/package-release.sh" "$target" v0.1.0 --check-version >/dev/null
+    pass "real workspace accepts development tag v0.1.0 for $target"
+
     FAKE_HOST="$target"
     : > "$TRACE"
     # An incompatible old target tree must not be used for compilation or packaging.
@@ -65,7 +68,7 @@ for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
 
     : > "$TRACE"
     output="$(unset CARGO_TARGET_DIR; bash "$MOCK_REPO/scripts/build-release.sh" "$target" 2>&1)"
-    archive="$MOCK_REPO/release/nusa-panel-v0.1.1-$target.tar.gz"
+    archive="$MOCK_REPO/release/nusa-panel-v0.1.0-$target.tar.gz"
     # Checksums contain archive basenames and must be verified from the release directory.
     (cd "$MOCK_REPO/release" && sha256sum -c "$(basename "$archive").sha256" --status)
     [[ "$(grep -c '^readelf:' "$TRACE")" == 3 ]]
@@ -73,13 +76,13 @@ for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
     mkdir -p "$extract"
     tar -xzf "$archive" -C "$extract"
     for binary in panel-agent panel-api panelctl; do
-        [[ "$(cat "$extract/nusa-panel-v0.1.1-$target/bin/$binary")" == "fresh native $target $binary" ]]
+        [[ "$(cat "$extract/nusa-panel-v0.1.0-$target/bin/$binary")" == "fresh native $target $binary" ]]
     done
-    [[ -f "$extract/nusa-panel-v0.1.1-$target/templates/nginx/nusa-panel.conf" ]]
-    cmp -s "$REPO/templates/nginx/nusa-reject-unknown.conf" "$extract/nusa-panel-v0.1.1-$target/templates/nginx/nusa-reject-unknown.conf"
-    cmp -s "$REPO/ADMIN_ACCOUNTS.md" "$extract/nusa-panel-v0.1.1-$target/docs/admin-accounts.md"
-    [[ -f "$extract/nusa-panel-v0.1.1-$target/templates/systemd/panel-api.service" ]]
-    cmp -s "$REPO/templates/systemd/panel-proc-hardening.service" "$extract/nusa-panel-v0.1.1-$target/templates/systemd/panel-proc-hardening.service"
+    [[ -f "$extract/nusa-panel-v0.1.0-$target/templates/nginx/nusa-panel.conf" ]]
+    cmp -s "$REPO/templates/nginx/nusa-reject-unknown.conf" "$extract/nusa-panel-v0.1.0-$target/templates/nginx/nusa-reject-unknown.conf"
+    cmp -s "$REPO/ADMIN_ACCOUNTS.md" "$extract/nusa-panel-v0.1.0-$target/docs/admin-accounts.md"
+    [[ -f "$extract/nusa-panel-v0.1.0-$target/templates/systemd/panel-api.service" ]]
+    cmp -s "$REPO/templates/systemd/panel-proc-hardening.service" "$extract/nusa-panel-v0.1.0-$target/templates/systemd/panel-proc-hardening.service"
     [[ "$output" == *'[SUKSES]'* ]]
     pass "native $target GLIBC gate and tarball read freshly compiled artifacts"
 done
@@ -99,13 +102,13 @@ ci_package_step="${ci_package_step//'${{ inputs.tag }}'/'$RELEASE_VERSION'}"
 ci_package_step="${ci_package_step//'${{ matrix.target }}'/'$RELEASE_TARGET'}"
 for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
     output="$(cd "$MOCK_REPO"; export CARGO_TARGET_DIR="target/release-native/$target"
-        export RELEASE_TARGET="$target" RELEASE_VERSION=v0.1.1
+        export RELEASE_TARGET="$target" RELEASE_VERSION=v0.1.0
         bash -euo pipefail -c "$ci_package_step" 2>&1)"
-    archive="$MOCK_REPO/release/nusa-panel-v0.1.1-$target.tar.gz"
+    archive="$MOCK_REPO/release/nusa-panel-v0.1.0-$target.tar.gz"
     (cd "$MOCK_REPO/release" && sha256sum -c "$(basename "$archive").sha256" --status)
     listing="$(tar -tzf "$archive")"
     for required in templates/nginx/nusa-reject-unknown.conf docs/admin-accounts.md web/dist/index.html; do
-        if ! grep -Fxq "nusa-panel-v0.1.1-$target/$required" <<< "$listing"; then
+        if ! grep -Fxq "nusa-panel-v0.1.0-$target/$required" <<< "$listing"; then
             printf 'CI package missing required file: %s\n' "$required" >&2
             exit 1
         fi
@@ -149,7 +152,7 @@ for failure in compiler glibc-gate; do
     FAKE_CARGO_FAIL=0
     FAKE_SYMBOLS=GLIBC_2.35
     if [[ "$failure" == compiler ]]; then FAKE_CARGO_FAIL=1; else FAKE_SYMBOLS=GLIBC_2.39; fi
-    archive="$MOCK_REPO/release/nusa-panel-v0.1.1-$FAKE_HOST.tar.gz"
+    archive="$MOCK_REPO/release/nusa-panel-v0.1.0-$FAKE_HOST.tar.gz"
     rm -f "$archive" "$archive.sha256"
     : > "$TRACE"
     status=0
@@ -167,9 +170,9 @@ done
 # Reject incomplete CI payloads before creating or advertising an archive.
 FAKE_CARGO_FAIL=0
 FAKE_SYMBOLS=GLIBC_2.35
-export RELEASE_TARGET="$FAKE_HOST" RELEASE_VERSION=v0.1.1
+export RELEASE_TARGET="$FAKE_HOST" RELEASE_VERSION=v0.1.0
 export CARGO_TARGET_DIR="$MOCK_REPO/target/release-native/$FAKE_HOST"
-archive="$MOCK_REPO/release/nusa-panel-v0.1.1-$FAKE_HOST.tar.gz"
+archive="$MOCK_REPO/release/nusa-panel-v0.1.0-$FAKE_HOST.tar.gz"
 for missing in \
     "${CARGO_TARGET_DIR#"$MOCK_REPO/"}/$FAKE_HOST/release/panel-agent" \
     templates/systemd/panel-proc-hardening.service \
@@ -194,7 +197,7 @@ cp "$fixture/guard" "$MOCK_REPO/templates/nginx/nusa-reject-unknown.conf"
 [[ "$status" != 0 && ! -f "$archive" && "$output" == *'missing or empty'* ]]
 pass 'CI packaging rejects empty mandatory files'
 
-for invalid_tag in v0.1.0 v1.0.0 '../v0.1.1' 'v0.1.1;touch unexpected'; do
+for invalid_tag in v0.1.1 v1.0.0 '../v0.1.0' 'v0.1.0;touch unexpected'; do
     status=0
     output="$(cd "$MOCK_REPO"; export RELEASE_VERSION="$invalid_tag"
         bash -euo pipefail -c "$ci_package_step" 2>&1)" || status=$?
@@ -203,12 +206,12 @@ for invalid_tag in v0.1.0 v1.0.0 '../v0.1.1' 'v0.1.1;touch unexpected'; do
 done
 : > "$TRACE"
 status=0
-output="$(RELEASE_VERSION=v0.1.0 bash "$MOCK_REPO/scripts/build-release.sh" "$FAKE_HOST" 2>&1)" || status=$?
+output="$(RELEASE_VERSION=v0.1.1 bash "$MOCK_REPO/scripts/build-release.sh" "$FAKE_HOST" 2>&1)" || status=$?
 [[ "$status" != 0 && ! -s "$TRACE" ]]
 pass 'local release rejects version mismatch before building'
 
 status=0
-output="$(bash "$MOCK_REPO/scripts/package-release.sh" wasm32-unknown-unknown v0.1.1 2>&1)" || status=$?
+output="$(bash "$MOCK_REPO/scripts/package-release.sh" wasm32-unknown-unknown v0.1.0 2>&1)" || status=$?
 [[ "$status" != 0 && "$output" == *'Unsupported release target'* ]]
 pass 'packager rejects unsupported architecture'
 
@@ -269,5 +272,12 @@ grep -Fq 'scripts/package-release.sh "$RELEASE_TARGET" "$RELEASE_VERSION"' "$wor
 ! grep -q 'cp templates/' "$workflow"
 ! grep -Fq 'cp target/${{ matrix.target }}' "$workflow"
 pass 'release workflow uses native runners, source-only cache and isolated artifact paths'
+grep -Fq "default: 'v0.1.0'" "$workflow"
+grep -Fq 'default: false' "$workflow"
+grep -Fq "github.event_name == 'workflow_dispatch' && inputs.publish" "$workflow"
+grep -Fq "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')" "$workflow"
+grep -Fq 'tag_name: ${{ inputs.tag || github.ref_name }}' "$workflow"
+grep -Fq 'overwrite_files: true' "$workflow"
+pass 'manual development republish is opt-in and uses the requested release tag'
 
 printf '%s release build checks passed (mock compiler/readelf, no real release build).\n' "$count"
