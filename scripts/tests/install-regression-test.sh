@@ -165,7 +165,8 @@ printf 'old panel\n' > "$original"
 printf 'tenant unchanged\n' > "$tenant"
 BACKUP_DIR="$fixture/backup"
 mkdir -p "$BACKUP_DIR/files"
-cp -a --parents "$original" "$BACKUP_DIR/files/"
+mkdir -p "$BACKUP_DIR/files${original%/*}"
+cp -a -- "$original" "$BACKUP_DIR/files$original"
 printf 'broken candidate\n' > "$original"
 printf 'new file\n' > "$new"
 MANAGED_FILES=("$original" "$new")
@@ -188,6 +189,7 @@ for version in GLIBC_2.35 GLIBC_2.39 none; do
 done
 printf '%s regression checks passed. VM acceptance was not run.\n' "$count"
 bash "$REPO/scripts/tests/install-startup-race-test.sh"
+bash "$REPO/scripts/tests/install-snapshot-test.sh"
 bash "$REPO/scripts/tests/release-build-test.sh"
 bash "$REPO/scripts/tests/nginx-unknown-host-test.sh"
 bash "$REPO/scripts/tests/admin-bootstrap-installer-test.sh"

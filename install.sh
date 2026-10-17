@@ -144,10 +144,18 @@ begin_transaction() {
     BACKUP_DIR="$(mktemp -d /var/backups/panel/install-XXXXXXXX)"
     chmod 0700 "$BACKUP_DIR"
     mkdir -p "$BACKUP_DIR/files"
-    local path
+    local path destination
     for path in "${MANAGED_FILES[@]}"; do
         if [[ -e "$path" || -L "$path" ]]; then
-            cp -a --parents "$path" "$BACKUP_DIR/files/"
+            # Coreutils 9.1 (Debian 12) mishandles -a --parents with absolute paths.
+            # Build the destination explicitly; preserve file metadata and symlinks.
+            destination="$BACKUP_DIR/files$path"
+            mkdir -p -- "${destination%/*}" || {
+                fail "Gagal membuat direktori snapshot untuk: $path"; return 1;
+            }
+            cp -a -- "$path" "$destination" || {
+                fail "Gagal membuat snapshot file: $path"; return 1;
+            }
         fi
     done
     # Snapshot existing panel config for review/recovery; tenant vhosts are never replaced.

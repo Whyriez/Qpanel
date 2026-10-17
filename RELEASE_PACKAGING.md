@@ -82,6 +82,32 @@ Daftar arsip harus memuat `templates/nginx/nusa-reject-unknown.conf`,
 `aarch64-unknown-linux-gnu` untuk ARM64. Jangan melonggarkan preflight installer
 untuk meloloskan paket lama yang kehilangan guard.
 
+## Snapshot gagal pada Debian 12
+
+Jika log sudah menampilkan `panel-api 0.1.0` dan APT berhasil, lalu berhenti
+dengan `cp: 'etc/nginx/sites-enabled': No such file or directory`, masalah berada
+pada snapshot installer. Ini cocok dengan regresi `cp -a --parents` untuk path
+absolut pada Coreutils 9.1, yang dicatat di
+[catatan upstream 9.4](https://github.com/coreutils/coreutils/blob/v9.4/NEWS).
+
+Installer sekarang membuat direktori snapshot secara eksplisit lalu menyalin
+file dengan `cp -a` tanpa `--parents`. Metadata dan symlink Nginx tetap disimpan,
+dan layout pemulihan tetap sama. Kegagalan snapshot menghentikan proses sebelum
+layanan panel dihentikan atau file panel diganti.
+
+Publikasikan ulang **v0.1.0 dari main** dengan input **publish** aktif seperti
+langkah di atas. Setelah selesai, unduh ulang bootstrap dan jalankan kembali.
+Tidak perlu menghapus Nginx/default config atau menaikkan versi. Paket APT yang
+sudah berhasil dipasang tetap ada; tahap snapshot ini belum membuat akun admin
+atau memasang layanan panel. Bila sudah ada instalasi panel, gunakan `--upgrade`.
+
+Untuk pemeriksaan read-only pada server bila masih gagal:
+
+```bash
+cp --version | head -n 1
+ls -ld /etc/nginx /etc/nginx/sites-enabled /var/backups/panel
+```
+
 ## Peringatan waktu dari tar
 
 `time stamp ... is ... s in the future` menunjukkan waktu file arsip lebih maju
