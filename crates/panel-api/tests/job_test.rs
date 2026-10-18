@@ -851,25 +851,67 @@ async fn test_job_csrf_enforcement() {
 async fn node_install_returns_persisted_job_without_a_running_agent() {
     let (app, core, runner, tmp) = setup_test_app().await;
     let (cookie, csrf) = login(&app, "admin", "AdminPass123!").await;
-    let request = Request::builder()
-        .method("POST")
-        .uri("/api/v1/runtimes/node/install")
-        .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={cookie}"))
-        .header("X-CSRF-Token", csrf)
-        .body(Body::from(
-            r#"{"version":"v22.14.0","enable_corepack":true}"#,
-        ))
-        .expect("request");
+    let request = || {
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/runtimes/node/install")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, format!("{SESSION_COOKIE_NAME}={cookie}"))
+            .header("X-CSRF-Token", csrf.as_str())
+            .body(Body::from(
+                r#"{"version":"v22.14.0","enable_corepack":true}"#,
+            ))
+            .expect("request")
+    };
+
+    // An absent catalog must still fail closed, before any job or agent RPC.
+    let rejected = app.clone().oneshot(request()).await.expect("response");
+    let rejected_status = rejected.status();
+    let rejected_body = rejected.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        rejected_status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        String::from_utf8_lossy(&rejected_body)
+    );
+    assert_eq!(runner.job_repo.count_filtered(None, None).await.unwrap(), 0);
+
+    // Synthetic metadata tests enqueueing, not today's official release policy.
+    // Relative dates keep this fixture valid without a network request or agent.
+    let now = chrono::Utc::now();
+    let today = now.date_naive();
+    let catalog: panel_api::runtime_catalog::NodeCatalog = serde_json::from_value(serde_json::json!({
+        "releases": [{"version":"v22.14.0","date":(today - chrono::Duration::days(1)).to_string(),"lts":"Fixture","files":[]}],
+        "schedule": {"v22": {
+            "start": (today - chrono::Duration::days(365)).to_string(),
+            "lts": (today - chrono::Duration::days(180)).to_string(),
+            "end": (today + chrono::Duration::days(365)).to_string()
+        }}
+    })).expect("node catalog fixture");
+    panel_api::runtime_catalog::store_refresh(
+        &core,
+        "runtime.catalog.node",
+        Ok(catalog),
+        now.timestamp(),
+    )
+    .await
+    .expect("seed node catalog");
+
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        app.clone().oneshot(request),
+        app.clone().oneshot(request()),
     )
     .await
     .expect("enqueue must not wait for installation")
     .expect("response");
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let status = response.status();
     let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::ACCEPTED,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
     let job: JobItem = serde_json::from_slice(&body).unwrap();
     assert_eq!(job.name, "node.install");
     assert_eq!(job.status, "queued");
