@@ -82,6 +82,7 @@ grep -qx 'User=root' "$agent"
 grep -qx 'Group=panel' "$agent"
 grep -qx 'RuntimeDirectory=panel' "$agent"
 grep -qx 'RuntimeDirectoryMode=0750' "$agent"
+grep -qx 'RuntimeDirectoryPreserve=restart' "$agent"
 pass 'agent alone owns boot-time runtime directory'
 
 # Root inside the service is still restricted by its capability bounding set.

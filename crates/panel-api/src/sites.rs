@@ -919,10 +919,11 @@ pub async fn recompile_and_apply_site_vhost(
             .agent_client
             .apply_node_site(node_apply_req)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::BAD_GATEWAY,
-                    format!("Gagal menerapkan runtime Node.js: {e}"),
+            .map_err(|error| {
+                site_agent_error_details(
+                    error,
+                    "Runtime Node.js gagal diterapkan",
+                    "perubahan situs dibatalkan",
                 )
             })?;
         wait_runtime_ready(state, site, "nodejs", port, None).await?;
@@ -1041,10 +1042,11 @@ pub async fn recompile_and_apply_site_vhost(
             .agent_client
             .apply_python_site(py_apply_req)
             .await
-            .map_err(|e| {
-                (
-                    StatusCode::BAD_GATEWAY,
-                    format!("Gagal menerapkan runtime Python: {e}"),
+            .map_err(|error| {
+                site_agent_error_details(
+                    error,
+                    "Runtime Python gagal diterapkan",
+                    "perubahan situs dibatalkan",
                 )
             })?;
         wait_runtime_ready(state, site, "python", 0, Some(socket_path)).await?;
@@ -1084,6 +1086,11 @@ async fn wait_runtime_ready(
     port: u16,
     socket: Option<String>,
 ) -> Result<(), (StatusCode, String)> {
+    let runtime_name = if runtime == "nodejs" {
+        "Node.js"
+    } else {
+        "Python"
+    };
     let mut diagnostic = "Proses belum siap".to_string();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
     for attempt in 0..50 {
@@ -1118,9 +1125,10 @@ async fn wait_runtime_ready(
                 diagnostic = message.unwrap_or_else(|| "Service atau endpoint belum siap".into())
             }
             Err(error) => {
-                return Err((
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    format!("Health check {runtime} gagal: {error}"),
+                return Err(site_agent_error_details(
+                    error,
+                    &format!("Health check {runtime_name} gagal"),
+                    "runtime situs belum siap",
                 ));
             }
         }
@@ -1131,9 +1139,12 @@ async fn wait_runtime_ready(
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
     }
+    let diagnostic = diagnostic.chars().take(2048).collect::<String>();
     Err((
         StatusCode::UNPROCESSABLE_ENTITY,
-        format!("Aplikasi {runtime} belum siap: {diagnostic}. Periksa entrypoint dan log proses."),
+        format!(
+            "Aplikasi {runtime_name} belum siap: {diagnostic}. Periksa entrypoint dan log proses."
+        ),
     ))
 }
 
@@ -1287,9 +1298,22 @@ fn site_agent_failure(
     operation: &str,
     code: &str,
 ) -> axum::response::Response {
+    let (status, message) = site_agent_error_details(error, stage, operation);
+    (
+        status,
+        Json(serde_json::json!({"error":message,"code":code})),
+    )
+        .into_response()
+}
+
+fn site_agent_error_details(
+    error: crate::agent_client::AgentClientError,
+    stage: &str,
+    operation: &str,
+) -> (StatusCode, String) {
     // An agent-reported provisioning rejection is not a proxy failure. Returning
     // 502 makes it indistinguishable from an unavailable origin behind a gateway.
-    let (status, message) = match error {
+    match error {
         crate::agent_client::AgentClientError::AgentError(detail) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
@@ -1303,12 +1327,7 @@ fn site_agent_failure(
                 "{stage}; {operation}. Agent tidak dapat dihubungi atau responsnya tidak valid. Periksa layanan agent."
             ),
         ),
-    };
-    (
-        status,
-        Json(serde_json::json!({"error":message,"code":code})),
-    )
-        .into_response()
+    }
 }
 
 /// Creates a site with runtime prerequisites, atomic Nginx apply, and failure cleanup.
@@ -1849,7 +1868,11 @@ pub async fn create_static_site_handler(
             is_php.then_some(&php_version),
         )
         .await;
-        return (status, Json(serde_json::json!({ "error": msg }))).into_response();
+        return (
+            status,
+            Json(serde_json::json!({ "error": msg, "code": "site_provisioning_failed" })),
+        )
+            .into_response();
     }
 
     // 9. Audit log

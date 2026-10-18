@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TenantListItem, Site, CreateSiteRequest } from '../../types/api';
-import { fetchTenants, fetchTenantDetail, createSite, fetchPhpVersions } from '../../api/client';
+import { fetchTenants, fetchTenantDetail, createSite, fetchPhpVersions, fetchNodeVersions, getPythonVersions } from '../../api/client';
 import { RouteLink } from '../../lib/router';
 import { useAuth } from '../../context/AuthContext';
 
@@ -48,13 +48,17 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   const [phpEntry, setPhpEntry] = useState('index.php');
 
   // Node.js specific fields (Phase 7 - P7-T2 / P7-T6)
-  const [nodeVersion, setNodeVersion] = useState<string>('22.14.0');
+  const [nodeVersion, setNodeVersion] = useState<string>('');
   const [nodeFramework, setNodeFramework] = useState<string>('express');
   const [nodeEntrypoint, setNodeEntrypoint] = useState<string>('server.js');
   const [nodeEntrypointType, setNodeEntrypointType] = useState<string>('script');
 
   // Python specific fields (Phase 7 - P7-T3)
-  const [pythonVersion, setPythonVersion] = useState<string>('3.12.9');
+  const [pythonVersion, setPythonVersion] = useState<string>('');
+  const [applicationRuntime, setApplicationRuntime] = useState<{
+    kind: 'node' | 'python'; versions: string[]; loading: boolean; error: string;
+  } | null>(null);
+  const [runtimeReload, setRuntimeReload] = useState(0);
   const [pythonFramework, setPythonFramework] = useState<string>('django');
   const [pythonServer, setPythonServer] = useState<string>('gunicorn_wsgi');
   const [pythonEntrypointType, setPythonEntrypointType] = useState<string>('wsgi');
@@ -76,6 +80,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
       setStep(1);
       setSiteType('static');
       setDomain('');
+      setNodeVersion(''); setPythonVersion(''); setApplicationRuntime(null);
       setNodeFramework('express');
       setNodeEntrypoint('server.js');
       setNodeEntrypointType('script');
@@ -120,6 +125,37 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
     return () => { current=false; };
   }, [isOpen, siteType]);
 
+  useEffect(() => {
+    if (!isOpen || (siteType !== 'node' && siteType !== 'python')) return;
+    const kind = siteType;
+    let current = true;
+    setApplicationRuntime({ kind, versions: [], loading: true, error: '' });
+    const request = kind === 'node'
+      ? fetchNodeVersions().then(result => result.versions.filter(item => item.is_installed).map(item => item.version))
+      : getPythonVersions().then(result => result.filter(item => item.is_installed).map(item => item.version));
+    request.then(versions => {
+      if (!current) return;
+      const installed = [...new Set(versions)];
+      const selectVersion = kind === 'node' ? setNodeVersion : setPythonVersion;
+      selectVersion(previous => installed.includes(previous) ? previous : installed[0] || '');
+      setApplicationRuntime({ kind, versions: installed, loading: false, error: '' });
+    }).catch((error: unknown) => {
+      if (!current) return;
+      (kind === 'node' ? setNodeVersion : setPythonVersion)('');
+      setApplicationRuntime({ kind, versions: [], loading: false,
+        error: error instanceof Error ? error.message : 'Gagal memuat runtime terpasang.' });
+    });
+    return () => { current = false; };
+  }, [isOpen, siteType, runtimeReload]);
+
+  const isApplication = siteType === 'node' || siteType === 'python';
+  const applicationVersions = applicationRuntime?.kind === siteType ? applicationRuntime.versions : [];
+  const applicationLoading = applicationRuntime?.kind !== siteType || applicationRuntime.loading;
+  const applicationError = applicationRuntime?.kind === siteType ? applicationRuntime.error : '';
+  const applicationName = siteType === 'node' ? 'Node.js' : 'Python';
+  const applicationReady = !applicationLoading && !applicationError &&
+    applicationVersions.includes(siteType === 'node' ? nodeVersion : pythonVersion);
+
   if (!isOpen) return null;
 
   const selectedTenant = tenants.find((t) => t.id === selectedTenantId);
@@ -162,6 +198,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   };
 
   const handleNextStep1 = () => {
+    if (isApplication && !applicationReady) {
+      setErrorMessage(applicationError || `Pilih runtime ${applicationName} yang sudah terpasang.`); return;
+    }
     if (siteType === 'php' && (phpLoading || !phpVersion)) {
       setErrorMessage(phpError || 'Belum ada runtime PHP yang terpasang. Buka Runtime Manager terlebih dahulu.'); return;
     }
@@ -171,6 +210,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
 
   const handleNextStep2 = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isApplication && !applicationReady) {
+      setErrorMessage(applicationError || `Pilih runtime ${applicationName} yang sudah terpasang.`); return;
+    }
     const cleanDomain = domain.trim().toLowerCase();
     if (!cleanDomain) {
       setErrorMessage('Nama domain wajib diisi.');
@@ -202,6 +244,9 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
   };
 
   const handleFinalSubmit = async () => {
+    if (isApplication && !applicationReady) {
+      setErrorMessage(applicationError || `Pilih runtime ${applicationName} yang sudah terpasang.`); return;
+    }
     setIsSubmitting(true);
     setErrorMessage(null);
 
@@ -328,7 +373,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
         {/* Content Body */}
         <div key={step} className="p-6 overflow-y-auto flex-1 dialog-body dialog-step">
           {errorMessage && (
-            <div className="mb-5 p-3 rounded-[var(--radius-md)] bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-xs flex items-start gap-2.5">
+            <div role="alert" className="mb-5 p-3 rounded-[var(--radius-md)] bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-xs flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{errorMessage}</span>
             </div>
@@ -380,9 +425,11 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 </button>
 
                 {/* Node.js Application (Available in Phase 7) */}
-                <div
+                <button
+                  type="button"
+                  aria-pressed={siteType === 'node'}
                   onClick={() => setSiteType('node')}
-                  className={`cursor-pointer p-4 rounded-[var(--radius-md)] border transition-all ${
+                  className={`cursor-pointer p-4 text-left rounded-[var(--radius-md)] border transition-all ${
                     siteType === 'node'
                       ? 'border-[var(--primary)] bg-[var(--primary)]/5 shadow-xs'
                       : 'border-[var(--line)] bg-[var(--raised)] hover:border-[var(--ink-muted)]'
@@ -396,12 +443,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">{t('sites.wizard.nodeTitle')}</h3>
                   <p className="text-xs text-[var(--ink-muted)]">{t('sites.wizard.nodeDesc')}</p>
-                </div>
+                </button>
 
                 {/* Python Application (Available in Phase 7 - P7-T3) */}
-                <div
+                <button
+                  type="button"
+                  aria-pressed={siteType === 'python'}
                   onClick={() => setSiteType('python')}
-                  className={`cursor-pointer p-4 rounded-[var(--radius-md)] border transition-all ${
+                  className={`cursor-pointer p-4 text-left rounded-[var(--radius-md)] border transition-all ${
                     siteType === 'python'
                       ? 'border-[var(--primary)] bg-[var(--primary)]/5 shadow-xs'
                       : 'border-[var(--line)] bg-[var(--raised)] hover:border-[var(--ink-muted)]'
@@ -417,7 +466,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                   <p className="text-xs text-[var(--ink-muted)]">
                     WSGI/ASGI (Django, Flask, FastAPI) via Unix domain socket &amp; isolasi tenant slice.
                   </p>
-                </div>
+                </button>
 
                 {/* Reverse Proxy (Available in Phase 7 - P7-T4) */}
                 <div
@@ -444,6 +493,20 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           )}
 
           {/* STEP 2: Domain & Routing */}
+          {isApplication && step <= 2 && (
+            <div role={applicationError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
+              {applicationLoading ? `Memuat runtime ${applicationName}…` : applicationError ||
+                (applicationVersions.length ? `${applicationVersions.length} versi ${applicationName} terpasang.` : `Belum ada runtime ${applicationName} yang terpasang.`)}
+              {!applicationLoading && (applicationError || applicationVersions.length === 0) && (
+                <div className="mt-2 flex flex-wrap gap-3">
+                  <button type="button" onClick={() => setRuntimeReload(value => value + 1)} className="underline">Coba lagi</button>
+                  {user?.role === 'admin' ? (
+                    <RouteLink href="/runtime" onClick={onClose}>Buka Runtime Manager</RouteLink>
+                  ) : `Hubungi administrator untuk memasang ${applicationName}.`}
+                </div>
+              )}
+            </div>
+          )}
           {siteType === 'php' && step <= 2 && (
             <div role={phpError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
               {phpLoading
@@ -538,13 +601,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                     <div>
                       <label className="block text-xs font-semibold text-[var(--ink)] mb-1">Versi Node.js</label>
                       <select
+                        aria-label="Versi Node.js"
+                        disabled={!applicationReady}
                         value={nodeVersion}
                         onChange={(e) => setNodeVersion(e.target.value)}
                         className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                       >
-                        <option value="22.14.0">Node.js v22.14.0 (LTS)</option>
-                        <option value="20.18.3">Node.js v20.18.3 (LTS)</option>
-                        <option value="18.20.7">Node.js v18.20.7 (LTS)</option>
+                        {applicationVersions.length === 0 && <option value="">Pilih versi terpasang</option>}
+                        {applicationVersions.map(version => <option key={version} value={version}>Node.js {version}</option>)}
                       </select>
                     </div>
 
@@ -610,14 +674,14 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                         Versi Python (uv)
                       </label>
                       <select
+                        aria-label="Versi Python"
+                        disabled={!applicationReady}
                         value={pythonVersion}
                         onChange={(e) => setPythonVersion(e.target.value)}
                         className="w-full text-xs px-3 py-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--raised)] text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
                       >
-                        <option value="3.12.9">Python 3.12.9 (Default / Stabil)</option>
-                        <option value="3.11.11">Python 3.11.11</option>
-                        <option value="3.10.16">Python 3.10.16</option>
-                        <option value="3.13.2">Python 3.13.2</option>
+                        {applicationVersions.length === 0 && <option value="">Pilih versi terpasang</option>}
+                        {applicationVersions.map(version => <option key={version} value={version}>Python {version}</option>)}
                       </select>
                     </div>
 
@@ -939,7 +1003,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
             <button
               type="button"
               onClick={handleNextStep1}
-              className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] transition-colors flex items-center gap-1.5"
+              disabled={isApplication && !applicationReady}
+              className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
             >
               Lanjutkan
               <ArrowRight className="w-3.5 h-3.5" />
@@ -950,7 +1015,8 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
             <button
               type="submit"
               form="step2-form"
-              className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] transition-colors flex items-center gap-1.5"
+              disabled={isApplication && !applicationReady}
+              className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
             >
               Lanjutkan
               <ArrowRight className="w-3.5 h-3.5" />
@@ -972,7 +1038,7 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           {step === 4 && (
             <button
               type="button"
-              disabled={isSubmitting}
+              disabled={isSubmitting || (isApplication && !applicationReady)}
               onClick={handleFinalSubmit}
               className="px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)] disabled:opacity-50 transition-colors flex items-center gap-1.5"
             >

@@ -393,6 +393,7 @@ pub fn apply_python_site(
             ));
         }
     }
+    crate::system::ensure_runtime_parent_access(runner, &req.username)?;
     prepare_python_environment(runner, req)?;
     let service_name = format!("site-{}.service", req.site_id);
     let unit_path_str = req
@@ -949,6 +950,15 @@ mod tests {
                 .all(|action| !matches!(action, MockAction::WriteFile { .. }))
         );
         runner.set_response("systemd-run", 0, b"ready", b"");
+        runner.set_response("setfacl", 1, b"", b"parent ACL denied");
+        assert!(apply_python_site(&runner, &request).is_err());
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|cmd| cmd.starts_with("systemctl"))
+        );
+        runner.set_response("setfacl", 0, b"", b"");
         apply_python_site(&runner, &request).unwrap();
         let commands = runner.get_commands();
         assert!(

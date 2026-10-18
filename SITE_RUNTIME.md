@@ -12,6 +12,10 @@ Mengganti biner saja belum meregenerasi unit systemd dan vhost yang sudah ada.
   dengan owner root. Log lama diperbaiki melalui descriptor tanpa menimpa isinya.
 - Socket FPM memakai ACL `www-data` untuk koneksi Nginx. Service tetap berjalan
   dengan user/group tenant, dengan sandbox yang sama.
+- Induk socket `/run/panel` memberi ACL traverse saja kepada tenant dan Nginx.
+  Kepemilikan direktori leaf saja tidak cukup jika induknya `root:panel 0750`.
+  Kegagalan memasang ACL menghentikan provisioning. Socket agent tetap 0660
+  root:panel dan tenant tidak ditambahkan ke grup panel.
 - Node.js membuat `server.js` dan `package.json` minimal dengan script `start`.
   Kode JavaScript tidak lagi ditulis ke `index.html`.
 - Python membuat file sesuai entrypoint standar: `app.py`, `main.py`, `wsgi.py`,
@@ -27,6 +31,16 @@ Mengganti biner saja belum meregenerasi unit systemd dan vhost yang sudah ada.
 
 Runtime harus sudah dipasang dari Runtime Manager. Entrypoint custom harus
 tersedia di folder aplikasi; starter tidak menebak atau menimpa kode custom.
+Wizard membaca versi Node.js/Python yang terpasang dari server, tanpa daftar versi
+statis. Jika inventaris kosong atau gagal dimuat, gunakan tombol coba lagi atau
+pasang runtime dari Runtime Manager; create tidak dikirim dengan versi tebakan.
+
+Penolakan provisioning PHP/Node.js/Python dikirim sebagai JSON 422 dengan detail
+tahap; gangguan komunikasi agent sebagai 503. Penolakan aplikasi tidak lagi
+memakai 502 yang dapat diganti oleh halaman Cloudflare. Ini tidak memperbaiki
+proxy/origin yang benar-benar mati; penyebab kejadian server tetap perlu
+dibedakan dari hasil regresi lokal. Unit agent mempertahankan runtime directory
+selama restart agar socket aplikasi existing tidak ikut terhapus.
 
 ## Menghapus lalu memakai ulang domain
 

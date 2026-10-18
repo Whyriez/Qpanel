@@ -38,6 +38,7 @@ LockPersonality=true
 # Runtime & State directories for agent socket
 RuntimeDirectory=panel
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=restart
 
 [Install]
 WantedBy=multi-user.target

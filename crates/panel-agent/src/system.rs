@@ -169,6 +169,30 @@ pub trait SystemRunner: Send + Sync {
     fn read_dir(&self, path: &Path) -> Result<Vec<PathBuf>, AgentError>;
 }
 
+/// Allow tenant runtimes and Nginx to search the IPC directory on the way to
+/// their own sockets. This does not grant listing, write, or access to agent.sock.
+pub(crate) fn ensure_runtime_parent_access(
+    runner: &dyn SystemRunner,
+    username: &str,
+) -> Result<(), AgentError> {
+    let username = panel_core::Username::parse(username)
+        .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
+    let acl = format!("u:{}:--x,u:www-data:--x", username.as_str());
+    // set_facl tolerates errors for legacy callers. Runtime access is mandatory.
+    let output = runner.run_command("setfacl", &["-m", &acl, "--", "/run/panel"])?;
+    if !output.status.success() {
+        return Err(AgentError::CommandFailed {
+            binary: "setfacl".into(),
+            code: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(2048)
+                .collect(),
+        });
+    }
+    Ok(())
+}
+
 /// Real system runner executing actual Linux system binaries and system calls.
 pub struct RealSystemRunner;
 
@@ -1099,6 +1123,45 @@ impl SystemRunner for MockSystemRunner {
 mod download_tests {
     use super::*;
     use tokio_util::sync::CancellationToken;
+
+    #[test]
+    fn runtime_parent_access_is_search_only_without_changing_ipc_permissions() {
+        let runner = MockSystemRunner::new();
+        ensure_runtime_parent_access(&runner, "p_alice").unwrap();
+        let actions = runner.recorded_actions();
+        let [MockAction::Command { binary, args }] = actions.as_slice() else {
+            panic!("Only a non-recursive parent ACL may be changed: {actions:?}");
+        };
+        assert_eq!(binary, "setfacl");
+        assert_eq!(
+            args,
+            &["-m", "u:p_alice:--x,u:www-data:--x", "--", "/run/panel"]
+        );
+        // Named entries allow path traversal but cannot list or mutate the parent.
+        for entry in args[1].split(',') {
+            let permissions = entry.rsplit(':').next().unwrap();
+            assert_eq!(permissions, "--x");
+            assert!(!permissions.contains(['r', 'w']));
+        }
+        // No chmod/chown, inherited ACL, recursive change, group membership change,
+        // or permission change on the separately protected 0660 IPC socket.
+        assert_eq!(actions.len(), 1);
+    }
+
+    #[test]
+    fn runtime_parent_access_rejects_invalid_or_reserved_identity_before_commands() {
+        for username in [
+            "root",
+            "www-data",
+            "panel-api",
+            "p_alice,u:root:rwx",
+            "p_alice\n",
+        ] {
+            let runner = MockSystemRunner::new();
+            assert!(ensure_runtime_parent_access(&runner, username).is_err());
+            assert!(runner.recorded_actions().is_empty());
+        }
+    }
 
     #[test]
     #[allow(unsafe_code)] // Read the fixture process identity on Unix.

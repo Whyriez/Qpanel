@@ -590,6 +590,9 @@ fn ensure_php_fpm_master_inner(
         master.version.as_str()
     );
 
+    // The leaf owner still needs search permission on root:panel 0750 /run/panel.
+    crate::system::ensure_runtime_parent_access(runner, &master.username)?;
+
     // 1. Ensure runtime, config, pool, and log directories exist
     runner.create_dir_all(Path::new("/run/panel/php"), 0o755, 0, 0)?;
     runner.create_dir_all(&master.runtime_dir(), 0o755, master.uid, master.uid)?;
@@ -1825,6 +1828,31 @@ mod tests {
             commands
                 .iter()
                 .any(|cmd| cmd.contains("apt-get remove -y --purge php8.3-redis"))
+        );
+    }
+
+    #[test]
+    fn fpm_parent_traversal_failure_stops_before_writing_configuration() {
+        let runner = MockSystemRunner::new();
+        runner.set_response("setfacl", 1, b"", b"parent ACL denied");
+        let result = ensure_php_fpm_master(
+            &runner,
+            PhpFpmMasterEnsureRequest {
+                username: "p_alice".into(),
+                uid: 10001,
+                version: "8.4".into(),
+            },
+        );
+        assert!(
+            result.is_err(),
+            "missing parent access must stop provisioning"
+        );
+        assert!(runner.files.lock().unwrap().is_empty());
+        assert!(
+            !runner
+                .get_commands()
+                .iter()
+                .any(|cmd| cmd.starts_with("systemctl"))
         );
     }
 

@@ -220,6 +220,9 @@ async fn mock_rpc(
             value["type"] = value["cmd"].clone();
             captured.lock().await.push(value.clone());
             let kind = value["type"].as_str().unwrap();
+            if fail.strip_prefix("Disconnect:") == Some(kind) {
+                continue;
+            }
             let data = &value["data"];
             let response = if fail.split('|').any(|operation| operation == kind) {
                 panel_proto::RpcResponse::err(req.request_id, "Injected fixture failure")
@@ -292,6 +295,85 @@ async fn mock_rpc(
         }
     });
     (Arc::new(AgentClient::new(socket)), calls, task)
+}
+
+#[tokio::test]
+async fn runtime_provisioning_errors_keep_json_details_and_cleanup_instead_of_502() {
+    use axum::{Json, response::IntoResponse};
+    for (kind, failure) in [
+        ("nodejs", "NodeSiteApply"),
+        ("python", "PythonSiteApply"),
+        ("nodejs", "NodeSiteStatus"),
+        ("python", "PythonSiteStatus"),
+        ("nodejs", "Disconnect:NodeSiteApply"),
+        ("python", "Disconnect:PythonSiteApply"),
+        ("nodejs", "Disconnect:NodeSiteStatus"),
+        ("python", "Disconnect:PythonSiteStatus"),
+    ] {
+        let (mut state, tmp) = fixture().await;
+        let owner = tenant(&state, "customer", Some("p_actual"), Some(10042)).await;
+        let (client, calls, task) = mock_rpc(&tmp, failure).await;
+        state.agent_client = client;
+        let request = serde_json::from_value(json!({
+            "domain":"failure.example.test", "user_id":owner.id, "kind":kind
+        }))
+        .unwrap();
+        let response = panel_api::sites::create_static_site_handler(
+            State(state.clone()),
+            actor(999, "admin", "admin"),
+            Json(request),
+        )
+        .await
+        .into_response();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        let disconnected = failure.starts_with("Disconnect:");
+        assert_eq!(
+            status,
+            if disconnected {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            },
+            "{failure}: {body}"
+        );
+        assert_eq!(body["code"], "site_provisioning_failed");
+        let detail = body["error"].as_str().unwrap();
+        assert!(
+            detail.contains(if kind == "nodejs" {
+                "Node.js"
+            } else {
+                "Python"
+            }),
+            "{body}"
+        );
+        if disconnected {
+            assert!(!detail.contains("fixture.sock"));
+            assert!(detail.contains("Agent tidak dapat dihubungi"));
+        } else {
+            assert!(detail.contains("Injected fixture failure"), "{body}");
+        }
+        let calls = calls.lock().await;
+        assert!(!calls.iter().any(|call| call["type"] == "SiteApply"));
+        assert!(calls.iter().any(|call| call["type"] == "SiteRemove"));
+        assert!(calls.iter().any(|call| call["type"]
+            == if kind == "nodejs" {
+                "NodeSiteRemove"
+            } else {
+                "PythonSiteRemove"
+            }));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sites")
+                .fetch_one(&state.pool)
+                .await
+                .unwrap(),
+            0
+        );
+        task.abort();
+    }
 }
 
 #[tokio::test]
