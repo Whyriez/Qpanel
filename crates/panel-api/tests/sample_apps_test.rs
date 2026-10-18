@@ -22,6 +22,11 @@ use panel_core::auth::hash_password;
 use panel_db::models::{CreatePlan, CreateUser};
 use panel_db::pool::{init_pool, run_migrations};
 use panel_db::repositories::{SqlitePlanRepository, SqliteUserRepository};
+use panel_proto::{
+    NodeSiteApplyRequest, NodeSiteEntrypoint, NodeSiteStatusRequest, PythonSiteApplyRequest,
+    PythonSiteEntrypoint, PythonSiteFramework, PythonSiteServer, PythonSiteStatusRequest,
+    SiteProvisionRequest, SiteStarter,
+};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
@@ -87,6 +92,166 @@ async fn login_helper(app: &axum::Router, username: &str, pass: &str) -> (String
     (session_val, csrf_val)
 }
 
+fn configure_sample_runtime_runner(runner: &MockSystemRunner) {
+    runner.set_response("nginx", 0, b"syntax is ok", b"");
+    runner.set_response(
+        "systemctl",
+        0,
+        b"ActiveState=active\nSubState=running\nMainPID=42\n",
+        b"",
+    );
+    runner.set_response("curl", 0, b"200", b"");
+    runner.set_response("runuser", 0, b"200", b"");
+    runner.add_existing_path("/opt/panel/runtimes/node/22.14.0/bin/node");
+    runner.add_existing_path("/opt/panel/runtimes/python/3.12.9/bin/python3");
+    // Each context has its own database and creates at most five sample sites.
+    for id in 1..=5 {
+        runner.add_existing_path(format!("/run/panel/python/site_{id}/app.sock"));
+    }
+    runner.set_response("systemd-run", 0, b"ok", b"");
+    runner.set_response("setfacl", 0, b"", b"");
+    runner.set_response("chown", 0, b"", b"");
+    runner.set_response("chmod", 0, b"", b"");
+    runner.set_response("uv", 0, b"Installed Python 3.12.9\n", b"");
+}
+
+#[test]
+fn sample_runtime_fixture_supports_provisioning_and_readiness() {
+    let runner = Arc::new(MockSystemRunner::new());
+    configure_sample_runtime_runner(&runner);
+    let manager = NginxManager::new(Arc::clone(&runner) as Arc<dyn SystemRunner>);
+    let provision = |id, domain: &str, starter, content: &str| {
+        let app_dir = format!("/home/p_alice/sites/{domain}/app");
+        manager
+            .provision_site(SiteProvisionRequest {
+                site_id: id,
+                username: "p_alice".into(),
+                uid: 10001,
+                home_dir: "/home/p_alice".into(),
+                docroot: app_dir.clone(),
+                web_user: Some("www-data".into()),
+                index_content: Some(content.into()),
+                starter,
+            })
+            .expect("provision sample starter using mock runner");
+        app_dir
+    };
+
+    for (id, domain, port) in [
+        (1, "express.alice.com", 20051),
+        (2, "nextjs.alice.com", 20052),
+    ] {
+        let app_dir = provision(id, domain, SiteStarter::Nodejs, "// sample server");
+        let site_id = format!("site_{id}");
+        panel_agent::node_site::apply_node_site(
+            runner.as_ref(),
+            &NodeSiteApplyRequest {
+                site_id: site_id.clone(),
+                username: "p_alice".into(),
+                uid: 10001,
+                node_version: "22.14.0".into(),
+                app_dir,
+                port,
+                entrypoint: NodeSiteEntrypoint::NodeScript("server.js".into()),
+                env_vars: BTreeMap::new(),
+                auto_restart: true,
+                env_file_path: None,
+                unit_path: None,
+                base_runtime_dir: None,
+            },
+        )
+        .expect("apply sample Node site using mock runner");
+        let status = panel_agent::node_site::status_node_site(
+            runner.as_ref(),
+            &NodeSiteStatusRequest {
+                site_id,
+                port: Some(port),
+                probe_path: Some("/".into()),
+            },
+        )
+        .expect("query sample Node readiness using mock runner");
+        assert!(status.active && status.healthy, "{domain}: {status:?}");
+        assert_eq!(status.probe_status_code, Some(200));
+    }
+
+    for (id, domain, starter, framework, server_type, entrypoint) in [
+        (
+            3,
+            "django.alice.com",
+            SiteStarter::PythonDjango,
+            PythonSiteFramework::Django,
+            PythonSiteServer::GunicornWsgi,
+            PythonSiteEntrypoint::Wsgi("myproject.wsgi:application".into()),
+        ),
+        (
+            4,
+            "fastapi.alice.com",
+            SiteStarter::PythonMain,
+            PythonSiteFramework::FastApi,
+            PythonSiteServer::UvicornAsgi,
+            PythonSiteEntrypoint::Asgi("main:app".into()),
+        ),
+        (
+            5,
+            "flask.alice.com",
+            SiteStarter::PythonApp,
+            PythonSiteFramework::Flask,
+            PythonSiteServer::GunicornWsgi,
+            PythonSiteEntrypoint::Wsgi("app:app".into()),
+        ),
+    ] {
+        let app_dir = provision(id, domain, starter, "# sample application");
+        let site_id = format!("site_{id}");
+        let socket_path = format!("/run/panel/python/{site_id}/app.sock");
+        panel_agent::python_site::apply_python_site(
+            runner.as_ref(),
+            &PythonSiteApplyRequest {
+                site_id: site_id.clone(),
+                username: "p_alice".into(),
+                uid: 10001,
+                python_version: "3.12.9".into(),
+                venv_dir: format!("{app_dir}/.venv"),
+                app_dir,
+                socket_path: socket_path.clone(),
+                framework,
+                server_type,
+                entrypoint,
+                workers: 2,
+                env_vars: BTreeMap::new(),
+                auto_restart: true,
+                env_file_path: None,
+                unit_path: None,
+                base_runtime_dir: None,
+            },
+        )
+        .expect("apply sample Python site using mock runner");
+        let status = panel_agent::python_site::status_python_site(
+            runner.as_ref(),
+            &PythonSiteStatusRequest {
+                site_id,
+                socket_path: Some(socket_path),
+            },
+        )
+        .expect("query sample Python readiness using mock runner");
+        assert!(
+            status.active && status.socket_exists && status.healthy,
+            "{domain}: {status:?}"
+        );
+    }
+}
+
+async fn created_site_response(response: axum::response::Response) -> SiteResponse {
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "Sample site creation failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    serde_json::from_slice(&body).expect("created site response")
+}
+
 async fn setup_test_context() -> TestContext {
     let guard = TEST_MUTEX.lock().await;
     let tmp = tempdir().expect("tempdir");
@@ -117,13 +282,7 @@ async fn setup_test_context() -> TestContext {
 
     let nginx_dir = tmp.path().join("etc/nginx");
     let runner = Arc::new(MockSystemRunner::new());
-    runner.set_response("nginx", 0, b"syntax is ok", b"");
-    runner.set_response("systemctl", 0, b"", b"");
-    runner.set_response("systemd-run", 0, b"ok", b"");
-    runner.set_response("setfacl", 0, b"", b"");
-    runner.set_response("chown", 0, b"", b"");
-    runner.set_response("chmod", 0, b"", b"");
-    runner.set_response("uv", 0, b"Installed Python 3.12.9\n", b"");
+    configure_sample_runtime_runner(&runner);
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
@@ -364,10 +523,7 @@ async fn test_all_five_sample_applications_lifecycle_and_https_ssl() {
         .body(Body::from(serde_json::to_string(&express_payload).unwrap()))
         .unwrap();
     let express_res = ctx.app.clone().oneshot(express_req).await.unwrap();
-    assert_eq!(express_res.status(), StatusCode::CREATED);
-    let express_site: SiteResponse =
-        serde_json::from_slice(&express_res.into_body().collect().await.unwrap().to_bytes())
-            .unwrap();
+    let express_site = created_site_response(express_res).await;
     assert_eq!(express_site.kind, "nodejs");
     assert_eq!(express_site.runtime.as_deref(), Some("nodejs"));
     issue_self_signed_ssl_for_site(&ctx, express_site.id).await;
@@ -401,10 +557,7 @@ async fn test_all_five_sample_applications_lifecycle_and_https_ssl() {
         .body(Body::from(serde_json::to_string(&nextjs_payload).unwrap()))
         .unwrap();
     let nextjs_res = ctx.app.clone().oneshot(nextjs_req).await.unwrap();
-    assert_eq!(nextjs_res.status(), StatusCode::CREATED);
-    let nextjs_site: SiteResponse =
-        serde_json::from_slice(&nextjs_res.into_body().collect().await.unwrap().to_bytes())
-            .unwrap();
+    let nextjs_site = created_site_response(nextjs_res).await;
     assert_eq!(nextjs_site.kind, "nodejs");
     issue_self_signed_ssl_for_site(&ctx, nextjs_site.id).await;
 
@@ -443,10 +596,7 @@ async fn test_all_five_sample_applications_lifecycle_and_https_ssl() {
         .body(Body::from(serde_json::to_string(&django_payload).unwrap()))
         .unwrap();
     let django_res = ctx.app.clone().oneshot(django_req).await.unwrap();
-    assert_eq!(django_res.status(), StatusCode::CREATED);
-    let django_site: SiteResponse =
-        serde_json::from_slice(&django_res.into_body().collect().await.unwrap().to_bytes())
-            .unwrap();
+    let django_site = created_site_response(django_res).await;
     assert_eq!(django_site.kind, "python");
     issue_self_signed_ssl_for_site(&ctx, django_site.id).await;
 
@@ -481,10 +631,7 @@ async fn test_all_five_sample_applications_lifecycle_and_https_ssl() {
         .body(Body::from(serde_json::to_string(&fastapi_payload).unwrap()))
         .unwrap();
     let fastapi_res = ctx.app.clone().oneshot(fastapi_req).await.unwrap();
-    assert_eq!(fastapi_res.status(), StatusCode::CREATED);
-    let fastapi_site: SiteResponse =
-        serde_json::from_slice(&fastapi_res.into_body().collect().await.unwrap().to_bytes())
-            .unwrap();
+    let fastapi_site = created_site_response(fastapi_res).await;
     assert_eq!(fastapi_site.kind, "python");
     issue_self_signed_ssl_for_site(&ctx, fastapi_site.id).await;
 
@@ -521,9 +668,7 @@ async fn test_all_five_sample_applications_lifecycle_and_https_ssl() {
         .body(Body::from(serde_json::to_string(&flask_payload).unwrap()))
         .unwrap();
     let flask_res = ctx.app.clone().oneshot(flask_req).await.unwrap();
-    assert_eq!(flask_res.status(), StatusCode::CREATED);
-    let flask_site: SiteResponse =
-        serde_json::from_slice(&flask_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let flask_site = created_site_response(flask_res).await;
     assert_eq!(flask_site.kind, "python");
     issue_self_signed_ssl_for_site(&ctx, flask_site.id).await;
 
@@ -572,9 +717,7 @@ async fn test_crash_auto_restart_and_process_settings() {
         .body(Body::from(serde_json::to_string(&node_payload).unwrap()))
         .unwrap();
     let node_res = ctx.app.clone().oneshot(node_req).await.unwrap();
-    assert_eq!(node_res.status(), StatusCode::CREATED);
-    let node_site: SiteResponse =
-        serde_json::from_slice(&node_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let node_site = created_site_response(node_res).await;
 
     // Query node settings: auto_restart must be true
     let get_node_set = Request::builder()
@@ -616,9 +759,7 @@ async fn test_crash_auto_restart_and_process_settings() {
         .body(Body::from(serde_json::to_string(&py_payload).unwrap()))
         .unwrap();
     let py_res = ctx.app.clone().oneshot(py_req).await.unwrap();
-    assert_eq!(py_res.status(), StatusCode::CREATED);
-    let py_site: SiteResponse =
-        serde_json::from_slice(&py_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let py_site = created_site_response(py_res).await;
 
     // Query python settings: auto_restart must be true
     let get_py_set = Request::builder()
@@ -752,7 +893,7 @@ async fn test_runtime_in_use_deletion_conflict_409() {
         .body(Body::from(serde_json::to_string(&express_payload).unwrap()))
         .unwrap();
     let express_res = ctx.app.clone().oneshot(express_req).await.unwrap();
-    assert_eq!(express_res.status(), StatusCode::CREATED);
+    created_site_response(express_res).await;
 
     // 2. Admin attempts to delete Node.js 22.14.0 -> Rejected with 409 Conflict!
     let del_node_req = Request::builder()
@@ -793,7 +934,7 @@ async fn test_runtime_in_use_deletion_conflict_409() {
         .body(Body::from(serde_json::to_string(&django_payload).unwrap()))
         .unwrap();
     let django_res = ctx.app.clone().oneshot(django_req).await.unwrap();
-    assert_eq!(django_res.status(), StatusCode::CREATED);
+    created_site_response(django_res).await;
 
     // 4. Admin attempts to delete Python 3.12.9 -> Rejected with 409 Conflict!
     let del_py_req = Request::builder()
@@ -854,9 +995,7 @@ async fn test_cross_tenant_isolation_boundary_api() {
         .body(Body::from(serde_json::to_string(&express_payload).unwrap()))
         .unwrap();
     let exp_res = ctx.app.clone().oneshot(exp_req).await.unwrap();
-    assert_eq!(exp_res.status(), StatusCode::CREATED);
-    let exp_site: SiteResponse =
-        serde_json::from_slice(&exp_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let exp_site = created_site_response(exp_res).await;
 
     let fastapi_payload = CreateStaticSiteRequest {
         domain: "alice-fast.com".to_string(),
@@ -878,9 +1017,7 @@ async fn test_cross_tenant_isolation_boundary_api() {
         .body(Body::from(serde_json::to_string(&fastapi_payload).unwrap()))
         .unwrap();
     let fast_res = ctx.app.clone().oneshot(fast_req).await.unwrap();
-    assert_eq!(fast_res.status(), StatusCode::CREATED);
-    let fast_site: SiteResponse =
-        serde_json::from_slice(&fast_res.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let fast_site = created_site_response(fast_res).await;
 
     // 2. Bob attempts to query Alice's Express node status -> Rejected (Forbidden / Not Found)
     let bob_query_exp = Request::builder()
