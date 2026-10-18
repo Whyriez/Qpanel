@@ -11,6 +11,8 @@ mod cloudflare;
 pub use cloudflare::*;
 mod email;
 pub use email::*;
+mod database_web;
+pub use database_web::*;
 
 pub const PROTOCOL_VERSION: u32 = 1;
 
@@ -22,6 +24,7 @@ pub enum InstallOperation {
     PhpRepository,
     PhpRuntime(PhpRuntimeInstallRequest),
     DatabaseServer(DatabaseServerInstallRequest),
+    DatabaseWebTools,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -179,6 +182,8 @@ pub enum RequestPayload {
     DatabaseExport(DatabaseExportRequest),
     DatabaseImport(DatabaseImportRequest),
     DatabaseSizeCheck(DatabaseSizeCheckRequest),
+    DatabaseWebStatus,
+    DatabaseWebCredentials(DatabaseWebCredentialsRequest),
     BackupCreate(BackupCreateRequest),
     BackupRestore(BackupRestoreRequest),
     BackupDelete(BackupDeleteRequest),
@@ -412,6 +417,8 @@ pub enum ResponsePayload {
     DatabaseExported(DatabaseExportResponse),
     DatabaseImported(DatabaseImportResponse),
     DatabaseSizeChecked(DatabaseSizeCheckResponse),
+    DatabaseWebStatus(DatabaseWebStatus),
+    DatabaseWebCredentials(DatabaseWebCredentials),
     BackupCreated(BackupCreateResponse),
     BackupRestored(BackupRestoreResponse),
     BackupDeleted(BackupDeleteResponse),

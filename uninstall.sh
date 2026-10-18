@@ -89,11 +89,13 @@ if ! nginx -t || { systemctl is-active --quiet nginx && ! systemctl reload nginx
     echo '[ERROR] Konfigurasi Nginx tidak valid; pencopotan dibatalkan dan proxy dipulihkan.' >&2
     exit 1
 fi
-systemctl stop panel-api.service panel-agent.service panel-proc-hardening.service >/dev/null 2>&1 || true
-systemctl disable panel-api.service panel-agent.service panel-proc-hardening.service >/dev/null 2>&1 || true
+systemctl stop panel-api.service panel-agent.service panel-proc-hardening.service panel-db-web.service >/dev/null 2>&1 || true
+systemctl disable panel-api.service panel-agent.service panel-proc-hardening.service panel-db-web.service >/dev/null 2>&1 || true
 
 echo -e "${BLUE}[2/4] Menghapus unit file systemd...${NC}"
 rm -f /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service /etc/systemd/system/panel-proc-hardening.service
+rm -f /etc/systemd/system/panel-db-web.service /etc/phpmyadmin/conf.d/zz-panel.php /usr/lib/tmpfiles.d/panel-db-web.conf
+rm -rf /usr/share/panel/db-web /run/panel-db-web /var/lib/panel-db-web
 systemctl daemon-reload
 
 echo -e "${BLUE}[3/4] Menghapus biner Qpanel dari /usr/local/bin...${NC}"
@@ -104,6 +106,8 @@ if [[ "$PURGE" == "true" ]]; then
     echo -e "${BLUE}[4/4] Membersihkan seluruh data dan pengguna sistem (--purge)...${NC}"
     rm -rf /var/lib/panel /var/backups/panel /etc/panel /var/log/panel
     userdel panel-api >/dev/null 2>&1 || true
+    userdel panel-db-web >/dev/null 2>&1 || true
+    groupdel panel-db-web >/dev/null 2>&1 || true
     groupdel panel >/dev/null 2>&1 || true
     echo -e "      ${GREEN}[OK] Seluruh data, konfigurasi, dan pengguna dibersihkan.${NC}"
 else

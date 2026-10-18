@@ -374,7 +374,7 @@ async fn test_php_runtime_list_permissions_and_response() {
 
     let body = res.into_body().collect().await.unwrap().to_bytes();
     let data: PhpRuntimeListApiResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(data.versions.len(), 6); // 7.4, 8.0, 8.1, 8.2, 8.3, 8.4
+    assert_eq!(data.versions.len(), PhpVersion::all_supported().len());
     let versions: Vec<String> = data.versions.iter().map(|v| v.version.clone()).collect();
     assert_eq!(versions, vec!["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]);
 }

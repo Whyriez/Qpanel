@@ -22,7 +22,7 @@ use sqlx::SqlitePool;
 use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
-use crate::auth::middleware::AuthenticatedUser;
+use crate::auth::{RequireAdminCsrf, middleware::AuthenticatedUser};
 use crate::routes::AppState;
 
 /// Request payload to install a Python runtime version.
@@ -159,7 +159,22 @@ pub async fn list_python_versions_handler(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Response {
-    let curated = get_curated_python_catalog();
+    let cache = match crate::runtime_catalog::python_cache(&state.pool).await {
+        Ok(cache) => cache,
+        Err(error) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error":error})),
+            )
+                .into_response();
+        }
+    };
+    let catalog_ready = cache.fresh(chrono::Utc::now().timestamp());
+    let curated = if catalog_ready {
+        cache.data
+    } else {
+        get_curated_python_catalog()
+    };
 
     let installed_res = state
         .agent_client
@@ -174,8 +189,7 @@ pub async fn list_python_versions_handler(
                 .map(|item| (item.version.clone(), item))
                 .collect(),
             Err(e) => {
-                tracing::warn!("Gagal memeriksa Python terpasang di host: {}", e);
-                BTreeMap::new()
+                return (StatusCode::SERVICE_UNAVAILABLE,Json(serde_json::json!({"error":format!("Gagal memeriksa Python terpasang: {e}")}))).into_response();
             }
         };
 
@@ -216,7 +230,7 @@ pub async fn list_python_versions_handler(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "versions": versions })),
+        Json(serde_json::json!({ "versions": versions, "catalog_ready": catalog_ready })),
     )
         .into_response()
 }
@@ -225,34 +239,45 @@ pub async fn list_python_versions_handler(
 /// Installs a specified Python version via `uv` on the host system.
 pub async fn install_python_version_handler(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    admin: RequireAdminCsrf,
     Json(payload): Json<InstallPythonVersionRequest>,
 ) -> Response {
-    if auth_user.role != "admin" {
+    let norm_ver = normalize_python_version(&payload.version);
+    if let Err(error) = panel_runtime::python::validate_python_version(&norm_ver) {
         return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "Hanya admin yang dapat menginstal runtime" })),
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":error.to_string()})),
         )
             .into_response();
     }
-
-    let norm_ver = normalize_python_version(&payload.version);
     let req = PythonRuntimeInstallRequest {
         version: norm_ver.clone(),
         base_dir: None,
     };
 
-    match state.agent_client.install_python_runtime(req).await {
-        Ok(res) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "message": res.message,
-                "version": res.version,
-                "path": res.path,
-                "success": res.success
-            })),
-        )
-            .into_response(),
+    let payload_json = match serde_json::to_string(&req) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error":error.to_string()})),
+            )
+                .into_response();
+        }
+    };
+    let input = panel_db::models::CreateJob {
+        id: uuid::Uuid::new_v4().to_string(),
+        user_id: Some(admin.0.id),
+        name: "python.install".into(),
+        payload_json,
+        max_retries: 1,
+    };
+    match state.job_runner.job_repo.create_or_find_active(&input).await {
+        Ok((job,_)) => {
+            state.job_runner.notify.notify_one();
+            state.audit_writer.log_async(Some(admin.0.id),&admin.0.username,"python.runtime_install",&norm_ver,"success",None,Some(format!("Tugas pemasangan Python dibuat: {}",job.id)));
+            (StatusCode::ACCEPTED,Json(crate::jobs::JobItem::from(job))).into_response()
+        },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("Gagal menginstal Python {}: {}", norm_ver, e) })),
@@ -266,18 +291,17 @@ pub async fn install_python_version_handler(
 /// PRD rule: Cannot delete a runtime version currently in use by active sites (409 Conflict).
 pub async fn remove_python_version_handler(
     State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
+    _admin: RequireAdminCsrf,
     Path(version): Path<String>,
 ) -> Response {
-    if auth_user.role != "admin" {
+    let norm_ver = normalize_python_version(&version);
+    if let Err(error) = panel_runtime::python::validate_python_version(&norm_ver) {
         return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "Hanya admin yang dapat menghapus runtime" })),
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":error.to_string()})),
         )
             .into_response();
     }
-
-    let norm_ver = normalize_python_version(&version);
 
     // Verify whether any site in DB is using this version
     let rows = sqlx::query(
@@ -286,7 +310,17 @@ pub async fn remove_python_version_handler(
     .fetch_all(&state.pool)
     .await;
 
-    if let Ok(rows) = rows {
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error":"Gagal memeriksa penggunaan runtime Python"})),
+            )
+                .into_response();
+        }
+    };
+    {
         let in_use = rows.iter().any(|row| {
             let ver: Option<String> = sqlx::Row::try_get(row, "version").ok();
             if ver

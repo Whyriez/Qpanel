@@ -108,6 +108,24 @@ async fn setup_test_context() -> TestContext {
     .await
     .expect("init db pool");
     run_migrations(&pool).await.expect("run db migrations");
+    // Hermetic official-metadata fixture; runtime policy never fetches the network in tests.
+    let catalog: panel_api::runtime_catalog::NodeCatalog =
+        serde_json::from_value(serde_json::json!({
+            "releases":[
+                {"version":"v22.14.0","date":"2025-02-11","lts":"Jod","files":[]},
+                {"version":"v22.14.1","date":"2025-02-12","lts":"Jod","files":[]}
+            ],
+            "schedule":{"v22":{"start":"2024-04-24","lts":"2024-10-29","end":"2099-04-30"}}
+        }))
+        .unwrap();
+    panel_api::runtime_catalog::store_refresh(
+        &pool,
+        "runtime.catalog.node",
+        Ok(catalog),
+        chrono::Utc::now().timestamp(),
+    )
+    .await
+    .unwrap();
 
     let user_repo = SqliteUserRepository::new(pool.clone());
     let plan_repo = SqlitePlanRepository::new(pool.clone());

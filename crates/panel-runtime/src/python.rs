@@ -18,6 +18,22 @@ pub const DEFAULT_PYTHON_SOCKET_DIR: &str = "/run/panel/python";
 
 /// Default uv binary path.
 pub const DEFAULT_UV_BIN: &str = "uv";
+pub const PYTHON_DOWNLOADS_JSON: &str = "https://raw.githubusercontent.com/astral-sh/uv/main/crates/uv-python-managed/download-metadata.json";
+
+pub fn validate_python_version(version: &str) -> Result<(), RuntimeError> {
+    let parts: Vec<_> = version.split('.').collect();
+    if parts.len() != 3
+        || parts[0] != "3"
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || !part.bytes().all(|b| b.is_ascii_digit())
+                || part.parse::<u16>().is_err()
+        })
+    {
+        return Err(RuntimeError::PythonVersionNotFound(version.into()));
+    }
+    Ok(())
+}
 
 /// Curated Python version metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

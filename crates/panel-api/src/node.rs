@@ -11,10 +11,7 @@ use axum::{
 use panel_proto::{
     NodeRuntimeCorepackRequest, NodeRuntimeInstallRequest, NodeRuntimeRemoveRequest,
 };
-use panel_runtime::node::{
-    DEFAULT_NODE_MIRROR, get_offline_node_catalog, normalize_node_version, parse_nodejs_index_json,
-    raw_node_version_tag,
-};
+use panel_runtime::node::{DEFAULT_NODE_MIRROR, normalize_node_version, raw_node_version_tag};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use utoipa::{IntoParams, ToSchema};
@@ -34,6 +31,7 @@ pub struct NodeVersionQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct NodeVersionItemDto {
     pub version: String,
+    pub support_status: String,
     pub raw_version: String,
     pub is_installed: bool,
     pub installed_path: Option<String>,
@@ -110,9 +108,37 @@ pub async fn get_node_versions_handler(
     };
 
     let sites_usage = fetch_node_sites_usage(&state.pool).await;
-    let (remote_entries, is_offline_fallback) = fetch_catalog_or_fallback(&mirror_url).await;
+    let cache = match crate::runtime_catalog::node_cache(&state.pool).await {
+        Ok(cache) => cache,
+        Err(error) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": error})),
+            )
+                .into_response();
+        }
+    };
+    let is_offline_fallback = !cache.fresh(chrono::Utc::now().timestamp());
+    let remote_entries = if is_offline_fallback {
+        Vec::new()
+    } else {
+        crate::runtime_catalog::node_choices(&cache.data, chrono::Utc::now().date_naive())
+    };
     let installed_count = installed_res.len();
-    let versions = merge_node_catalog_and_installed(&remote_entries, &installed_res, &sites_usage);
+    let mut versions =
+        merge_node_catalog_and_installed(&remote_entries, &installed_res, &sites_usage);
+    for version in &mut versions {
+        version.support_status = if is_offline_fallback {
+            "unverified"
+        } else {
+            crate::runtime_catalog::node_support_status(
+                &version.version,
+                &cache.data,
+                chrono::Utc::now().date_naive(),
+            )
+        }
+        .into();
+    }
 
     (
         StatusCode::OK,
@@ -156,26 +182,6 @@ async fn fetch_node_sites_usage(
     sites_usage
 }
 
-async fn fetch_catalog_or_fallback(
-    mirror_url: &str,
-) -> (Vec<panel_runtime::node::NodeVersionEntry>, bool) {
-    if !mirror_url.starts_with("http") {
-        return (get_offline_node_catalog(), true);
-    }
-
-    let index_url = format!("{}/index.json", mirror_url);
-    match fetch_remote_index_json(&index_url).await {
-        Ok(entries) => (entries, false),
-        Err(e) => {
-            tracing::info!(
-                "Remote Node.js index fetch failed ({}), falling back to offline catalog",
-                e
-            );
-            (get_offline_node_catalog(), true)
-        }
-    }
-}
-
 fn merge_node_catalog_and_installed(
     catalog: &[panel_runtime::node::NodeVersionEntry],
     installed: &[panel_proto::NodeInstalledVersionDto],
@@ -193,6 +199,7 @@ fn merge_node_catalog_and_installed(
             norm_v.clone(),
             NodeVersionItemDto {
                 version: norm_v.clone(),
+                support_status: "unverified".into(),
                 raw_version: format!("v{}", norm_v),
                 is_installed: false,
                 installed_path: None,
@@ -218,6 +225,7 @@ fn merge_node_catalog_and_installed(
             .entry(norm_v.clone())
             .or_insert_with(|| NodeVersionItemDto {
                 version: norm_v.clone(),
+                support_status: "unverified".into(),
                 raw_version: format!("v{}", norm_v),
                 is_installed: true,
                 installed_path: Some(inst.path.clone()),
@@ -243,29 +251,13 @@ fn merge_node_catalog_and_installed(
         b.is_installed
             .cmp(&a.is_installed)
             .then_with(|| b.is_lts.cmp(&a.is_lts))
-            .then_with(|| b.version.cmp(&a.version))
+            .then_with(|| {
+                crate::runtime_catalog::version_key(&b.version)
+                    .cmp(&crate::runtime_catalog::version_key(&a.version))
+            })
     });
 
     versions
-}
-
-/// Helper to download index.json with timeout
-async fn fetch_remote_index_json(
-    url: &str,
-) -> Result<Vec<panel_runtime::node::NodeVersionEntry>, String> {
-    // We execute curl as a child process with a strict 5 second timeout to prevent blocking
-    let output = tokio::process::Command::new("curl")
-        .args(["-fsSL", "--max-time", "5", url])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(format!("curl exited with code {:?}", output.status.code()));
-    }
-
-    let json_str = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
-    parse_nodejs_index_json(&json_str).map_err(|e| e.to_string())
 }
 
 /// POST /api/v1/runtimes/node/install
@@ -309,6 +301,11 @@ pub async fn install_node_version_handler(
         enable_corepack: payload.enable_corepack.unwrap_or(true),
         base_dir: payload.base_dir,
     };
+    match crate::runtime_catalog::node_installable(&state.pool,&norm_ver).await {
+        Ok(true)=>{},
+        Ok(false)=>return (StatusCode::UNPROCESSABLE_ENTITY,Json(serde_json::json!({"error":"Pilih versi Node.js LTS yang masih didukung. Perbarui katalog runtime sebelum memasang."}))).into_response(),
+        Err(error)=>return (StatusCode::SERVICE_UNAVAILABLE,Json(serde_json::json!({"error":error}))).into_response(),
+    }
 
     let payload_json = match serde_json::to_string(&req) {
         Ok(json) => json,

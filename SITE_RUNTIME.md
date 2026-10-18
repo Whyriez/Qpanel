@@ -95,3 +95,54 @@ Pengujian lokal memakai runner/protokol tiruan dan SQLite sementara. Starter
 Node/Python juga dapat diuji sebagai child process lokal tanpa daemon panel.
 Ini belum membuktikan systemd, FPM, ACL/socket, registry Python atau Nginx di
 server produksi telah berhasil.
+## Katalog runtime dan instalasi Python
+
+Runtime Manager menyediakan tab Python dengan pemasangan melalui tugas latar
+belakang, progres yang tetap tersedia setelah navigasi, serta penghapusan yang
+ditolak bila runtime dipakai situs. Pemasangan Python memerlukan admin dan CSRF;
+respons API instalasi kini JobItem HTTP 202, termasuk alias endpoint legacy.
+
+Pembaruan katalog berjalan harian secara default, dapat diubah menjadi 6/12/24 jam
+atau mingguan, dan dapat dimatikan. Tombol **Perbarui katalog sekarang** hanya
+mengambil metadata; tidak memasang runtime atau mengganti versi situs. Status tiap
+sumber dan jadwal tersimpan setelah restart API. Bila sumber gagal, snapshot sukses
+terakhir dipertahankan. Snapshot lebih dari tujuh hari perlu disinkronkan ulang
+sebelum menawarkan pemasangan baru.
+
+Node.js menawarkan lima patch terbaru per lini LTS yang masih mendapat dukungan
+resmi, dengan pemeriksaan tanggal EOL pada katalog dan tugas instalasi. Node yang
+sudah terpasang tetap terlihat, termasuk versi EOL milik situs existing. PHP kini
+mendukung 8.5 dan menampilkan patch terbaru cabang aktif dari php.net; pemasangan
+manual mengambil kandidat paket APT. Cabang PHP baru di luar whitelist membutuhkan
+upgrade panel. Python menggunakan patch stabil terbaru per lini yang didukung dari
+metadata Astral/Python, bukan daftar patch lama yang statis.
+
+PHP 8.5 memuat OPcache sebagai bawaan binary. Installer tidak meminta paket
+`php8.5-opcache`; daftar ekstensi menampilkan OPcache sebagai modul inti dan
+pengaturan cache tetap dikelola melalui pengaturan PHP situs.
+
+Upgrade pasangan API/agent serta bundle web untuk memakai perubahan ini. Tidak ada
+upgrade/penghapusan otomatis terhadap runtime atau situs existing. ADR-0118 dan
+docs/PROGRESS.md mencatat validasi lokal dan acceptance Linux yang masih terpisah.
+
+## Pengelola database internal
+
+Setelah memperbarui API, agent dan bundle web, administrator membuka **Runtime >
+Server Basis Data > Pasang pengelola database**. Instalasi phpMyAdmin (MariaDB/MySQL),
+Adminer (PostgreSQL), dan layanan privat berjalan sebagai tugas latar belakang.
+Tombol **Perbarui pengelola** juga memasang ulang bridge milik panel ketika upgrade.
+
+Tenant membuka **Situs > Database > Buka phpMyAdmin / Buka Adminer**. Pengelola
+terbuka di tab baru pada alamat panel dan langsung memakai sesi panel. Tidak perlu
+mengaktifkan remote access atau membuka port 3306/5432. Browser perlu mengizinkan
+tab baru. Akun web khusus dibatasi ke database tujuan; sandi aplikasi tetap sama.
+
+Jika alat belum siap, administrator memeriksa kartu pengelola dan log
+`journalctl -u panel-db-web.service --no-pager -n 100` pada server. Jangan membuat
+alias Nginx publik langsung ke direktori phpMyAdmin/Adminer, karena akses harus
+melewati pemeriksaan sesi dan kepemilikan panel. Impor melalui pengelola dibatasi
+30 MiB per berkas; dump besar tetap memakai fitur job impor/ekspor yang sudah ada.
+
+Layanan menggunakan socket Unix, user non-root khusus, dan paket APT distribusi.
+Validasi sesi ini menggunakan mock/fixture lokal; instalasi dan akses database nyata
+di Linux belum diverifikasi. Rincian desain dan batas ada pada ADR-0119.

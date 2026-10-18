@@ -48,13 +48,18 @@ import { runtimeJobVersion, useRuntimeJobs } from '../components/runtime/useRunt
 import { RuntimeJobProgress } from '../components/runtime/RuntimeJobProgress';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
 import { DatabaseServersTab } from '../components/runtime/DatabaseServersTab';
+import { PythonRuntimesTab } from '../components/runtime/PythonRuntimesTab';
+import { CatalogScheduleCard } from '../components/runtime/CatalogScheduleCard';
 import { toast } from 'sonner';
 
-type RuntimeTab = 'php' | 'node' | 'processes' | 'databases';
+type RuntimeTab = 'php' | 'node' | 'python' | 'processes' | 'databases';
+const mainRuntimeNames = new Set(['php.install', 'php.remove', 'php.repo.setup', 'node.install']);
 
 export const RuntimePage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<RuntimeTab>('php');
+  const [pythonRevision, setPythonRevision] = useState(0);
+  const [databaseRevision, setDatabaseRevision] = useState(0);
 
   // =========================================================
   // PHP State
@@ -161,7 +166,7 @@ export const RuntimePage: React.FC = () => {
     return Boolean(inventory && (job.status !== 'succeeded' ||
       inventory.versions.some(item => item.version === version && item.is_installed)));
   }, [loadPhpData, loadNodeData]);
-  const runtimeJobs = useRuntimeJobs(onRuntimeFinished);
+  const runtimeJobs = useRuntimeJobs(onRuntimeFinished, mainRuntimeNames);
   const jobsUnavailable = runtimeJobs.loading || Boolean(runtimeJobs.error);
   const phpRepoJob = runtimeJobs.jobs.find(job => job.name === 'php.repo.setup');
   const nodeBusyVersions = useMemo(() => [
@@ -344,6 +349,10 @@ export const RuntimePage: React.FC = () => {
                 <Boxes className="w-5 h-5 text-emerald-500" />
                 {t('runtime.nodeTitle')}
               </>
+            ) : activeTab === 'python' ? (
+              <><Terminal className="w-5 h-5 text-[var(--primary)]" />Manajer runtime Python</>
+            ) : activeTab === 'databases' ? (
+              <><Database className="w-5 h-5 text-[var(--primary)]" />Server basis data</>
             ) : (
               <>
                 <Activity className="w-5 h-5 text-blue-500" />
@@ -356,7 +365,7 @@ export const RuntimePage: React.FC = () => {
               ? t('runtime.subtitle')
               : activeTab === 'node'
                 ? t('runtime.nodeSubtitle')
-                : 'Pantau status langsung, konsumsi memori, CPU, dan aliran log stdout/stderr dari aplikasi yang berjalan.'}
+                : activeTab === 'python' ? 'Kelola versi Python dan pemasangannya untuk aplikasi situs.' : activeTab === 'databases' ? 'Kelola server database dan akses phpMyAdmin atau Adminer untuk tenant.' : 'Pantau status langsung, konsumsi memori, CPU, dan aliran log stdout/stderr dari aplikasi yang berjalan.'}
           </p>
         </div>
 
@@ -379,6 +388,8 @@ export const RuntimePage: React.FC = () => {
             onClick={() => {
               if (activeTab === 'php') loadPhpData();
               else if (activeTab === 'node') loadNodeData();
+              else if (activeTab === 'python') setPythonRevision(value => value + 1);
+              else if (activeTab === 'databases') setDatabaseRevision(value => value + 1);
               else loadProcessData();
             }}
             disabled={
@@ -386,7 +397,7 @@ export const RuntimePage: React.FC = () => {
                 ? phpLoading
                 : activeTab === 'node'
                   ? nodeLoading
-                  : processLoading
+                  : activeTab === 'python' || activeTab === 'databases' ? false : processLoading
             }
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--line)] transition-colors disabled:opacity-50"
           >
@@ -396,7 +407,7 @@ export const RuntimePage: React.FC = () => {
                   ? phpLoading
                   : activeTab === 'node'
                     ? nodeLoading
-                    : processLoading)
+                    : activeTab === 'python' || activeTab === 'databases' ? false : processLoading)
                   ? 'animate-spin'
                   : ''
               }`}
@@ -412,7 +423,7 @@ export const RuntimePage: React.FC = () => {
           Status tugas runtime gagal dimuat: {runtimeJobs.error}. Pemasangan ditahan sampai status dapat diperiksa kembali.
         </p>
       )}
-      <div className="flex items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-fit">
+      <div className="flex flex-wrap items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-full sm:w-fit">
         <button
           onClick={() => setActiveTab('php')}
           className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
@@ -477,6 +488,14 @@ export const RuntimePage: React.FC = () => {
         </button>
 
         <button
+          onClick={() => setActiveTab('python')}
+          aria-pressed={activeTab === 'python'}
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${activeTab === 'python' ? 'bg-[var(--primary)] text-white' : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'}`}
+        >
+          <Terminal className="w-3.5 h-3.5" /><span>Python</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('databases')}
           className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
             activeTab === 'databases'
@@ -489,6 +508,8 @@ export const RuntimePage: React.FC = () => {
         </button>
       </div>
 
+      {['php', 'node', 'python'].includes(activeTab) && <CatalogScheduleCard onRefresh={() => { void loadPhpData(true); void loadNodeData(true); setPythonRevision(value => value + 1); }} />}
+      {activeTab === 'python' && <PythonRuntimesTab key={pythonRevision} />}
       {/* ========================================================= */}
       {/* TAB CONTENT: PHP RUNTIMES                                  */}
       {/* ========================================================= */}
@@ -563,7 +584,7 @@ export const RuntimePage: React.FC = () => {
                 Daftar Versi PHP yang Didukung
               </h2>
               <span className="text-xs text-[var(--ink-muted)]">
-                {installedPhpCount} dari {phpData?.versions?.length || 6} terpasang
+                {installedPhpCount} dari {phpData?.versions?.length || 0} terpasang
               </span>
             </div>
 
@@ -592,6 +613,7 @@ export const RuntimePage: React.FC = () => {
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-semibold text-[var(--ink)]">
                                 PHP {v.version}
+                                {v.latest_release && <span className="ml-2 text-xs text-[var(--ink-muted)]">Rilis {v.latest_release}</span>}
                               </span>
                               {activeJob ? (
                                 <span role="status" className="inline-flex items-center gap-1 text-xs text-[var(--primary)]">
@@ -722,12 +744,12 @@ export const RuntimePage: React.FC = () => {
                 {nodeData?.is_offline_fallback && (
                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full">
                     <AlertTriangle className="w-2.5 h-2.5" />
-                    Katalog Offline Terkurasi
+                    Katalog perlu diperbarui
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-[var(--ink-muted)]">
-                Daftar rilis disinkronkan langsung dari manifest resmi Node.js dengan verifikasi hash SHA256 otomatis saat pemasangan.
+                Lima patch terbaru per lini LTS yang masih didukung. Versi yang telah berakhir dukungannya tidak ditawarkan untuk pemasangan; runtime terpasang tetap ditampilkan.
               </p>
             </div>
 
@@ -796,6 +818,8 @@ export const RuntimePage: React.FC = () => {
                             <div className="flex items-center flex-wrap gap-2">
                               <span className="text-sm font-semibold text-[var(--ink)] font-mono">
                                 Node.js v{v.version}
+                                {v.support_status === 'eol' && <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">Dukungan berakhir</span>}
+                                {v.support_status === 'unverified' && <span className="ml-2 text-xs text-[var(--ink-muted)]">Dukungan belum terverifikasi</span>}
                               </span>
 
                               {v.is_lts && (
@@ -1075,7 +1099,7 @@ export const RuntimePage: React.FC = () => {
       {/* TAB CONTENT: DATABASE SERVERS (Phase 8 - P8-T5)           */}
       {/* ========================================================= */}
       {activeTab === 'databases' && (
-        <DatabaseServersTab />
+        <DatabaseServersTab key={databaseRevision} />
       )}
 
       {/* ========================================================= */}

@@ -421,6 +421,7 @@ export interface SiteLogsResponse {
 
 export interface PhpVersionStatusItem {
   version: string;
+  latest_release?: string | null;
   installed: boolean;
   fpm_binary_exists: boolean;
   cli_binary_exists: boolean;
@@ -648,6 +649,7 @@ export interface SshConnectionInfoResponse {
 // Node.js Runtime Types (Phase 7 - P7-T1)
 export interface NodeVersionItem {
   version: string;
+  support_status?: 'lts' | 'eol' | 'not_lts' | 'unverified';
   raw_version: string;
   is_installed: boolean;
   installed_path: string | null;
@@ -743,6 +745,7 @@ export interface UpdateNodeSiteSettingsRequest {
 // Python Site & Process Management Types (Phase 7 - P7-T3)
 export interface PythonRuntimeListApiResponse {
   versions: PythonVersionSummaryDto[];
+  catalog_ready?: boolean;
 }
 
 export interface PythonVersionSummaryDto {

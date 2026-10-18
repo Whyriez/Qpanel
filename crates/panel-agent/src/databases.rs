@@ -236,10 +236,12 @@ pub fn delete_database(
                 req.name, req.db_user, req.db_user
             );
             runner.run_command("mariadb", &["-e", &sql])?;
+            crate::database_web::remove_account(runner, engine, &req.name)?;
         }
         DatabaseEngine::PostgreSql => {
             let drop_db_sql = format!("DROP DATABASE IF EXISTS \"{}\";", req.name);
             runner.run_command("psql", &["-U", "postgres", "-c", &drop_db_sql])?;
+            crate::database_web::remove_account(runner, engine, &req.name)?;
 
             let drop_user_sql = format!("DROP USER IF EXISTS \"{}\";", req.db_user);
             let _ = runner.run_command("psql", &["-U", "postgres", "-c", &drop_user_sql]);

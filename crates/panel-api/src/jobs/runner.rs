@@ -125,6 +125,37 @@ impl JobRunner {
         }
         Ok((job, duplicate))
     }
+    /// Globally deduplicate installation of the shared, private database web tools.
+    pub async fn enqueue_database_web_install(&self, user_id: i64) -> Result<(Job, bool), DbError> {
+        let result = self
+            .job_repo
+            .create_or_find_active(&CreateJob {
+                id: Uuid::new_v4().to_string(),
+                user_id: Some(user_id),
+                name: "database.web.install".into(),
+                payload_json: "{}".into(),
+                max_retries: 1,
+            })
+            .await?;
+        if !result.1 {
+            crate::jobs::events::publish(
+                &self.job_repo,
+                &self.event_tx,
+                JobProgressEvent {
+                    sequence: None,
+                    job_id: result.0.id.clone(),
+                    status: "queued".into(),
+                    progress: 0,
+                    message: Some("Pemasangan pengelola database masuk antrean.".into()),
+                    timestamp: result.0.created_at,
+                },
+            )
+            .await?;
+        }
+        self.notify.notify_one();
+        Ok(result)
+    }
+
     /// Creates a new `JobRunner` with default registered handlers.
     pub fn new(pool: DbPool) -> Self {
         Self::with_registry(pool, JobRegistry::new())

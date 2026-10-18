@@ -807,7 +807,7 @@ pub async fn delete_database_handler(
     }
 
     // Call agent to drop DB and user
-    let _ = state
+    let deletion = state
         .agent_client
         .database_delete(panel_proto::DatabaseDeleteRequest {
             engine: db.engine.clone(),
@@ -815,6 +815,10 @@ pub async fn delete_database_handler(
             db_user: db.db_user.clone(),
         })
         .await;
+
+    if !deletion.is_ok_and(|result| result.success) {
+        return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({"error": "Gagal menghapus database atau akun pengelola internal. Periksa layanan database lalu coba lagi."}))).into_response();
+    }
 
     // Delete record from repo
     match db_repo.delete(id).await {

@@ -98,6 +98,33 @@ pub struct AgentClient {
 }
 
 impl AgentClient {
+    pub async fn database_web(
+        &self,
+        request: RequestPayload,
+    ) -> Result<ResponsePayload, AgentClientError> {
+        if !matches!(
+            request,
+            RequestPayload::DatabaseWebStatus | RequestPayload::DatabaseWebCredentials(_)
+        ) {
+            return Err(AgentClientError::AgentError(
+                "Permintaan pengelola database tidak valid".into(),
+            ));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut rpc = self.connect().await?;
+            rpc.send_request(&RpcRequest::new(uuid::Uuid::new_v4().to_string(), request))
+                .await?;
+            let response = rpc.recv_response().await?;
+            if !response.success {
+                return Err(AgentClientError::AgentError(
+                    "Agent gagal menyiapkan pengelola database".into(),
+                ));
+            }
+            Ok(response.payload)
+        })
+        .await
+        .map_err(|_| AgentClientError::AgentError("Pengelola database timeout".into()))?
+    }
     pub async fn email(
         &self,
         request: panel_proto::EmailRequest,

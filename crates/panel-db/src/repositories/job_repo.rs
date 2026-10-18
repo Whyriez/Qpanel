@@ -213,7 +213,7 @@ impl SqliteJobRepository {
             UPDATE jobs
             SET status = 'cancelled', updated_at = ?
             WHERE id = ? AND status IN ('queued', 'running')
-              AND NOT (status = 'running' AND name IN ('php.install','php.repo.setup','database.server.install','cloudflare.install','cloudflare.change','email.install','email.mailbox','email.send','email.deliver'))
+              AND NOT (status = 'running' AND name IN ('php.install','php.repo.setup','database.server.install','database.web.install','cloudflare.install','cloudflare.change','email.install','email.mailbox','email.send','email.deliver'))
             "#,
         )
         .bind(now)

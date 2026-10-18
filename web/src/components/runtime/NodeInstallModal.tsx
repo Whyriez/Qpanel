@@ -41,6 +41,7 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
   const version = (isCustom ? customVersion.trim() : selectedVersion).replace(/^v/, '');
   const versionBusy = busyVersions.includes(version);
   const versionInstalled = availableVersions.some(item => item.version === version && item.is_installed);
+  const versionAllowed = availableVersions.some(item => item.version === version && !item.is_installed);
 
   useEffect(() => {
     if (isOpen) {
@@ -54,7 +55,7 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting || versionBusy || versionInstalled || jobsUnavailable) return;
+    if (submitting || versionBusy || versionInstalled || jobsUnavailable || !versionAllowed) return;
     const cycle = openCycle.current;
     const ver = isCustom ? customVersion.trim() : selectedVersion;
     if (!ver) return;
@@ -116,6 +117,7 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto dialog-form">
           <div className="dialog-body space-y-4">
             {submitError && <p role="alert" className="text-xs text-[var(--danger)] whitespace-pre-wrap break-words">{submitError}</p>}
+            {version && !versionAllowed && !versionInstalled && <p role="status" className="text-xs text-[var(--ink-muted)]">Versi ini tidak tersedia dalam katalog LTS yang masih didukung. Perbarui katalog dan pilih versi yang tersedia.</p>}
             {versionBusy && <p role="status" className="text-xs text-[var(--ink-muted)]">Versi ini sedang dipasang. Pantau progres pada halaman Tugas; modal boleh ditutup.</p>}
             {submitting && <p role="status" className="text-xs text-[var(--ink-muted)]">Membuat tugas pemasangan. Modal boleh ditutup; proses tetap dilanjutkan.</p>}
             {/* Version Selection */}
@@ -145,14 +147,14 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
                     onClick={() => setIsCustom(true)}
                     className="text-[11px] text-[var(--primary)] hover:underline"
                   >
-                    Gunakan nomor versi kustom lainnya
+                    Ketik nomor versi dari katalog
                   </button>
                 </div>
               ) : (
                 <div className="space-y-2">
                   <input
                     type="text"
-                    placeholder="Contoh: 22.14.0 atau 20.18.3"
+                    placeholder="Nomor versi LTS dari katalog"
                     value={customVersion}
                     onChange={(e) => setCustomVersion(e.target.value)}
                     disabled={submitting}
@@ -272,7 +274,7 @@ export const NodeInstallModal: React.FC<NodeInstallModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={submitting || versionBusy || versionInstalled || jobsUnavailable || !version}
+              disabled={submitting || versionBusy || versionInstalled || jobsUnavailable || !version || !versionAllowed}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm"
             >
               {submitting ? (

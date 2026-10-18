@@ -1,4 +1,5 @@
 import { ModalOverlay } from '../ui/ModalOverlay';
+import { DatabaseWebAccessButton } from './DatabaseWebAccessButton';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Database,
@@ -632,6 +633,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
 
                   {/* Right Column: Actions */}
                   <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800">
+                    <DatabaseWebAccessButton id={db.id} name={db.name} engine={db.engine} />
                     <button
                       onClick={() => {
                         setRotatingDb(db);

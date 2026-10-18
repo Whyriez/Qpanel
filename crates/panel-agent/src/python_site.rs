@@ -860,9 +860,15 @@ pub fn install_python_runtime(
 ) -> Result<PythonRuntimeActionResponse, AgentError> {
     let base_dir_str = req.base_dir.as_deref().unwrap_or(DEFAULT_PYTHON_BASE_DIR);
     let norm_ver = normalize_python_version(&req.version);
+    panel_runtime::python::validate_python_version(&norm_ver)
+        .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
     let target_dir = format!("{}/{}", base_dir_str, norm_ver);
 
-    let cmd = build_uv_python_install_cmd(DEFAULT_UV_BIN, &norm_ver, Some(&target_dir));
+    let mut cmd = build_uv_python_install_cmd(DEFAULT_UV_BIN, &norm_ver, Some(&target_dir));
+    cmd.extend([
+        "--python-downloads-json-url".into(),
+        panel_runtime::python::PYTHON_DOWNLOADS_JSON.into(),
+    ]);
     let args_ref: Vec<&str> = cmd[1..].iter().map(|s| s.as_str()).collect();
 
     let output = runner.run_command(&cmd[0], &args_ref)?;
@@ -890,6 +896,8 @@ pub fn remove_python_runtime(
 ) -> Result<PythonRuntimeActionResponse, AgentError> {
     let base_dir_str = req.base_dir.as_deref().unwrap_or(DEFAULT_PYTHON_BASE_DIR);
     let norm_ver = normalize_python_version(&req.version);
+    panel_runtime::python::validate_python_version(&norm_ver)
+        .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
     let target_dir = format!("{}/{}", base_dir_str, norm_ver);
     let target_path = PathBuf::from(&target_dir);
 
@@ -909,6 +917,45 @@ pub fn remove_python_runtime(
 mod tests {
     use super::*;
     use crate::system::{MockAction, MockSystemRunner};
+
+    #[test]
+    fn runtime_install_rejects_path_and_option_versions_before_commands() {
+        let runner = MockSystemRunner::new();
+        for version in ["../../etc", "--help", "3.14.0/../../x", "3.14.0\nextra"] {
+            let request = PythonRuntimeInstallRequest {
+                version: version.into(),
+                base_dir: None,
+            };
+            assert!(install_python_runtime(&runner, &request).is_err());
+            assert!(
+                remove_python_runtime(
+                    &runner,
+                    &PythonRuntimeRemoveRequest {
+                        version: version.into(),
+                        base_dir: None
+                    }
+                )
+                .is_err()
+            );
+        }
+        assert!(runner.recorded_actions().is_empty());
+        runner.set_response("uv", 0, b"installed", b"");
+        assert!(
+            install_python_runtime(
+                &runner,
+                &PythonRuntimeInstallRequest {
+                    version: "3.14.10".into(),
+                    base_dir: None
+                }
+            )
+            .unwrap()
+            .success
+        );
+        let commands = runner.get_commands();
+        assert!(commands[0].contains(
+            "--python-downloads-json-url https://raw.githubusercontent.com/astral-sh/uv/"
+        ));
+    }
 
     #[test]
     fn python_environment_setup_is_bounded_and_runs_as_tenant_before_unit_install() {

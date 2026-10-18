@@ -469,6 +469,9 @@ impl JobHandler for NodeInstallHandler {
             if owner.role != "admin" || owner.status != "active" {
                 return Err("Pemasangan runtime Node.js memerlukan administrator aktif".to_string());
             }
+            if !crate::runtime_catalog::node_installable(&ctx.pool, &req.version).await? {
+                return Err("Versi Node.js tidak termasuk LTS yang masih didukung; perbarui katalog runtime".into());
+            }
             if ctx.is_cancelled() {
                 return Err("Job dibatalkan sebelum pemasangan Node.js".to_string());
             }
@@ -486,6 +489,56 @@ impl JobHandler for NodeInstallHandler {
                 .await
                 .map_err(|e| e.to_string())?;
             serde_json::to_string(&res)
+                .map(Some)
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
+pub struct PythonInstallHandler(Arc<crate::agent_client::AgentClient>);
+impl JobHandler for PythonInstallHandler {
+    fn run<'a>(&'a self, job: &'a Job, ctx: &'a JobContext) -> JobFuture<'a> {
+        Box::pin(async move {
+            let actor: Option<(String, String)> =
+                sqlx::query_as("SELECT role,status FROM users WHERE id=?")
+                    .bind(job.user_id)
+                    .fetch_optional(&ctx.pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            if actor != Some(("admin".into(), "active".into())) {
+                return Err("Pemasangan Python memerlukan administrator aktif".into());
+            }
+            let request: panel_proto::PythonRuntimeInstallRequest =
+                serde_json::from_str(&job.payload_json).map_err(|e| e.to_string())?;
+            panel_runtime::python::validate_python_version(&request.version)
+                .map_err(|e| e.to_string())?;
+            if request.base_dir.is_some() {
+                return Err("Direktori runtime dikelola agent".into());
+            }
+            if ctx.is_cancelled() {
+                return Err("Tugas Python dibatalkan sebelum pemasangan".into());
+            }
+            ctx.report_progress(
+                15,
+                Some(&format!(
+                    "Mengunduh dan memasang Python {} melalui uv",
+                    request.version
+                )),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            let installed = self
+                .0
+                .install_python_runtime(request)
+                .await
+                .map_err(|e| e.to_string())?;
+            if !installed.success {
+                return Err(installed.message);
+            }
+            ctx.report_progress(100, Some(&installed.message))
+                .await
+                .map_err(|e| e.to_string())?;
+            serde_json::to_string(&installed)
                 .map(Some)
                 .map_err(|e| e.to_string())
         })
@@ -1060,6 +1113,10 @@ impl JobRegistry {
             NodeInstallHandler::new(Arc::clone(&agent_client)),
         );
         reg.register(
+            "python.install",
+            PythonInstallHandler(Arc::clone(&agent_client)),
+        );
+        reg.register(
             "quota.report",
             QuotaReportHandler::new(Arc::clone(&agent_client)),
         );
@@ -1102,6 +1159,10 @@ impl JobRegistry {
         reg.register(
             "database.server.install",
             DatabaseServerInstallHandler::new(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "database.web.install",
+            crate::database_web::WebToolsInstallHandler(Arc::clone(&agent_client)),
         );
         reg.register(
             "database.export",

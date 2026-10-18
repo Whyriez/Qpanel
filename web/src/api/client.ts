@@ -1181,6 +1181,23 @@ export async function updateNodeSiteSettings(
 }
 
 // Python Runtime & Site Management Client APIs (Phase 7 - P7-T3)
+export interface RuntimeCatalogStatus {
+  enabled: boolean;
+  interval_hours: number;
+  sources: { runtime: string; checked_at: number | null; refreshed_at: number | null; error: string | null; stale: boolean }[];
+}
+export function getRuntimeCatalog(): Promise<RuntimeCatalogStatus> {
+  return request<RuntimeCatalogStatus>('/api/v1/runtimes/catalog');
+}
+export function saveRuntimeCatalogSchedule(payload: { enabled: boolean; interval_hours: number }): Promise<RuntimeCatalogStatus> {
+  return request<RuntimeCatalogStatus>('/api/v1/runtimes/catalog', { method: 'PUT', body: JSON.stringify(payload) });
+}
+export function refreshRuntimeCatalog(): Promise<RuntimeCatalogStatus> {
+  return request<RuntimeCatalogStatus>('/api/v1/runtimes/catalog/refresh', { method: 'POST' });
+}
+export function fetchPythonCatalog(): Promise<import('../types/api').PythonRuntimeListApiResponse> {
+  return request<import('../types/api').PythonRuntimeListApiResponse>('/api/v1/runtimes/python/versions');
+}
 export async function getPythonVersions(
   refresh?: boolean
 ): Promise<import('../types/api').PythonVersionSummaryDto[]> {
@@ -1193,9 +1210,9 @@ export async function getPythonVersions(
 
 export async function installPythonVersion(
   payload: { version: string }
-): Promise<{ success: boolean; message: string; version: string }> {
-  return request<{ success: boolean; message: string; version: string }>(
-    '/api/v1/runtimes/python',
+): Promise<import('../types/api').JobItem> {
+  return request<import('../types/api').JobItem>(
+    '/api/v1/runtimes/python/install',
     {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -1574,6 +1591,23 @@ export async function fetchSiteDeploymentDetail(
 
 export async function fetchDatabaseServers(): Promise<DatabaseServer[]> {
   return request<DatabaseServer[]>('/api/v1/databases/servers');
+}
+
+export async function fetchDatabaseWebTools(): Promise<{ installed: boolean; ready: boolean }> {
+  const data = await request<unknown>('/api/v1/databases/web-tools');
+  if (!data || typeof data !== 'object' || !('installed' in data) || !('ready' in data)
+    || typeof data.installed !== 'boolean' || typeof data.ready !== 'boolean') {
+    throw new Error('Format status pengelola database tidak valid. Perbarui panel lalu coba lagi.');
+  }
+  return { installed: data.installed, ready: data.ready };
+}
+
+export async function installDatabaseWebTools(): Promise<JobItem> {
+  return request('/api/v1/databases/web-tools/install', { method: 'POST' });
+}
+
+export async function openDatabaseWebAccess(id: number): Promise<{ url: string; tool: string }> {
+  return request(`/api/v1/databases/${id}/web-access`, { method: 'POST' });
 }
 
 export async function installDatabaseServer(

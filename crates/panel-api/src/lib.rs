@@ -6,6 +6,7 @@ pub mod auth;
 pub mod backups;
 pub mod config;
 pub mod cron;
+pub mod database_web;
 pub mod databases;
 pub mod email;
 pub mod env_vars;
@@ -27,6 +28,7 @@ pub mod proxy_site;
 pub mod python_site;
 pub mod retention;
 pub mod routes;
+pub mod runtime_catalog;
 pub mod security_analytics;
 pub mod security_hardening;
 pub mod security_headers;
@@ -56,6 +58,15 @@ pub fn create_router(state: AppState) -> Router {
     let api_doc = ApiDoc::openapi();
 
     let api_routes = Router::new()
+        .merge(database_web::router())
+        .route(
+            "/api/v1/runtimes/catalog",
+            get(runtime_catalog::get_status).put(runtime_catalog::update_schedule),
+        )
+        .route(
+            "/api/v1/runtimes/catalog/refresh",
+            post(runtime_catalog::refresh_handler),
+        )
         .route("/api/v1/email", get(email::overview))
         .route("/api/v1/email/install", post(email::install))
         .route(

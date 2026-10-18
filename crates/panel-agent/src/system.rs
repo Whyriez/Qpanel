@@ -34,6 +34,7 @@ pub const ALLOWED_BINARIES: &[&str] = &[
     "apt-cache",
     "add-apt-repository",
     "dpkg-query",
+    "debconf-set-selections",
     "phpenmod",
     "phpdismod",
     "systemd-analyze",
@@ -396,9 +397,26 @@ impl SystemRunner for RealSystemRunner {
     ) -> Result<std::process::Output, AgentError> {
         use std::io::Write;
         use std::process::Stdio;
-        if !["sendmail", "doveadm"].contains(&binary) || input.len() > 2 * 1024 * 1024 {
+        let database_input = (binary == "debconf-set-selections" && args.is_empty())
+            || (binary == "mariadb" && args == ["--batch"])
+            || (binary == "runuser"
+                && args
+                    == [
+                        "--user",
+                        "postgres",
+                        "--",
+                        "psql",
+                        "--no-psqlrc",
+                        "--set",
+                        "ON_ERROR_STOP=1",
+                        "--dbname",
+                        "postgres",
+                    ]);
+        if (!database_input && !["sendmail", "doveadm"].contains(&binary))
+            || input.len() > 2 * 1024 * 1024
+        {
             return Err(AgentError::SecurityViolation(
-                "Input command email tidak valid".into(),
+                "Input command tidak valid".into(),
             ));
         }
         let mut child = panel_core::production::system_command(binary)
@@ -416,10 +434,10 @@ impl SystemRunner for RealSystemRunner {
             let output = child.wait_with_output()?;
             writer
                 .join()
-                .map_err(|_| AgentError::Internal("Penulisan email terhenti".into()))??;
+                .map_err(|_| AgentError::Internal("Penulisan input terhenti".into()))??;
             if !output.status.success() {
                 return Err(AgentError::Internal(format!(
-                    "{binary} menolak email; periksa log layanan"
+                    "{binary} menolak operasi; periksa log layanan"
                 )));
             }
             Ok(output)

@@ -18,13 +18,24 @@ pub const HSTS_VALUE: &str = "max-age=31536000; includeSubDomains; preload";
 
 /// Injects comprehensive OWASP ASVS L2 security headers into outgoing HTTP responses.
 pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
+    let database_tool = req
+        .uri()
+        .path()
+        .strip_prefix("/api/v1/databases/")
+        .is_some_and(|path| {
+            path.split_once('/').is_some_and(|(id, rest)| {
+                id.parse::<i64>().is_ok_and(|id| id > 0) && rest.starts_with("web/")
+            })
+        });
     let mut response = next.run(req).await;
     let headers = response.headers_mut();
 
-    headers.insert(
-        "Content-Security-Policy",
-        HeaderValue::from_static(CSP_VALUE),
-    );
+    if !database_tool || !headers.contains_key("Content-Security-Policy") {
+        headers.insert(
+            "Content-Security-Policy",
+            HeaderValue::from_static(CSP_VALUE),
+        );
+    }
     headers.insert(
         "X-Content-Type-Options",
         HeaderValue::from_static(X_CONTENT_TYPE_OPTIONS_VALUE),
@@ -39,7 +50,11 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     );
     headers.insert(
         "Referrer-Policy",
-        HeaderValue::from_static(REFERRER_POLICY_VALUE),
+        HeaderValue::from_static(if database_tool {
+            "no-referrer"
+        } else {
+            REFERRER_POLICY_VALUE
+        }),
     );
     headers.insert(
         "Permissions-Policy",

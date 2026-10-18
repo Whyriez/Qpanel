@@ -23,6 +23,7 @@ use crate::sites::{fetch_and_authorize_site, recompile_and_apply_site_vhost};
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PhpVersionStatusItem {
     pub version: String,
+    pub latest_release: Option<String>,
     pub installed: bool,
     pub fpm_binary_exists: bool,
     pub cli_binary_exists: bool,
@@ -44,6 +45,7 @@ impl From<panel_proto::PhpVersionStatusDto> for PhpVersionStatusItem {
     fn from(dto: panel_proto::PhpVersionStatusDto) -> Self {
         Self {
             version: dto.version,
+            latest_release: None,
             installed: dto.installed,
             fpm_binary_exists: dto.fpm_binary_exists,
             cli_binary_exists: dto.cli_binary_exists,
@@ -146,7 +148,24 @@ pub async fn list_php_versions_handler(
     RequireAuth(_user): RequireAuth,
 ) -> Response {
     match state.agent_client.list_php_runtimes().await {
-        Ok(res) => (StatusCode::OK, Json(PhpRuntimeListApiResponse::from(res))).into_response(),
+        Ok(res) => {
+            let mut response = PhpRuntimeListApiResponse::from(res);
+            if let Ok(cache) = crate::runtime_catalog::php_cache(&state.pool).await
+                && cache.fresh(chrono::Utc::now().timestamp())
+            {
+                response.versions.retain(|item| {
+                    item.installed || cache.data.iter().any(|r| r.branch == item.version)
+                });
+                for item in &mut response.versions {
+                    item.latest_release = cache
+                        .data
+                        .iter()
+                        .find(|r| r.branch == item.version)
+                        .map(|r| r.latest.clone());
+                }
+            }
+            (StatusCode::OK, Json(response)).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("Gagal memuat status runtime PHP: {}", e) })),

@@ -243,14 +243,14 @@ pub async fn overview(
             .fetch_all(&state.pool)
             .await
             .map_err(db_error)?;
-    let domains=sqlx::query("SELECT d.id,d.name FROM domains d JOIN sites s ON s.id=d.site_id JOIN users u ON u.id=s.user_id WHERE (? OR s.user_id=?) AND d.status!='disabled' AND s.status='active' AND u.role='user' AND u.status='active' AND u.linux_uid BETWEEN 10000 AND 59999 ORDER BY d.name").bind(user.is_admin()).bind(user.id).fetch_all(&state.pool).await.map_err(db_error)?.iter().map(|r|json!({"id":r.get::<i64,_>("id"),"name":r.get::<String,_>("name")})).collect::<Vec<_>>();
+    let domains=sqlx::query("SELECT d.id,d.name,d.site_id FROM domains d JOIN sites s ON s.id=d.site_id JOIN users u ON u.id=s.user_id WHERE (? OR s.user_id=?) AND d.status!='disabled' AND s.status='active' AND u.role='user' AND u.status='active' AND u.linux_uid BETWEEN 10000 AND 59999 ORDER BY d.name").bind(user.is_admin()).bind(user.id).fetch_all(&state.pool).await.map_err(db_error)?.iter().map(|r|json!({"id":r.get::<i64,_>("id"),"name":r.get::<String,_>("name"),"site_id":r.get::<i64,_>("site_id")})).collect::<Vec<_>>();
     let server = state.agent_client.email(EmailRequest::Status).await;
     let (server, server_error) = match server {
         Ok(v) => (Some(v), None),
         Err(_) => (None, Some("Status layanan email belum tersedia")),
     };
     let certs = if user.is_admin() {
-        sqlx::query("SELECT id,primary_domain,san_domains_json,not_after FROM certificates WHERE status='active' AND not_after>? AND issuer!='letsencrypt_staging'").bind(chrono::Utc::now().timestamp()).fetch_all(&state.pool).await.map_err(db_error)?.iter().map(|r|json!({"id":r.get::<i64,_>("id"),"hostname":r.get::<String,_>("primary_domain"),"san_domains":serde_json::from_str::<Value>(&r.get::<String,_>("san_domains_json")).unwrap_or(json!([]))})).collect::<Vec<_>>()
+        sqlx::query("SELECT id,primary_domain,san_domains_json,not_after FROM certificates WHERE status='active' AND not_after>? AND not_before<=? AND issuer!='letsencrypt_staging'").bind(chrono::Utc::now().timestamp()).bind(chrono::Utc::now().timestamp()).fetch_all(&state.pool).await.map_err(db_error)?.iter().map(|r|json!({"id":r.get::<i64,_>("id"),"hostname":r.get::<String,_>("primary_domain"),"san_domains":serde_json::from_str::<Value>(&r.get::<String,_>("san_domains_json")).unwrap_or(json!([]))})).collect::<Vec<_>>()
     } else {
         Vec::new()
     };

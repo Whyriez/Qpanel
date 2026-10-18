@@ -18,6 +18,9 @@ use panel_db::pool::DbPool;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        crate::database_web::tool_status,
+        crate::database_web::install_tools,
+        crate::database_web::launch,
         crate::email::templates,
         crate::email::save_template,
         crate::email::overview,

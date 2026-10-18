@@ -21,6 +21,8 @@ pub enum PhpVersion {
     Php83,
     #[serde(rename = "8.4")]
     Php84,
+    #[serde(rename = "8.5")]
+    Php85,
 }
 
 impl PhpVersion {
@@ -33,6 +35,7 @@ impl PhpVersion {
             PhpVersion::Php82,
             PhpVersion::Php83,
             PhpVersion::Php84,
+            PhpVersion::Php85,
         ]
     }
 
@@ -48,6 +51,7 @@ impl PhpVersion {
             "8.2" => Ok(Self::Php82),
             "8.3" => Ok(Self::Php83),
             "8.4" => Ok(Self::Php84),
+            "8.5" => Ok(Self::Php85),
             _ => Err(RuntimeError::UnsupportedPhpVersion(s.to_string())),
         }
     }
@@ -61,6 +65,7 @@ impl PhpVersion {
             Self::Php82 => "8.2",
             Self::Php83 => "8.3",
             Self::Php84 => "8.4",
+            Self::Php85 => "8.5",
         }
     }
 
@@ -92,17 +97,21 @@ impl PhpVersion {
     /// Returns list of Debian/Ubuntu packages to install for this PHP version.
     pub fn base_packages(&self) -> Vec<String> {
         let v = self.as_str();
-        vec![
+        let mut packages = vec![
             format!("php{v}-fpm"),
             format!("php{v}-cli"),
             format!("php{v}-common"),
-            format!("php{v}-opcache"),
             format!("php{v}-curl"),
             format!("php{v}-mbstring"),
             format!("php{v}-xml"),
             format!("php{v}-zip"),
             format!("php{v}-mysql"),
-        ]
+        ];
+        // PHP 8.5 always links OPcache into the binary; no separate package exists.
+        if *self < Self::Php85 {
+            packages.insert(3, format!("php{v}-opcache"));
+        }
+        packages
     }
 }
 
@@ -204,8 +213,14 @@ pub struct PhpExtensionDefinition {
 }
 
 impl PhpExtensionDefinition {
+    pub fn is_builtin(&self, version: PhpVersion) -> bool {
+        self.name == "opcache" && version >= PhpVersion::Php85
+    }
     /// Returns the Debian/Ubuntu package name for a specific PHP version.
     pub fn package_name(&self, version: PhpVersion) -> String {
+        if self.is_builtin(version) {
+            return format!("php{}-common", version.as_str());
+        }
         format!("php{}-{}", version.as_str(), self.package_suffix)
     }
 }
@@ -396,6 +411,22 @@ mod tests {
         assert!(missing.contains(&"php8.4-fpm".to_string()));
         assert!(!missing.contains(&"php8.4-cli".to_string()));
         assert!(missing.contains(&"php8.4-mysql".to_string()));
+    }
+
+    #[test]
+    fn test_php85_builtin_opcache_has_no_separate_package() {
+        let version = PhpVersion::Php85;
+        assert!(!version.base_packages().contains(&"php8.5-opcache".into()));
+        assert!(version.base_packages().contains(&"php8.5-fpm".into()));
+        assert!(
+            PhpVersion::Php84
+                .base_packages()
+                .contains(&"php8.4-opcache".into())
+        );
+        let opcache = find_curated_extension("opcache").unwrap();
+        assert!(opcache.is_builtin(version));
+        assert!(!opcache.is_builtin(PhpVersion::Php84));
+        assert_eq!(opcache.package_name(version), "php8.5-common");
     }
 
     #[test]

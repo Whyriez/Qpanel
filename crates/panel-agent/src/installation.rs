@@ -185,6 +185,9 @@ pub(crate) async fn run(
                 crate::databases::install_database_server(&runner, &req)
                     .map(ResponsePayload::DatabaseServerInstalled)
             }
+            InstallOperation::DatabaseWebTools => {
+                crate::database_web::install(&runner).map(ResponsePayload::DatabaseWebStatus)
+            }
         }
     });
     let mut connected = true;

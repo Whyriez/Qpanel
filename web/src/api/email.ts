@@ -2,7 +2,7 @@ import { request } from './client';
 import type { JobItem } from '../types/api';
 export type EmailFolder = 'inbox' | 'sent' | 'trash';
 export interface Mailbox { id: string; domain_id: number; address: string; quota_mb: number; enabled: boolean; state: 'pending' | 'active' | 'disabled' | 'failed'; operation: 'apply' | 'delete'; job_id: string | null; error: string | null }
-export interface EmailOverview { mailboxes: Mailbox[]; domains: { id: number; name: string }[]; server: { configured: boolean; server: { hostname: string; certificate_id: number } | null; services: { name: string; running: boolean }[] } | null; server_error: string | null; certificates: { id: number; hostname: string; san_domains: string[] }[] }
+export interface EmailOverview { mailboxes: Mailbox[]; domains: { id: number; name: string; site_id?: number }[]; server: { configured: boolean; server: { hostname: string; certificate_id: number } | null; services: { name: string; running: boolean }[] } | null; server_error: string | null; certificates: { id: number; hostname: string; san_domains: string[] }[] }
 export interface EmailTemplate { panel_name: string; subject: string; body: string }
 export interface EmailJob { job: JobItem; id?: string; address?: string; password?: string | null }
 export interface EmailItem { uid: number | string; flags?: string; 'hdr.from': string; 'hdr.to': string; 'hdr.subject': string; 'date.received.unixtime'?: string; 'size.physical'?: string; 'text.utf8'?: string }

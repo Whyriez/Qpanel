@@ -340,7 +340,7 @@ async fn test_python_runtime_versions_and_admin_management() {
     let res = ctx.app.clone().oneshot(install_req_alice).await.unwrap();
     assert_eq!(res.status(), StatusCode::FORBIDDEN);
 
-    // 3. Admin installs runtime -> 200 OK
+    // 3. Admin queues runtime installation -> 202 Accepted
     let install_req_admin = Request::builder()
         .method("POST")
         .uri("/api/v1/runtimes/python")
@@ -354,7 +354,7 @@ async fn test_python_runtime_versions_and_admin_management() {
         .unwrap();
 
     let res = ctx.app.clone().oneshot(install_req_admin).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
 
     // 4. Admin removes an unused runtime -> 200 OK
     let remove_req_admin = Request::builder()

@@ -363,6 +363,16 @@ pub fn list_php_extensions(
 
     for def in CURATED_PHP_EXTENSIONS {
         let pkg_name = def.package_name(version);
+        if def.is_builtin(version) {
+            let installed = runner.path_exists(&version.fpm_binary_path())
+                || runner.path_exists(&version.cli_binary_path());
+            extensions.push(PhpExtensionDto {
+                name:def.name.into(),version:version.as_str().into(),package_name:pkg_name,
+                installed,enabled:installed,is_base:true,category:def.category.into(),
+                description:"OPcache bawaan PHP 8.5; selalu dimuat. Pengaturan cache tersedia pada pengaturan PHP situs.".into(),
+            });
+            continue;
+        }
 
         // Check if extension is installed:
         // 1) /etc/php/{ver}/mods-available/{ini}.ini exists
@@ -437,6 +447,12 @@ pub fn install_php_extension(
         PhpVersion::parse(version_str).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
     let def =
         find_curated_extension(ext_name).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    if def.is_builtin(version) {
+        return Err(AgentError::InvalidInput(
+            "OPcache sudah menyatu dengan PHP 8.5 dan tidak memerlukan paket ekstensi terpisah"
+                .into(),
+        ));
+    }
 
     let pkg_name = def.package_name(version);
     info!(
@@ -477,6 +493,11 @@ pub fn toggle_php_extension(
         PhpVersion::parse(version_str).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
     let def =
         find_curated_extension(ext_name).map_err(|e| AgentError::InvalidInput(e.to_string()))?;
+    if def.is_builtin(version) {
+        return Err(AgentError::InvalidInput(
+            "OPcache bawaan selalu dimuat. Ubah opcache.enable melalui pengaturan PHP situs".into(),
+        ));
+    }
 
     if enabled {
         info!(
@@ -1736,6 +1757,26 @@ mod tests {
     }
 
     #[test]
+    fn php85_builtin_opcache_is_reported_without_external_extension_commands() {
+        let runner = MockSystemRunner::new();
+        runner.add_existing_path("/usr/sbin/php-fpm8.5");
+        let list = list_php_extensions(&runner, "8.5").unwrap();
+        let opcache = list
+            .extensions
+            .iter()
+            .find(|extension| extension.name == "opcache")
+            .unwrap();
+        assert!(opcache.installed && opcache.enabled && opcache.is_base);
+        assert_eq!(opcache.package_name, "php8.5-common");
+        let count = runner.recorded_actions().len();
+        assert!(install_php_extension(&runner, "8.5", "opcache").is_err());
+        assert!(toggle_php_extension(&runner, "8.5", "opcache", false).is_err());
+        assert!(toggle_php_extension(&runner, "8.5", "opcache", true).is_err());
+        assert!(remove_php_extension(&runner, "8.5", "opcache").is_err());
+        assert_eq!(runner.recorded_actions().len(), count);
+    }
+
+    #[test]
     fn test_list_php_runtimes_reports_status() {
         let runner = MockSystemRunner::new();
         // Simulate PHP 8.2 installed
@@ -1743,7 +1784,7 @@ mod tests {
         runner.add_existing_path(PathBuf::from("/usr/bin/php8.2"));
 
         let res = list_php_runtimes(&runner).unwrap();
-        assert_eq!(res.versions.len(), 6);
+        assert_eq!(res.versions.len(), PhpVersion::all_supported().len());
 
         let v82 = res.versions.iter().find(|v| v.version == "8.2").unwrap();
         assert!(v82.installed);

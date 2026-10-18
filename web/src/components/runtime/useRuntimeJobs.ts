@@ -3,7 +3,7 @@ import { fetchJobDetail, fetchJobs } from '../../api/client';
 import type { JobItem } from '../../types/api';
 import { toast } from 'sonner';
 
-const runtimeNames = new Set(['php.install', 'php.remove', 'php.repo.setup', 'node.install']);
+const runtimeNames = new Set(['php.install', 'php.remove', 'php.repo.setup', 'node.install', 'python.install']);
 const isActive = (job: JobItem) => job.status === 'queued' || job.status === 'running';
 
 export function runtimeJobVersion(job: JobItem): string | undefined {
@@ -59,7 +59,7 @@ export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>, n
           else {
             if (!notified.current.has(job.id)) {
               notified.current.add(job.id);
-              const label = job.name.startsWith('email.') ? 'Tugas email' : job.name.startsWith('cloudflare.') ? 'Tugas Cloudflare' : job.name === 'database.server.install' ? 'Pemasangan database' : job.name === 'node.install' ? 'Pemasangan Node.js' : 'Tugas PHP';
+              const label = job.name.startsWith('email.') ? 'Tugas email' : job.name.startsWith('cloudflare.') ? 'Tugas Cloudflare' : job.name === 'database.web.install' ? 'Pemasangan pengelola database' : job.name === 'database.server.install' ? 'Pemasangan database' : job.name === 'python.install' ? 'Pemasangan Python' : job.name === 'node.install' ? 'Pemasangan Node.js' : 'Tugas PHP';
               if (job.status === 'failed') toast.error(`${label} gagal`, { description: job.error_message || 'Lihat rincian pada halaman Tugas.' });
               if (job.status === 'succeeded') toast.success(`${label} selesai`);
             }

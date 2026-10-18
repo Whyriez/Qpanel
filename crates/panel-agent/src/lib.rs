@@ -5,6 +5,7 @@ pub mod backups;
 pub mod cloudflare;
 pub mod cron;
 pub mod crypto;
+pub mod database_web;
 pub mod databases;
 pub mod email;
 pub mod fs_manager;
@@ -921,6 +922,11 @@ impl AgentServer {
                 RequestPayload::DatabaseServerStatus(_) => {
                     ("database.server_status".to_string(), "host".to_string())
                 }
+                RequestPayload::DatabaseWebStatus => ("database.web_status".into(), "host".into()),
+                RequestPayload::DatabaseWebCredentials(d) => (
+                    "database.web_access".into(),
+                    format!("{}:{}", d.engine, d.name),
+                ),
                 RequestPayload::DatabaseServerInstall(d) => {
                     ("database.server_install".to_string(), d.engine.clone())
                 }
@@ -1841,6 +1847,19 @@ impl AgentServer {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
                             ResponsePayload::DatabaseServerStatus(res),
+                        ),
+                        Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                    }
+                }
+                RequestPayload::DatabaseWebStatus => RpcResponse::ok(
+                    &req.request_id,
+                    ResponsePayload::DatabaseWebStatus(database_web::status(self.runner.as_ref())),
+                ),
+                RequestPayload::DatabaseWebCredentials(data) => {
+                    match database_web::credentials(self.runner.as_ref(), &data) {
+                        Ok(res) => RpcResponse::ok(
+                            &req.request_id,
+                            ResponsePayload::DatabaseWebCredentials(res),
                         ),
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }

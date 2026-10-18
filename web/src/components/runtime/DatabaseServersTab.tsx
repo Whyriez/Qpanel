@@ -20,6 +20,7 @@ import {
 import { DatabaseServer, DatabaseEngine, JobItem } from '../../types/api';
 import { toast } from 'sonner';
 import { useRuntimeJobs } from './useRuntimeJobs';
+import { DatabaseWebToolsCard } from './DatabaseWebToolsCard';
 import { RuntimeJobProgress } from './RuntimeJobProgress';
 
 const databaseJobs = new Set(['database.server.install']);
@@ -110,6 +111,7 @@ export const DatabaseServersTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <DatabaseWebToolsCard />
       {/* Overview Notice */}
       <div className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-950/20 flex items-start gap-3">
         <ShieldCheck className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />

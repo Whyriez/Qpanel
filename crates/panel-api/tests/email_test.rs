@@ -643,6 +643,89 @@ async fn notification_dispatch_uses_persisted_delivery_jobs_without_smtp_network
 }
 
 #[tokio::test]
+async fn email_tls_catalog_excludes_unusable_certificates_and_links_owned_projects() {
+    let f = Fixture::new().await;
+    let now = chrono::Utc::now().timestamp();
+    let site: i64 = sqlx::query_scalar("SELECT id FROM sites WHERE user_id=?")
+        .bind(f.customer)
+        .fetch_one(&f.state.pool)
+        .await
+        .unwrap();
+    let mut expected = Vec::new();
+    let mut rejected = Vec::new();
+    for (issuer, status, not_before, not_after, usable) in [
+        ("letsencrypt", "active", now - 60, now + 86400, true),
+        ("custom", "active", now - 60, now + 86400, true),
+        (
+            "letsencrypt_staging",
+            "active",
+            now - 60,
+            now + 86400,
+            false,
+        ),
+        ("custom", "active", now + 3600, now + 86400, false),
+        ("custom", "active", now - 86400, now - 1, false),
+        ("custom", "revoked", now - 60, now + 86400, false),
+    ] {
+        let id = sqlx::query("INSERT INTO certificates(site_id,primary_domain,issuer,status,cert_path,key_path,fullchain_pem,privkey_pem,not_before,not_after,created_at,updated_at) VALUES(?,'mail.example.com',?,?,'fixture','fixture','PRIVATE-CHAIN','PRIVATE-KEY',?,?,?,?)")
+            .bind(site).bind(issuer).bind(status).bind(not_before).bind(not_after).bind(now).bind(now)
+            .execute(&f.state.pool).await.unwrap().last_insert_rowid();
+        if usable {
+            expected.push(id);
+        } else {
+            rejected.push(id);
+        }
+    }
+    let (status, overview) = f
+        .call("GET", "/api/v1/email", Some("admin"), false, Value::Null)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let actual: Vec<i64> = overview["certificates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(actual, expected);
+    assert!(
+        overview["domains"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["site_id"] == site)
+    );
+    assert!(!overview.to_string().contains("PRIVATE-"));
+    for certificate_id in rejected {
+        let (status, _) = f
+            .call(
+                "POST",
+                "/api/v1/email/install",
+                Some("admin"),
+                true,
+                json!({"hostname":"mail.example.com","certificate_id":certificate_id}),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    let (_, tenant) = f
+        .call("GET", "/api/v1/email", Some("customer"), false, Value::Null)
+        .await;
+    assert_eq!(tenant["certificates"], json!([]));
+    assert!(
+        tenant["domains"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["site_id"] == site)
+    );
+    let jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE name='email.install'")
+        .fetch_one(&f.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(jobs, 0);
+}
+
+#[tokio::test]
 async fn certificate_selection_and_alert_evaluation_use_the_email_integration() {
     let f = Fixture::new().await;
     let now = chrono::Utc::now().timestamp();

@@ -107,6 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
     });
 
+    let (catalog_shutdown_tx, catalog_shutdown_rx) = tokio::sync::watch::channel(false);
+    let catalog_handle = tokio::spawn(panel_api::runtime_catalog::run_worker(
+        state.pool.clone(),
+        catalog_shutdown_rx,
+    ));
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.server.listen_addr).await?;
@@ -123,9 +128,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = worker_shutdown_tx.send(true);
     let _ = retention_shutdown_tx.send(true);
     let _ = metrics_shutdown_tx.send(true);
+    let _ = catalog_shutdown_tx.send(true);
     let _ = worker_handle.await;
     let _ = retention_handle.await;
     let _ = metrics_handle.await;
+    let _ = catalog_handle.await;
 
     info!("Panel API shutdown gracefully.");
     Ok(())
