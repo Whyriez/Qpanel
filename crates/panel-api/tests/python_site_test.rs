@@ -454,11 +454,9 @@ async fn test_python_site_full_lifecycle_and_security() {
         status_json["service_name"],
         format!("site-site_{}.service", site_id)
     );
-    assert!(
-        status_json["socket_path"]
-            .as_str()
-            .unwrap()
-            .contains(&format!("site_{}.sock", site_id))
+    assert_eq!(
+        status_json["socket_path"],
+        format!("/run/panel/python/site_{site_id}/app.sock")
     );
 
     // 3. Process actions: Start, Restart, Redeploy, Stop
