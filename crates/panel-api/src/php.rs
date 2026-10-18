@@ -153,9 +153,8 @@ pub async fn list_php_versions_handler(
             if let Ok(cache) = crate::runtime_catalog::php_cache(&state.pool).await
                 && cache.fresh(chrono::Utc::now().timestamp())
             {
-                response.versions.retain(|item| {
-                    item.installed || cache.data.iter().any(|r| r.branch == item.version)
-                });
+                // The agent's PHP whitelist includes compatibility runtimes such as 7.4.
+                // Upstream active releases enrich patch metadata, not version availability.
                 for item in &mut response.versions {
                     item.latest_release = cache
                         .data

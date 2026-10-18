@@ -102,6 +102,26 @@ belakang, progres yang tetap tersedia setelah navigasi, serta penghapusan yang
 ditolak bila runtime dipakai situs. Pemasangan Python memerlukan admin dan CSRF;
 respons API instalasi kini JobItem HTTP 202, termasuk alias endpoint legacy.
 
+Di **Runtime > Python**, tombol **Pasang Python** selalu tampil di atas daftar,
+termasuk ketika katalog belum tersinkronisasi. Dialog menyediakan pilihan
+rilis stabil terbaru, **Muat daftar versi Python**, serta **Masukkan versi lengkap**
+untuk versi CPython eksplisit seperti `3.13.9`. Isian manual bukan rekomendasi versi
+terbaru; administrator memilih rilis yang masih didukung. Ketersediaan binary
+diperiksa saat tugas berjalan. Membuka tab/dialog atau memperbarui katalog tidak
+memasang Python secara otomatis.
+
+Tab dapat dibuka langsung melalui `/runtime?tab=python` dan tetap dipertahankan
+setelah reload. Administrator juga dapat membuka pengelola versi dari pengaturan
+aplikasi Python situs. Tenant memilih konfigurasi situs; pemasangan runtime sistem
+tetap dilakukan administrator. Perubahan UI ini perlu masuk ke bundle frontend
+release yang dipasang di server; mengambil bootstrap dari branch main sendiri
+tetap mengunduh binary/bundle dari GitHub Release sesuai tag yang dipilih.
+
+Tab **PHP**, **Node.js**, **Python**, dan **Pengaturan** tampil berdampingan.
+Jadwal serta status sumber katalog dikelola di **Runtime > Pengaturan**
+(`/runtime?tab=settings`); tab bahasa berisi pengelolaan runtime masing-masing.
+Monitoring Proses dan Server Basis Data tetap tersedia setelah keempat tab ini.
+
 Pembaruan katalog berjalan harian secara default, dapat diubah menjadi 6/12/24 jam
 atau mingguan, dan dapat dimatikan. Tombol **Perbarui katalog sekarang** hanya
 mengambil metadata; tidak memasang runtime atau mengganti versi situs. Status tiap
@@ -116,6 +136,12 @@ mendukung 8.5 dan menampilkan patch terbaru cabang aktif dari php.net; pemasanga
 manual mengambil kandidat paket APT. Cabang PHP baru di luar whitelist membutuhkan
 upgrade panel. Python menggunakan patch stabil terbaru per lini yang didukung dari
 metadata Astral/Python, bukan daftar patch lama yang statis.
+
+PHP 7.4 tetap tersedia untuk kompatibilitas aplikasi lama, termasuk ketika belum
+terpasang. Seluruh versi pada whitelist panel (7.4 dan 8.0–8.5) tetap ditampilkan;
+refresh katalog PHP hanya memperbarui informasi patch cabang aktif dan tidak
+menyembunyikan versi kompatibilitas. Administrator dapat memasangnya melalui job
+instalasi biasa; pemeriksaan kandidat paket dan izin tetap berlaku.
 
 PHP 8.5 memuat OPcache sebagai bawaan binary. Installer tidak meminta paket
 `php8.5-opcache`; daftar ekstensi menampilkan OPcache sebagai modul inti dan

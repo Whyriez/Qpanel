@@ -520,6 +520,114 @@ async fn node_inventory_retains_installed_eol_but_offers_only_supported_lts() {
     );
 }
 #[tokio::test]
+async fn php_catalog_keeps_uninstalled_legacy_versions_available_for_manual_install() {
+    for role in ["admin", "user"] {
+        let (state, app, cookie, csrf, tmp) = router_fixture(role).await;
+        store_refresh(
+            &state.pool,
+            "runtime.catalog.php",
+            Ok(vec![PhpRelease {
+                branch: "8.5".into(),
+                latest: "8.5.11".into(),
+            }]),
+            chrono::Utc::now().timestamp(),
+        )
+        .await
+        .unwrap();
+        let socket = tmp.path().join("no-agent");
+        #[cfg(unix)]
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        #[cfg(not(unix))]
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        #[cfg(not(unix))]
+        std::fs::write(&socket, listener.local_addr().unwrap().port().to_string()).unwrap();
+        let fixture = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut rpc = panel_proto::RpcStream::new(stream);
+            let request = rpc.recv_request().await.unwrap();
+            assert!(matches!(
+                request.payload,
+                panel_proto::RequestPayload::PhpRuntimeList(_)
+            ));
+            let inventory = panel_proto::PhpRuntimeListResponse {
+                ppa_configured: true,
+                versions: panel_runtime::php::PhpVersion::all_supported()
+                    .iter()
+                    .map(|version| panel_proto::PhpVersionStatusDto {
+                        version: version.as_str().into(),
+                        installed: false,
+                        fpm_binary_exists: false,
+                        cli_binary_exists: false,
+                        service_masked: true,
+                        status: "not_installed".into(),
+                        fpm_binary_path: version.fpm_binary_path().to_string_lossy().into_owned(),
+                        cli_binary_path: version.cli_binary_path().to_string_lossy().into_owned(),
+                        service_name: version.fpm_service_name(),
+                    })
+                    .collect(),
+            };
+            rpc.send_response(&panel_proto::RpcResponse::ok(
+                request.request_id,
+                panel_proto::ResponsePayload::PhpRuntimeList(inventory),
+            ))
+            .await
+            .unwrap();
+        });
+        let (status, body) = call(
+            &app,
+            &cookie,
+            None,
+            "GET",
+            "/api/v1/php/versions",
+            Value::Null,
+        )
+        .await;
+        fixture.await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let versions = body["versions"].as_array().unwrap();
+        let names: Vec<_> = versions
+            .iter()
+            .map(|version| version["version"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"]);
+        let legacy = versions
+            .iter()
+            .find(|version| version["version"] == "7.4")
+            .unwrap();
+        assert_eq!(legacy["installed"], false);
+        assert!(legacy["latest_release"].is_null());
+        assert_eq!(versions.last().unwrap()["latest_release"], "8.5.11");
+        let (status, job) = call(
+            &app,
+            &cookie,
+            Some(&csrf),
+            "POST",
+            "/api/v1/php/versions/7.4/install",
+            Value::Null,
+        )
+        .await;
+        if role == "admin" {
+            assert_eq!(status, StatusCode::ACCEPTED, "{job}");
+            assert_eq!(job["name"], "php.install");
+            assert_eq!(job["status"], "queued");
+            let saved = state
+                .job_runner
+                .job_repo
+                .find_by_id(job["id"].as_str().unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&saved.payload_json).unwrap()["version"],
+                "7.4"
+            );
+        } else {
+            assert_eq!(status, StatusCode::FORBIDDEN, "{job}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn tenant_cannot_install_python_or_mutate_catalog_schedule() {
     let (_state, app, cookie, csrf, _tmp) = router_fixture("user").await;
     assert_eq!(

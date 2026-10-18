@@ -20,6 +20,7 @@ import {
   Activity,
   HardDrive,
   Database,
+  Settings,
 } from 'lucide-react';
 import {
   PhpRuntimeListApiResponse,
@@ -51,14 +52,18 @@ import { DatabaseServersTab } from '../components/runtime/DatabaseServersTab';
 import { PythonRuntimesTab } from '../components/runtime/PythonRuntimesTab';
 import { CatalogScheduleCard } from '../components/runtime/CatalogScheduleCard';
 import { toast } from 'sonner';
+import { navigate, useBrowserRoute } from '../lib/router';
 
-type RuntimeTab = 'php' | 'node' | 'python' | 'processes' | 'databases';
+type RuntimeTab = 'php' | 'node' | 'python' | 'settings' | 'processes' | 'databases';
 const mainRuntimeNames = new Set(['php.install', 'php.remove', 'php.repo.setup', 'node.install']);
 
 export const RuntimePage: React.FC = () => {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<RuntimeTab>('php');
+  const route = useBrowserRoute();
+  const activeTab = (['php', 'node', 'python', 'settings', 'processes', 'databases'] as const).find(tab => tab === route.search.get('tab')) ?? 'php';
+  const setActiveTab = (tab: RuntimeTab) => navigate(`/runtime?tab=${tab}`);
   const [pythonRevision, setPythonRevision] = useState(0);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [databaseRevision, setDatabaseRevision] = useState(0);
 
   // =========================================================
@@ -332,6 +337,14 @@ export const RuntimePage: React.FC = () => {
   const installedNodeCount = nodeData?.installed_count ?? 0;
   const installedPhpCount = phpData?.versions?.filter((v) => v.installed).length ?? 0;
   const activeProcessCount = processData?.total_active ?? 0;
+  const runtimeTabs: { id: RuntimeTab; label: string; icon: typeof Cpu; count?: number }[] = [
+    { id: 'php', label: t('runtime.tabPhp'), icon: Cpu, count: installedPhpCount },
+    { id: 'node', label: t('runtime.tabNode'), icon: Boxes, count: installedNodeCount },
+    { id: 'python', label: 'Python', icon: Terminal },
+    { id: 'settings', label: 'Pengaturan', icon: Settings },
+    { id: 'processes', label: 'Monitoring Proses', icon: Activity, count: activeProcessCount },
+    { id: 'databases', label: 'Server Basis Data', icon: Database },
+  ];
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -351,6 +364,8 @@ export const RuntimePage: React.FC = () => {
               </>
             ) : activeTab === 'python' ? (
               <><Terminal className="w-5 h-5 text-[var(--primary)]" />Manajer runtime Python</>
+            ) : activeTab === 'settings' ? (
+              <><Settings className="w-5 h-5 text-[var(--primary)]" />Pengaturan runtime</>
             ) : activeTab === 'databases' ? (
               <><Database className="w-5 h-5 text-[var(--primary)]" />Server basis data</>
             ) : (
@@ -365,7 +380,7 @@ export const RuntimePage: React.FC = () => {
               ? t('runtime.subtitle')
               : activeTab === 'node'
                 ? t('runtime.nodeSubtitle')
-                : activeTab === 'python' ? 'Kelola versi Python dan pemasangannya untuk aplikasi situs.' : activeTab === 'databases' ? 'Kelola server database dan akses phpMyAdmin atau Adminer untuk tenant.' : 'Pantau status langsung, konsumsi memori, CPU, dan aliran log stdout/stderr dari aplikasi yang berjalan.'}
+                : activeTab === 'python' ? 'Kelola versi Python dan pemasangannya untuk aplikasi situs.' : activeTab === 'settings' ? 'Atur jadwal pembaruan katalog PHP, Node.js, dan Python. Pemasangan versi tetap manual.' : activeTab === 'databases' ? 'Kelola server database dan akses phpMyAdmin atau Adminer untuk tenant.' : 'Pantau status langsung, konsumsi memori, CPU, dan aliran log stdout/stderr dari aplikasi yang berjalan.'}
           </p>
         </div>
 
@@ -389,6 +404,7 @@ export const RuntimePage: React.FC = () => {
               if (activeTab === 'php') loadPhpData();
               else if (activeTab === 'node') loadNodeData();
               else if (activeTab === 'python') setPythonRevision(value => value + 1);
+              else if (activeTab === 'settings') setCatalogRevision(value => value + 1);
               else if (activeTab === 'databases') setDatabaseRevision(value => value + 1);
               else loadProcessData();
             }}
@@ -397,7 +413,7 @@ export const RuntimePage: React.FC = () => {
                 ? phpLoading
                 : activeTab === 'node'
                   ? nodeLoading
-                  : activeTab === 'python' || activeTab === 'databases' ? false : processLoading
+                  : activeTab === 'python' || activeTab === 'settings' || activeTab === 'databases' ? false : processLoading
             }
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:bg-[var(--line)] transition-colors disabled:opacity-50"
           >
@@ -407,7 +423,7 @@ export const RuntimePage: React.FC = () => {
                   ? phpLoading
                   : activeTab === 'node'
                     ? nodeLoading
-                    : activeTab === 'python' || activeTab === 'databases' ? false : processLoading)
+                    : activeTab === 'python' || activeTab === 'settings' || activeTab === 'databases' ? false : processLoading)
                   ? 'animate-spin'
                   : ''
               }`}
@@ -417,99 +433,37 @@ export const RuntimePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabs Switcher: PHP vs Node.js vs Processes */}
+      {/* Runtime navigation */}
       {runtimeJobs.error && (
         <p role="alert" className="text-xs text-[var(--danger)] whitespace-pre-wrap break-words">
           Status tugas runtime gagal dimuat: {runtimeJobs.error}. Pemasangan ditahan sampai status dapat diperiksa kembali.
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-full sm:w-fit">
-        <button
-          onClick={() => setActiveTab('php')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
-            activeTab === 'php'
-              ? 'bg-[var(--primary)] text-white shadow-sm'
-              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
-          }`}
-        >
-          <Cpu className="w-3.5 h-3.5" />
-          <span>{t('runtime.tabPhp')}</span>
-          <span
-            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
-              activeTab === 'php'
-                ? 'bg-white/20 text-white'
-                : 'bg-[var(--line)] text-[var(--ink-muted)]'
-            }`}
-          >
-            {installedPhpCount}
-          </span>
-        </button>
+      <nav aria-label="Navigasi runtime" className="flex flex-wrap items-center gap-1 p-1 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] w-full sm:w-fit">
+        {[runtimeTabs.slice(0, 4), runtimeTabs.slice(4)].map((group, index) => (
+          <div key={index} className="flex items-center gap-1">
+            {group.map(({ id, label, icon: Icon, count }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                aria-pressed={activeTab === id}
+                className={`flex items-center gap-1.5 px-2 sm:px-3.5 py-2 text-xs font-medium whitespace-nowrap rounded-[var(--radius-md)] transition-colors ${activeTab === id ? 'bg-[var(--primary)] text-white' : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'}`}
+              >
+                <Icon className="hidden sm:block w-3.5 h-3.5" />
+                <span>{label}</span>
+                {count !== undefined && (
+                  <span className={`hidden sm:inline text-[10px] px-1.5 rounded-full font-semibold ${activeTab === id ? 'bg-white/20 text-white' : 'bg-[var(--line)] text-[var(--ink-muted)]'}`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
 
-        <button
-          onClick={() => setActiveTab('node')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
-            activeTab === 'node'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
-          }`}
-        >
-          <Boxes className="w-3.5 h-3.5" />
-          <span>{t('runtime.tabNode')}</span>
-          <span
-            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
-              activeTab === 'node'
-                ? 'bg-white/20 text-white'
-                : 'bg-[var(--line)] text-[var(--ink-muted)]'
-            }`}
-          >
-            {installedNodeCount}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('processes')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
-            activeTab === 'processes'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
-          }`}
-        >
-          <Activity className="w-3.5 h-3.5" />
-          <span>Monitoring Proses</span>
-          <span
-            className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
-              activeTab === 'processes'
-                ? 'bg-white/20 text-white'
-                : 'bg-[var(--line)] text-[var(--ink-muted)]'
-            }`}
-          >
-            {activeProcessCount}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('python')}
-          aria-pressed={activeTab === 'python'}
-          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${activeTab === 'python' ? 'bg-[var(--primary)] text-white' : 'text-[var(--ink-muted)] hover:text-[var(--ink)]'}`}
-        >
-          <Terminal className="w-3.5 h-3.5" /><span>Python</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('databases')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-[var(--radius-md)] transition-colors ${
-            activeTab === 'databases'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-[var(--ink-muted)] hover:text-[var(--ink)] hover:bg-[var(--line)]/50'
-          }`}
-        >
-          <Database className="w-3.5 h-3.5" />
-          <span>Server Basis Data</span>
-        </button>
-      </div>
-
-      {['php', 'node', 'python'].includes(activeTab) && <CatalogScheduleCard onRefresh={() => { void loadPhpData(true); void loadNodeData(true); setPythonRevision(value => value + 1); }} />}
-      {activeTab === 'python' && <PythonRuntimesTab key={pythonRevision} />}
+      {activeTab === 'python' && <PythonRuntimesTab key={`python-${pythonRevision}`} onCatalogRefresh={() => setCatalogRevision(value => value + 1)} />}
+      {activeTab === 'settings' && <CatalogScheduleCard key={`catalog-${catalogRevision}`} onRefresh={() => { void loadPhpData(true); void loadNodeData(true); setPythonRevision(value => value + 1); }} />}
       {/* ========================================================= */}
       {/* TAB CONTENT: PHP RUNTIMES                                  */}
       {/* ========================================================= */}

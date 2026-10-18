@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { PythonStatusCard } from '../PythonStatusCard';
 import { PythonSettingsCard } from '../PythonSettingsCard';
 import '../../../i18n';
+vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ user: { role: 'admin' } }) }));
 
 describe('PythonStatusCard and PythonSettingsCard Components', () => {
   it('renders PythonStatusCard initial loading state and service title', () => {

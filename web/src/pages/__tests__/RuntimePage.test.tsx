@@ -20,15 +20,18 @@ describe('RuntimePage Component', () => {
     expect(html).toContain('Konfigurasi repositori PHP');
   });
 
-  it('renders tab switcher for PHP and Node.js runtimes', () => {
+  it('keeps language tabs beside Settings and moves scheduling out of PHP', () => {
     const html = renderToString(
       <AuthProvider>
         <RuntimePage />
       </AuthProvider>
     );
 
-    expect(html).toContain('PHP');
-    expect(html).toContain('Node.js');
+    const navigation = html.match(/<nav aria-label="Navigasi runtime"[^>]*>(.*?)<\/nav>/)?.[1] ?? '';
+    const labels = [...navigation.matchAll(/<span>([^<]+)<\/span>/g)].map(match => match[1]);
+    expect(labels).toEqual(['PHP', 'Node.js', 'Python', 'Pengaturan', 'Monitoring Proses', 'Server Basis Data']);
+    expect(navigation).toContain('aria-pressed="true"');
+    expect(html).not.toContain('Jadwal katalog runtime');
   });
 
   it('renders PhpExtensionsModal with version title and category filter buttons', () => {

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { RouteLink } from '../../lib/router';
 import {
   Sliders,
   Save,
@@ -33,6 +35,7 @@ export const PythonSettingsCard: React.FC<PythonSettingsCardProps> = ({
   siteId,
   onSaved,
 }) => {
+  const { user } = useAuth();
   const [, setSettings] = useState<PythonSiteSettingsDto | null>(null);
   const [availableVersions, setAvailableVersions] = useState<PythonVersionSummaryDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -287,8 +290,9 @@ export const PythonSettingsCard: React.FC<PythonSettingsCardProps> = ({
             )}
           </select>
           <p className="text-[11px] text-[var(--ink-muted)]">
-            Dikelola via uv di /opt/panel/runtimes/python/
+            Versi Python dipasang pada server oleh administrator.
           </p>
+          {user?.role === 'admin' && <RouteLink href="/runtime?tab=python" className="inline-flex min-h-10 items-center gap-1.5 text-xs font-medium text-[var(--primary)] underline underline-offset-2"><Plus size={13} />Pasang versi Python di Runtime</RouteLink>}
         </div>
 
         {/* Framework Preset */}
