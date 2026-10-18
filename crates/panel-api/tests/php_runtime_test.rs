@@ -74,6 +74,15 @@ fn php_runtime_runner() -> Arc<MockSystemRunner> {
     runner
 }
 
+fn assert_supported_php_versions(data: &PhpRuntimeListApiResponse) {
+    assert_eq!(data.versions.len(), PhpVersion::all_supported().len());
+    let versions: Vec<&str> = data.versions.iter().map(|v| v.version.as_str()).collect();
+    assert_eq!(
+        versions,
+        vec!["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"]
+    );
+}
+
 // Exercises this suite's command fixture without starting AgentServer or a daemon.
 #[test]
 fn php_install_fixture_supports_candidate_checks_and_fpm_masking_without_daemon() {
@@ -88,6 +97,9 @@ fn php_install_fixture_supports_candidate_checks_and_fpm_masking_without_daemon(
             .iter()
             .any(|command| command == "systemctl mask php8.2-fpm.service")
     );
+    let inventory = panel_agent::php::list_php_runtimes(runner.as_ref())
+        .expect("PHP API fixture must enumerate all supported versions");
+    assert_supported_php_versions(&PhpRuntimeListApiResponse::from(inventory));
 }
 
 async fn setup_test_context() -> TestContext {
@@ -374,9 +386,7 @@ async fn test_php_runtime_list_permissions_and_response() {
 
     let body = res.into_body().collect().await.unwrap().to_bytes();
     let data: PhpRuntimeListApiResponse = serde_json::from_slice(&body).unwrap();
-    assert_eq!(data.versions.len(), PhpVersion::all_supported().len());
-    let versions: Vec<String> = data.versions.iter().map(|v| v.version.clone()).collect();
-    assert_eq!(versions, vec!["7.4", "8.0", "8.1", "8.2", "8.3", "8.4"]);
+    assert_supported_php_versions(&data);
 }
 
 #[tokio::test]
