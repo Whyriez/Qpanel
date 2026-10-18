@@ -22,6 +22,7 @@ use panel_core::auth::hash_password;
 use panel_db::models::CreateUser;
 use panel_db::pool::{init_pool, run_migrations};
 use panel_db::repositories::SqliteUserRepository;
+use panel_proto::{NodeSiteStatusRequest, PythonSiteStatusRequest};
 use serde_json::Value;
 use std::fs;
 use std::sync::Arc;
@@ -54,6 +55,71 @@ fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String
     None
 }
 
+fn configure_process_runner(runner: &MockSystemRunner) {
+    runner.set_response("nginx", 0, b"syntax is ok", b"");
+    runner.set_response(
+        "systemctl",
+        0,
+        b"ActiveState=active\nSubState=running\nMainPID=9876\nActiveEnterTimestampMonotonic=1000000\n",
+        b"",
+    );
+    runner.set_response("journalctl", 0, b"2026-10-10 server started\n", b"");
+    runner.set_response("curl", 0, b"200", b"");
+    runner.set_response("runuser", 0, b"200", b"");
+    runner.set_response("systemd-run", 0, b"Environment ready", b"");
+    runner.add_existing_path("/opt/panel/runtimes/node/20.18.0/bin/node");
+    runner.add_existing_path("/opt/panel/runtimes/python/3.12.9/bin/python3");
+    // Node is created first; the Python site receives ID 2 in this context.
+    runner.add_existing_path("/run/panel/python/site_2/app.sock");
+    runner.set_response("setfacl", 0, b"", b"");
+    runner.set_response("chown", 0, b"", b"");
+    runner.set_response("chmod", 0, b"", b"");
+}
+
+#[test]
+fn unified_process_fixture_has_ready_node_and_python_services() {
+    let runner = MockSystemRunner::new();
+    configure_process_runner(&runner);
+    let node = panel_agent::node_site::status_node_site(
+        &runner,
+        &NodeSiteStatusRequest {
+            site_id: "site_1".into(),
+            port: Some(20050),
+            probe_path: Some("/".into()),
+        },
+    )
+    .expect("Node fixture status");
+    assert!(node.active && node.healthy, "{node:?}");
+    assert_eq!(node.probe_status_code, Some(200));
+    assert_eq!(node.pid, Some(9876));
+
+    let python = panel_agent::python_site::status_python_site(
+        &runner,
+        &PythonSiteStatusRequest {
+            site_id: "site_2".into(),
+            socket_path: Some("/run/panel/python/site_2/app.sock".into()),
+        },
+    )
+    .expect("Python fixture status");
+    assert!(
+        python.active && python.socket_exists && python.healthy,
+        "{python:?}"
+    );
+    assert_eq!(python.pid, Some(9876));
+}
+
+async fn created_site_response(response: axum::response::Response) -> SiteResponse {
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "Process fixture site creation failed: {}",
+        String::from_utf8_lossy(&body)
+    );
+    serde_json::from_slice(&body).expect("created site response")
+}
+
 async fn setup_test_context() -> TestContext {
     let tmp = tempdir().expect("tempdir");
     let db_file = tmp.path().join("panel_test.db");
@@ -83,18 +149,7 @@ async fn setup_test_context() -> TestContext {
 
     let nginx_dir = tmp.path().join("etc/nginx");
     let runner = Arc::new(MockSystemRunner::new());
-    // Configure mock responses for system binaries
-    runner.set_response("nginx", 0, b"syntax is ok", b"");
-    runner.set_response(
-        "systemctl",
-        0,
-        b"ActiveState=active\nSubState=running\nMainPID=9876\nActiveEnterTimestampMonotonic=1000000\n",
-        b"",
-    );
-    runner.set_response("journalctl", 0, b"2026-10-10 server started\n", b"");
-    runner.set_response("setfacl", 0, b"", b"");
-    runner.set_response("chown", 0, b"", b"");
-    runner.set_response("chmod", 0, b"", b"");
+    configure_process_runner(&runner);
 
     let user_manager = Arc::new(UserLifecycleManager::new(
         Arc::clone(&runner) as Arc<dyn SystemRunner>
@@ -311,9 +366,7 @@ async fn test_unified_process_list_and_app_logs() {
         .body(Body::from(serde_json::to_string(&create_node_req).unwrap()))
         .unwrap();
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
-    let node_site: SiteResponse = serde_json::from_slice(&body_bytes).unwrap();
+    let node_site = created_site_response(res).await;
 
     // 2. Create a Python site for Alice
     let create_py_req = CreateStaticSiteRequest {
@@ -335,9 +388,7 @@ async fn test_unified_process_list_and_app_logs() {
         .body(Body::from(serde_json::to_string(&create_py_req).unwrap()))
         .unwrap();
     let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::CREATED);
-    let body_bytes = res.into_body().collect().await.unwrap().to_bytes();
-    let py_site: SiteResponse = serde_json::from_slice(&body_bytes).unwrap();
+    let py_site = created_site_response(res).await;
 
     // 3. Alice lists processes via GET /api/v1/processes
     let req = Request::builder()
