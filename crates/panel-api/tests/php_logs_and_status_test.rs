@@ -24,6 +24,7 @@ use panel_db::pool::{init_pool, run_migrations};
 use panel_db::repositories::{
     SqliteDomainRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteUserRepository,
 };
+use panel_runtime::{fpm::PhpFpmMasterConfig, php::PhpVersion};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,6 +87,50 @@ async fn login_helper(app: &axum::Router, username: &str, pass: &str) -> (String
     (session_val, csrf_val)
 }
 
+fn seed_php_status_fixture(runner: &MockSystemRunner) {
+    let master = PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::Php83)
+        .expect("valid fixture tenant and PHP version");
+    let socket_path = master.default_socket_path();
+    let mock_status_file = socket_path.with_extension("status.json");
+    runner.set_file_content(&socket_path, b"");
+    let status_json = r#"{"pool":"site_1","process manager":"ondemand","start time":1728000000,"start since":100,"accepted conn":120,"listen queue":0,"max listen queue":2,"listen queue len":128,"idle processes":1,"active processes":2,"total processes":3,"max active processes":5,"max children reached":0,"slow requests":1}"#;
+    runner.set_file_content(&mock_status_file, status_json.as_bytes());
+}
+
+// Exercises the shared fixture and status reader without starting AgentServer.
+#[test]
+fn php_status_fixture_supplies_metrics_at_the_runtime_socket_path() {
+    let runner = MockSystemRunner::new();
+    seed_php_status_fixture(&runner);
+    let master = PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::Php83).unwrap();
+    let socket_path = master.default_socket_path();
+    assert!(runner.path_exists(&socket_path));
+    assert!(
+        runner
+            .read_file(&socket_path.with_extension("status.json"))
+            .is_ok(),
+        "status JSON must sit beside the actual runtime socket"
+    );
+    let response = panel_agent::php::get_php_fpm_pool_status(
+        &runner,
+        panel_proto::PhpFpmPoolStatusRequest {
+            username: "p_alice".into(),
+            version: "8.3".into(),
+            pool_name: "site_1".into(),
+        },
+    )
+    .unwrap();
+    assert!(response.is_active);
+    assert!(response.socket_exists);
+    let metrics = response.metrics.expect("fixture metrics present");
+    assert_eq!(metrics.pool, "site_1");
+    assert_eq!(metrics.active_processes, 2);
+    assert_eq!(metrics.idle_processes, 1);
+    assert_eq!(metrics.total_processes, 3);
+    assert_eq!(metrics.accepted_conn, 120);
+    assert_eq!(metrics.slow_requests, 1);
+}
+
 async fn setup_test_context() -> TestContext {
     let guard = TEST_MUTEX.lock().await;
     let tmp = tempdir().expect("tempdir");
@@ -124,11 +169,7 @@ async fn setup_test_context() -> TestContext {
     runner.set_response("php-fpm8.3", 0, b"test is successful", b"");
 
     // Populate mock sockets & status files for Alice
-    let socket_path = PathBuf::from("/run/panel/php/p_alice-8.3/fpm.sock");
-    let mock_status_file = PathBuf::from("/run/panel/php/p_alice-8.3.status.json");
-    runner.set_file_content(&socket_path, b"");
-    let status_json = r#"{"pool":"site_1","process manager":"ondemand","start time":1728000000,"start since":100,"accepted conn":120,"listen queue":0,"max listen queue":2,"listen queue len":128,"idle processes":1,"active processes":2,"total processes":3,"max active processes":5,"max children reached":0,"slow requests":1}"#;
-    runner.set_file_content(&mock_status_file, status_json.as_bytes());
+    seed_php_status_fixture(&runner);
 
     // Populate mock log files for Alice
     let error_log_path = PathBuf::from("/var/log/panel/p_alice/php-fpm-8.3-error.log");
