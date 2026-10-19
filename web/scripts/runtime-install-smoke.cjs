@@ -75,10 +75,10 @@ async function monitor(browser, width) {
   await log.getByText('AKHIR_DIAGNOSTIK_LENGKAP', { exact: false }).first().waitFor();
   await dialog.locator('.dialog-panel').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
   check((await log.innerText()).includes(longError), 'stored and streamed error includes the entire original text');
-  check(await log.locator('p').filter({ hasText: 'AKHIR_DIAGNOSTIK_LENGKAP' }).count() === 1, 'initial SSE snapshot does not duplicate the stored error');
+  check(await log.locator('[data-log-message]').filter({ hasText: 'AKHIR_DIAGNOSTIK_LENGKAP' }).count() === 1, 'initial SSE snapshot does not duplicate the stored error');
   const dimensions = await dialog.evaluate(element => {
     const panel = element.querySelector('.dialog-panel'), body = element.querySelector('[role=log]'), header = element.querySelector('.dialog-header');
-    const paragraph = element.querySelector('[role=log] p'), box = panel.getBoundingClientRect();
+    const paragraph = element.querySelector('[role=log] [data-log-message]'), box = panel.getBoundingClientRect();
     return { fits: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight, overflow: panel.scrollWidth > panel.clientWidth, ellipsis: getComputedStyle(paragraph).textOverflow, whiteSpace: getComputedStyle(paragraph).whiteSpace, scrolls: body.scrollHeight > body.clientHeight, headerY: header.getBoundingClientRect().y };
   });
   check(dimensions.fits && !dimensions.overflow, `${width}px monitor stays inside the viewport`);

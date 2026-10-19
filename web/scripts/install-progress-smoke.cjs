@@ -75,7 +75,8 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     let row = page.getByRole('row').filter({ hasText: php.id });
     await row.getByText('queued', { exact: true }).waitFor();
     Object.assign(php, { status: 'running', progress: 35, updated_at: 2 });
-    logs.get(php.id).push({ sequence: 2, job_id: php.id, status: 'running', progress: 35, timestamp: 2, message: 'Get:1 php8.4-fpm\nUnpacking php8.4-fpm' });
+    const outputText = 'Get:1 php8.4-fpm\nUnpacking php8.4-fpm\n  detail indented\n\n' + Array.from({ length: 45 }, (_, index) => `Package diagnostic line ${index}`).join('\n');
+    logs.get(php.id).push({ sequence: 2, job_id: php.id, status: 'running', progress: 35, timestamp: 2, message: outputText });
     await row.getByText('running', { exact: true }).waitFor();
     check(await row.getByText('35%', { exact: true }).isVisible(), 'jobs list refreshes without opening a monitor or refreshing the page');
     await row.getByTitle('Monitor Progres Real-Time (SSE)').click();
@@ -88,8 +89,17 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     const repeated = { sequence: 4, job_id: php.id, status: 'running', progress: 55, timestamp: 3, message: 'Setting up php8.4-fpm' };
     logs.get(php.id).push(repeated);
     await page.evaluate(event => window.pushJobEvent(event), repeated);
-    await page.waitForFunction(() => [...document.querySelectorAll('[role="log"] p')].filter(el => el.textContent === 'Setting up php8.4-fpm').length === 2, null, { timeout: 2000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('[role="log"] [data-log-message]')].filter(el => el.textContent === 'Setting up php8.4-fpm').length === 2, null, { timeout: 2000 });
     check(true, 'live output keeps equal lines with distinct sequence IDs');
+    await dialog.locator('.dialog-panel').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
+    const logRows = dialog.locator('.job-log-entry');
+    const spacing = await logRows.evaluateAll(rows => {
+      const a = rows.at(-2), b = rows.at(-1), style = getComputedStyle(b);
+      return { gap: b.getBoundingClientRect().top - a.getBoundingClientRect().bottom, height: b.getBoundingClientRect().height, lineHeight: style.lineHeight, messageTop: b.querySelector('[data-log-message]').getBoundingClientRect().top, timeTop: b.querySelector('time').getBoundingClientRect().top };
+    });
+    check(spacing.gap <= 1 && Math.abs(spacing.height - 18) < 0.1 && spacing.lineHeight === '18px', `single-line events are consecutive 18px console rows without padding or blank gaps: ${JSON.stringify(spacing)}`);
+    check(Math.abs(spacing.messageTop - spacing.timeTop) <= 4, 'timestamp, status and message share a line');
+    check(await dialog.locator('[data-log-message]').filter({ hasText: 'Unpacking php8.4-fpm' }).textContent() === outputText, 'compact layout keeps original blank lines and indentation');
     holdList = true;
     for (let i = 0; i < 80 && !releaseList; i++) await pause(100);
     check(Boolean(releaseList), 'held a stale list response for race regression');
@@ -101,7 +111,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await pause(300);
     check(await row.getByText('75%', { exact: true }).isVisible(), 'slow list response cannot rewind a newer live update');
     logs.get(php.id).push(...[6, 7].map(sequence => ({ sequence, job_id: php.id, status: 'running', progress: 75, timestamp: 5, message: 'Processing triggers for PHP' })));
-    await page.waitForFunction(() => [...document.querySelectorAll('[role="log"] p')].filter(el => el.textContent === 'Processing triggers for PHP').length === 2);
+    await page.waitForFunction(() => [...document.querySelectorAll('[role="log"] [data-log-message]')].filter(el => el.textContent === 'Processing triggers for PHP').length === 2);
     check(true, 'polling recovers missed lines and preserves identical output at one timestamp');
     const logView = dialog.getByRole('log');
     check(await logView.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 3), 'monitor follows the latest log output automatically');
@@ -122,6 +132,23 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await dialog.getByRole('alert').waitFor({ state: 'hidden' });
     await page.screenshot({ path: path.join(output, 'jobs-monitor.png'), fullPage: true });
     await page.keyboard.press('Escape');
+
+    if (process.env.QPANEL_MONITOR_ONLY === '1') {
+      await page.setViewportSize({ width: 390, height: 740 });
+      await row.getByTitle('Monitor Progres Real-Time (SSE)').click();
+      dialog = page.getByRole('dialog', { name: 'Live Monitor: php.install' });
+      await dialog.locator('[data-log-message]').filter({ hasText: 'Unpacking php8.4-fpm' }).waitFor();
+      await dialog.locator('.dialog-panel').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
+      check(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'compact monitor fits the mobile viewport');
+      check(await dialog.getByRole('log').evaluate(el => el.scrollHeight > el.clientHeight), 'full multi-line history still scrolls on mobile');
+      await page.screenshot({ path: path.join(output, 'jobs-monitor-mobile.png') });
+      await page.keyboard.press('Escape');
+      await dialog.waitFor({ state: 'detached' });
+      check(errors.length === 0, 'monitor has no browser runtime errors');
+      await fs.writeFile(path.join(output, 'monitor-results.json'), JSON.stringify({ checks, errors }, null, 2));
+      console.log(`${checks} monitor browser checks passed`);
+      return;
+    }
 
     const openDatabase = async () => {
       await page.goto(`${base}/runtime`, { waitUntil: 'domcontentloaded', timeout: 60000 });

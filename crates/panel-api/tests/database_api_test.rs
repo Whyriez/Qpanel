@@ -89,7 +89,7 @@ async fn setup_test_context() -> TestContext {
     let nginx_dir = tmp.path().join("etc/nginx");
     let runner = Arc::new(MockSystemRunner::new());
     runner.set_response("nginx", 0, b"syntax is ok", b"");
-    runner.set_response("systemctl", 0, b"", b"");
+    runner.set_response("systemctl", 0, b"active\n", b"");
     runner.set_response("setfacl", 0, b"", b"");
     runner.set_response("chown", 0, b"", b"");
     runner.set_response("chmod", 0, b"", b"");

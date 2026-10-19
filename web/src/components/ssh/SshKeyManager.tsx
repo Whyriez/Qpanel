@@ -200,7 +200,7 @@ export const SshKeyManager: React.FC<SshKeyManagerProps> = ({
   return (
     <div className="space-y-6">
       {/* Header section */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 rounded-[var(--radius-lg)] bg-[var(--surface)] border border-[var(--line)] shadow-sm">
+      <div className="ssh-key-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 rounded-[var(--radius-lg)] bg-[var(--surface)] border border-[var(--line)] shadow-sm">
         <div className="flex items-start gap-3.5">
           <div className="p-2.5 rounded-[var(--radius-md)] bg-[var(--accent)]/10 text-[var(--accent)] flex items-center justify-center">
             <Key className="w-5 h-5" />
@@ -213,7 +213,7 @@ export const SshKeyManager: React.FC<SshKeyManagerProps> = ({
               </span>
             </h3>
             <p className="text-xs text-[var(--ink-muted)] mt-1 max-w-xl">
-              Gunakan kunci publik OpenSSH untuk login aman tanpa password ke shell terminal atau transfer SFTP. Berkas authorized_keys dikelola secara root-owned oleh sistem Qpanel.
+              Kelola kunci publik untuk masuk melalui SSH atau SFTP sesuai izin akses akun Anda.
             </p>
           </div>
         </div>

@@ -246,7 +246,7 @@ export const FileEditorModal: React.FC<FileEditorModalProps> = ({
         )}
 
         {/* CodeMirror 6 Editor Area */}
-        <div className="flex-1 overflow-auto relative bg-[var(--background)] dialog-body">
+        <div className="flex-1 overflow-auto relative bg-[var(--background)] p-0 dialog-body">
           {isLoading ? (
             <div className="flex items-center justify-center h-full text-xs text-[var(--muted-foreground)]">
               Memuat isi berkas...

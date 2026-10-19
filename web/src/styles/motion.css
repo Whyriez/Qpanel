@@ -81,13 +81,21 @@
 .dialog-stepper > li { min-width: 0; }
 .dialog-stepper > li > div { min-width: 0; }
 .dialog-stepper > li > div > div { flex-shrink: 0; }
+/* Keep the 2px focus outline + 3px offset inside each scrolling form body.
+   Utility padding still wins for bodies with larger spacing or a flush editor. */
+@layer base {
+  .dialog-body {
+    padding: 6px;
+  }
+}
 .dialog-body {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: stable both-edges;
+  scroll-padding: 6px;
 }
 .dialog-form {
   display: flex;
@@ -103,6 +111,7 @@
 .dialog-panel :where(input, select, textarea, fieldset) {
   min-width: 0;
   max-width: 100%;
+  scroll-margin-block: 6px;
 }
 .dialog-panel [cmdk-root] {
   display: flex;

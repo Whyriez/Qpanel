@@ -54,6 +54,94 @@ pub struct DatabaseServerResponse {
     pub updated_at: i64,
 }
 
+/// Tenant-safe live capabilities; never exposes server paths or cached readiness.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AvailableDatabaseEngine {
+    pub engine: String,
+    pub label: String,
+    pub port: u16,
+}
+
+async fn available_database_engines(
+    state: &AppState,
+) -> Result<Vec<AvailableDatabaseEngine>, String> {
+    let response = state
+        .agent_client
+        .database_server_status(DatabaseServerStatusRequest {
+            engines: DatabaseEngine::ALL
+                .iter()
+                .map(|engine| engine.as_str().to_string())
+                .collect(),
+        })
+        .await
+        .map_err(|_| {
+            "Ketersediaan mesin basis data belum dapat diperiksa. Coba lagi.".to_string()
+        })?;
+    let mut available = Vec::new();
+    for engine in DatabaseEngine::ALL {
+        let mut entries = response
+            .servers
+            .iter()
+            .filter(|item| item.engine == engine.as_str());
+        let Some(status) = entries.next() else {
+            return Err("Respons ketersediaan mesin basis data tidak lengkap. Coba lagi.".into());
+        };
+        if entries.next().is_some() {
+            return Err("Respons ketersediaan mesin basis data tidak valid. Coba lagi.".into());
+        }
+        if status.is_installed && status.is_running {
+            available.push(AvailableDatabaseEngine {
+                engine: engine.as_str().into(),
+                label: engine.display_name().into(),
+                port: status.port,
+            });
+        }
+    }
+    Ok(available)
+}
+
+async fn check_database_creation_availability(
+    state: &AppState,
+    repository: &SqliteDatabaseRepository,
+    engine: DatabaseEngine,
+    name: &str,
+) -> Result<(), (StatusCode, String)> {
+    if let Ok(Some(_)) = repository.find_by_name(name).await {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Basis data dengan nama '{name}' sudah ada"),
+        ));
+    }
+    let available = available_database_engines(state)
+        .await
+        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
+    if available.iter().any(|item| item.engine == engine.as_str()) {
+        Ok(())
+    } else {
+        Err((StatusCode::UNPROCESSABLE_ENTITY,
+            "Mesin basis data yang dipilih belum tersedia. Minta administrator memasang atau menjalankan layanannya, lalu muat ulang pilihan mesin.".into()))
+    }
+}
+
+pub async fn available_database_engines_handler(
+    State(state): State<AppState>,
+    _user: AuthenticatedUser,
+) -> Response {
+    let mut response = match available_database_engines(&state).await {
+        Ok(engines) => Json(engines).into_response(),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error":error})),
+        )
+            .into_response(),
+    };
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
+}
+
 impl From<DatabaseServer> for DatabaseServerResponse {
     fn from(s: DatabaseServer) -> Self {
         Self {
@@ -193,6 +281,7 @@ pub struct DatabaseActionResponse {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/servers", get(list_database_servers_handler))
+        .route("/engines", get(available_database_engines_handler))
         .route("/servers/install", post(install_database_server_handler))
         .route("/servers/action", post(action_database_server_handler))
         .route(
@@ -221,7 +310,10 @@ pub async fn list_database_servers_handler(
     let db_repo = SqliteDatabaseRepository::new(state.pool.clone());
 
     // Sync with agent
-    let engines = vec!["mariadb".to_string(), "postgresql".to_string()];
+    let engines = DatabaseEngine::ALL
+        .iter()
+        .map(|engine| engine.as_str().to_string())
+        .collect();
     match state
         .agent_client
         .database_server_status(DatabaseServerStatusRequest { engines })
@@ -652,13 +744,11 @@ pub async fn create_database_handler(
         .character_set
         .unwrap_or_else(|| "utf8mb4".to_string());
 
-    // 6. Check unique name in database
-    if let Ok(Some(_)) = db_repo.find_by_name(&full_db_name).await {
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": format!("Basis data dengan nama '{full_db_name}' sudah ada") })),
-        )
-            .into_response();
+    // 6. Check name uniqueness and live engine availability before any mutation.
+    if let Err((status, error)) =
+        check_database_creation_availability(&state, &db_repo, engine, &full_db_name).await
+    {
+        return (status, Json(serde_json::json!({"error":error}))).into_response();
     }
 
     // 7. Invoke agent to create database & user

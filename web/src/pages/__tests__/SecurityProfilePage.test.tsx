@@ -17,5 +17,10 @@ describe('SecurityProfilePage Component', () => {
     expect(html).toContain('Ganti Kata Sandi');
     expect(html).toContain('Autentikasi Dua Faktor (2FA)');
     expect(html).toContain('Kunci SSH Publik');
+    expect(html).toContain('aria-labelledby="profile-credentials-title"');
+    expect(html).toContain('aria-labelledby="profile-two-factor-title"');
+    expect(html).toContain('Memuat status');
+    expect(html).toContain('aria-describedby="account-password-hint"');
+    expect(html).not.toContain('max-w-4xl');
   });
 });

@@ -291,7 +291,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-auto relative bg-[var(--background)] flex items-center justify-center dialog-body">
+        <div className="flex-1 overflow-auto relative bg-[var(--background)] flex items-center justify-center p-0 dialog-body">
           {/* 1. Image Preview */}
           {previewType === 'image' && (
             <div className="w-full h-full overflow-auto flex items-center justify-center p-4 checkerboard-pattern select-none">

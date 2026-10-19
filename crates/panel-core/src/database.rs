@@ -13,6 +13,15 @@ pub enum DatabaseEngine {
 }
 
 impl DatabaseEngine {
+    pub const ALL: [Self; 2] = [Self::MariaDb, Self::PostgreSql];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::MariaDb => "MariaDB",
+            Self::PostgreSql => "PostgreSQL",
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::MariaDb => "mariadb",

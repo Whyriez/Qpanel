@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchDatabases, fetchSiteAppMetrics, rotateDatabasePassword, setCsrfToken } from './client';
+import { fetchDatabases, fetchAvailableDatabaseEngines, fetchSiteAppMetrics, rotateDatabasePassword, setCsrfToken } from './client';
 import { parseDatabaseList } from './databaseContracts';
 
 const database = { id: 7, user_id: 2, site_id: 1, engine: 'mariadb', name: 'p_alice_shop', db_user: 'p_alice_shop', remote_access: false, allowed_hosts: 'localhost', collation: 'utf8mb4_unicode_ci', character_set: 'utf8mb4', size_bytes: 0, created_at: 1770000000, updated_at: 1770000000 };
@@ -8,6 +8,17 @@ const response = { databases: [database], total: 1, plan_max_databases: 2, used_
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken(null); });
 
 describe('Database API contracts', () => {
+  it('loads tenant-safe capabilities from the live catalog endpoint', async () => {
+    const data = [{ engine: 'postgresql', label: 'PostgreSQL', port: 5432 }];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(data)));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await fetchAvailableDatabaseEngines()).toEqual(data);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/databases/engines');
+  });
+  it.each([{}, null, [{ engine: 'mariadb' }], [{ engine: 'mariadb', label: 'MariaDB', port: 0 }], [{ engine: 'x', label: 'X', port: 1 }, { engine: 'x', label: 'X', port: 1 }]])('rejects malformed engine capabilities %#', async value => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(value))));
+    await expect(fetchAvailableDatabaseEngines()).rejects.toThrow('Format pilihan mesin');
+  });
   it('maps the real flat quota fields before updating UI state', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response)));
     vi.stubGlobal('fetch', fetchMock);

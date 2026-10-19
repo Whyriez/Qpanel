@@ -190,7 +190,7 @@ export const TenantWizardDialog: React.FC<TenantWizardDialogProps> = ({
         </ol>
 
         {/* Step Content */}
-        <div key={step} className="flex-1 overflow-y-auto pr-1 py-1 dialog-body dialog-step">
+        <div key={step} className="flex-1 overflow-y-auto p-1.5 dialog-body dialog-step">
           {/* Error notification banner */}
           {errorMessage && (
             <div className="mb-4 p-3 rounded-[var(--radius-sm)] bg-[var(--danger)]/10 border border-[var(--danger)]/30 text-[var(--danger)] text-xs flex items-center gap-2">

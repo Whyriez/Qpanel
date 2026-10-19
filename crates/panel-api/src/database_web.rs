@@ -271,6 +271,28 @@ fn same_origin(headers: &HeaderMap, secure: bool) -> bool {
         .is_ok_and(|origin| origin == format!("{}://{host}", if secure { "https" } else { "http" }))
 }
 
+/// phpMyAdmin names HTTPS sessions differently, including a prefix in newer releases.
+/// Keep this allowlist aligned with the PHP bridge; panel cookies must never pass.
+fn is_tool_cookie(name: &str) -> bool {
+    if name.starts_with("adminer_") {
+        return true;
+    }
+    let name = name.strip_prefix("__Secure-").unwrap_or(name);
+    name.starts_with("pma") || matches!(name, "phpMyAdmin" | "phpMyAdmin_https")
+}
+
+fn tool_cookies(value: &str) -> String {
+    value
+        .split(';')
+        .map(str::trim)
+        .filter(|part| {
+            part.split_once('=')
+                .is_some_and(|(name, _)| is_tool_cookie(name))
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 async fn proxy(
     state: AppState,
     user: AuthenticatedUser,
@@ -321,19 +343,13 @@ async fn proxy(
         .unwrap_or("localhost")
         .to_string();
     // Never forward the panel authentication cookie to third-party PHP tools.
-    let cookie = request
-        .headers()
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .filter(|part| {
-            part.trim().starts_with("adminer_")
-                || part.trim().starts_with("pma")
-                || part.trim().starts_with("phpMyAdmin=")
-        })
-        .collect::<Vec<_>>()
-        .join(";");
+    let cookie = tool_cookies(
+        request
+            .headers()
+            .get(header::COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or(""),
+    );
     let body = match axum::body::to_bytes(request.into_body(), MAX_BODY).await {
         Ok(body) => body,
         Err(_) => {
@@ -603,9 +619,9 @@ pub fn parse_response(
             }
             "set-cookie" => {
                 let pair = value.split(';').next().ok_or("cookie")?;
-                if pair.starts_with("adminer_")
-                    || pair.starts_with("pma")
-                    || pair.starts_with("phpMyAdmin=")
+                if pair
+                    .split_once('=')
+                    .is_some_and(|(name, _)| is_tool_cookie(name))
                 {
                     response.headers_mut().append(
                         header::SET_COOKIE,
@@ -638,4 +654,19 @@ pub fn parse_response(
         HeaderValue::from_static("no-referrer"),
     );
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_cookies;
+
+    #[test]
+    fn forwards_tool_session_variants_without_panel_cookies() {
+        assert_eq!(
+            tool_cookies(
+                "nusa_session=secret; phpMyAdmin=plain; phpMyAdmin_https=tls; __Secure-phpMyAdmin_https=secure; pma_lang=id; __Secure-pma_lang_https=id; adminer_sid=pg; __Secure-nusa_session=secret; phpMyAdmin_fake=bad; malformed"
+            ),
+            "phpMyAdmin=plain; phpMyAdmin_https=tls; __Secure-phpMyAdmin_https=secure; pma_lang=id; __Secure-pma_lang_https=id; adminer_sid=pg"
+        );
+    }
 }

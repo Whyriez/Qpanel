@@ -52,13 +52,13 @@ describe('SshKeyManager Component', () => {
     expect(html).not.toContain('Tambah Kunci SSH');
   });
 
-  it('renders key list with names, type badges, and SHA256 fingerprints', () => {
+  it('renders loading feedback and explains account access', () => {
     // Note: In SSR / initial renderToString, useState keys defaults to [] and isLoading is true.
     // Let's verify initial loading skeleton or empty rendering.
     const html = renderToString(<SshKeyManager />);
 
     // Renders the loading or container frame
     expect(html).toContain('Memuat kunci SSH terdaftar...');
-    expect(html).toContain('root-owned');
+    expect(html).toContain('SSH atau SFTP sesuai izin akses akun Anda');
   });
 });

@@ -1593,6 +1593,18 @@ export async function fetchDatabaseServers(): Promise<DatabaseServer[]> {
   return request<DatabaseServer[]>('/api/v1/databases/servers');
 }
 
+export async function fetchAvailableDatabaseEngines(): Promise<import('../types/api').AvailableDatabaseEngine[]> {
+  const data = await request<unknown>('/api/v1/databases/engines');
+  if (!Array.isArray(data) || data.some(item => !item || typeof item !== 'object'
+    || typeof item.engine !== 'string' || !/^[a-z][a-z0-9_]*$/.test(item.engine)
+    || typeof item.label !== 'string' || !item.label.trim()
+    || !Number.isInteger(item.port) || item.port < 1 || item.port > 65535)
+    || new Set(data.map(item => item.engine)).size !== data.length) {
+    throw new Error('Format pilihan mesin basis data tidak valid. Muat ulang lalu coba lagi.');
+  }
+  return data;
+}
+
 export async function fetchDatabaseWebTools(): Promise<{ installed: boolean; ready: boolean }> {
   const data = await request<unknown>('/api/v1/databases/web-tools');
   if (!data || typeof data !== 'object' || !('installed' in data) || !('ready' in data)

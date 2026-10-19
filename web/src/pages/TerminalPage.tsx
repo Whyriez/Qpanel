@@ -7,7 +7,10 @@ import { toast } from 'sonner';
 import { TenantTarget } from '../components/tenants/TenantTarget';
 import { TerminalAccessNotice, useTerminalAccess } from '../components/terminal/TerminalAccess';
 
-export const TerminalPage: React.FC = () => <TenantTarget>{tenant => <TenantTerminal key={tenant || 'self'} tenant={tenant} />}</TenantTarget>;
+export const TerminalPage: React.FC = () => <div className="terminal-page">
+  <header className="access-page-heading"><h1>Terminal</h1><p>Buka sesi shell untuk mengelola aplikasi dan berkas tenant sesuai izin aksesnya.</p></header>
+  <TenantTarget>{tenant => <TenantTerminal key={tenant || 'self'} tenant={tenant} />}</TenantTarget>
+</div>;
 export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
   const { state: access, refresh: refreshAccess, canOpenTerminal } = useTerminalAccess(tenant);
   const initialized = React.useRef(false);
@@ -120,7 +123,7 @@ export const TenantTerminal: React.FC<{tenant?: string}> = ({tenant}) => {
   };
 
   return (
-    <div className="h-full w-full flex flex-col rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] overflow-hidden shadow-sm">
+    <div className="terminal-workspace h-full w-full flex flex-col rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
       {/* Header Tabs */}
       <TerminalTabs
         tabs={tabs}

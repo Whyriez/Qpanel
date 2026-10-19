@@ -554,6 +554,35 @@ fn path_validation_and_cgi_response_preserve_binary_downloads_and_scoped_cookies
     );
 }
 
+#[test]
+fn https_session_cookies_survive_the_gateway_response() {
+    use panel_api::database_web::parse_response;
+    let prefix = "/api/v1/databases/1/web/";
+    for name in [
+        "phpMyAdmin",
+        "phpMyAdmin_https",
+        "__Secure-phpMyAdmin_https",
+        "pma_lang_https",
+        "__Secure-pma_lang_https",
+        "adminer_sid",
+    ] {
+        let raw = format!(
+            "Status: 302 Found\r\nLocation: ./index.php?route=/&reload=1\r\nSet-Cookie: {name}=rotated; Domain=internal; Path=/\r\nSet-Cookie: nusa_session=secret\r\nSet-Cookie: __Secure-nusa_session=secret\r\nSet-Cookie: phpMyAdmin_fake=bad\r\n\r\n"
+        );
+        let response = parse_response(raw.as_bytes(), prefix, true, "panel.test").unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(
+            response.headers()["location"],
+            "./index.php?route=/&reload=1"
+        );
+        assert_eq!(response.headers().get_all("set-cookie").iter().count(), 1);
+        assert_eq!(
+            response.headers()["set-cookie"],
+            format!("{name}=rotated; Path={prefix}; HttpOnly; SameSite=Strict; Secure")
+        );
+    }
+}
+
 #[tokio::test]
 async fn fastcgi_transport_sends_post_body_and_keeps_stderr_private() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

@@ -18,6 +18,8 @@ const check = (value, message) => { assert.ok(value, message); console.log(`ok $
     page.setDefaultTimeout(10000);
     const errors = [], requests = [], rotations = [];
     let mode = 'empty', releaseList;
+    let engines = [{ engine: 'mariadb', label: 'MariaDB', port: 3306 }], engineFailure = false;
+    const creates = [];
     const listGate = new Promise(resolve => { releaseList = resolve; });
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => { localStorage.setItem('nusa_theme', 'light'); });
@@ -30,6 +32,13 @@ const check = (value, message) => { assert.ok(value, message); console.log(`ok $
       else if (url.pathname === '/api/v1/sites') body = [site];
       else if (url.pathname === '/api/v1/sites/1') body = site;
       else if (url.pathname === '/api/v1/sites/1/ssl') body = { site_id: 1, has_ssl: false, certificate: null };
+      else if (url.pathname === '/api/v1/databases/engines') {
+        if (engineFailure) { status = 503; body = { error: 'Pemeriksaan mesin fixture gagal.' }; }
+        else body = engines;
+      }
+      else if (url.pathname === '/api/v1/databases' && req.method() === 'POST') {
+        creates.push(req.postDataJSON()); status = 422; body = { error: 'Mesin fixture tidak tersedia lagi.' };
+      }
       else if (url.pathname === '/api/v1/databases') {
         await listGate;
         if (mode === 'malformed') body = { databases: [], total: 0 };
@@ -101,6 +110,45 @@ const check = (value, message) => { assert.ok(value, message); console.log(`ok $
     await page.getByRole('button', { name: 'Coba lagi', exact: true }).click();
     await page.getByRole('heading', { name: 'Belum ada basis data', exact: true }).waitFor();
     check(await page.getByRole('button', { name: 'Buat Basis Data', exact: true }).isEnabled(), 'retry restores the database tab');
+
+    const create = page.getByRole('button', { name: 'Buat Basis Data', exact: true }).first();
+    await create.click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('radio', { name: 'MariaDB Port 3306' }).waitFor();
+    check(await dialog.getByRole('radio').count() === 1, 'only the live installed and running engine is offered');
+    check(await dialog.getByRole('radio', { name: /PostgreSQL/ }).count() === 0, 'uninstalled PostgreSQL is hidden');
+    engines = [{ engine: 'postgresql', label: 'PostgreSQL', port: 5432 }];
+    await dialog.getByRole('button', { name: 'Muat ulang pilihan mesin' }).click();
+    await dialog.getByRole('radio', { name: 'PostgreSQL Port 5432' }).waitFor();
+    check(await dialog.getByRole('radio', { name: /MariaDB/ }).count() === 0, 'refresh removes the previous engine selection');
+    check(await dialog.getByRole('radio').isChecked(), 'one newly available engine becomes the current choice');
+    await dialog.getByPlaceholder('contoh: wordpress').fill('shop');
+    await dialog.getByRole('button', { name: 'Buat Basis Data', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Mesin fixture tidak tersedia lagi.' }).waitFor();
+    check(creates.length === 1 && creates[0].engine === 'postgresql' && creates[0].site_id === 1, 'create submits only the current live engine and project ID');
+    engines = [];
+    await dialog.getByRole('button', { name: 'Muat ulang pilihan mesin' }).click();
+    await dialog.getByText(/Belum ada mesin basis data yang siap digunakan/).waitFor();
+    check(await dialog.getByRole('radio').count() === 0 && await dialog.getByRole('button', { name: 'Buat Basis Data', exact: true }).isDisabled(), 'engine removal blocks an already-open form');
+    engineFailure = true;
+    await dialog.getByRole('button', { name: 'Muat ulang pilihan mesin' }).click();
+    await dialog.getByRole('alert').filter({ hasText: 'Pemeriksaan mesin fixture gagal.' }).waitFor();
+    check(await dialog.getByRole('radio').count() === 0, 'failed verification never falls back to hardcoded choices');
+    engineFailure = false;
+    engines = [{ engine: 'mariadb', label: 'MariaDB', port: 3306 }, { engine: 'postgresql', label: 'PostgreSQL', port: 5432 }];
+    await dialog.getByRole('button', { name: 'Muat ulang pilihan mesin' }).click();
+    await dialog.getByRole('radio', { name: 'MariaDB Port 3306' }).waitFor();
+    check(await dialog.getByRole('radio').count() === 2, 'administrator installation appears after metadata refresh without a frontend engine branch');
+    await page.setViewportSize({ width: 390, height: 740 });
+    check(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'live engine choices fit the mobile dialog');
+    await page.screenshot({ path: path.join(output, 'live-engine-choices-mobile.png') });
+    check(await dialog.evaluate(el => el.contains(document.activeElement)), 'engine refresh preserves keyboard focus inside the modal');
+    await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'detached' });
+    engines = [];
+    await page.getByTitle('Muat Ulang', { exact: true }).click();
+    await page.getByText(/Belum ada mesin basis data yang siap digunakan/).waitFor();
+    check(await create.isDisabled(), 'no installed engine blocks creation while retaining database management');
+    engines = [{ engine: 'mariadb', label: 'MariaDB', port: 3306 }];
     await page.goto(`${base}/sites/1/database`, { waitUntil: 'domcontentloaded' });
     await page.waitForURL(url => url.pathname === `/sites/${domain}/database`);
     await page.getByRole('heading', { name: 'Belum ada basis data', exact: true }).waitFor();

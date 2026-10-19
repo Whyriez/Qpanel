@@ -64,7 +64,7 @@ const item = (id, name, status, progress) => ({ id, name, status, progress, user
     check((await queue.innerText()).includes('node.install') && (await queue.innerText()).includes('15%'), 'monitor identifies the running blocker and actual progress');
     check(await dialog.getByText('0%', { exact: true }).isVisible(), 'queued progress stays at actual zero');
     await dialog.getByRole('log').getByText(queuedMessage, { exact: true }).waitFor();
-    check(await dialog.getByRole('log').locator('p').count() === 1, 'null SSE snapshot does not duplicate the opening queue log');
+    check(await dialog.getByRole('log').locator('[data-log-message]').count() === 1, 'null SSE snapshot does not duplicate the opening queue log');
     check(await dialog.getByRole('button', { name: 'Tutup monitor' }).isEnabled(), 'monitor remains closable while queued');
 
     node = { ...node, status: 'cancelled' };

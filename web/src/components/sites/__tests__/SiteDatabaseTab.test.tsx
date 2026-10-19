@@ -11,7 +11,7 @@ describe('SiteDatabaseTab Component', () => {
 
     // Title & Subtitle
     expect(html).toContain('Manajemen Basis Data');
-    expect(html).toContain('Basis data MariaDB dan PostgreSQL terisolasi untuk situs example.com');
+    expect(html).toContain('Basis data terisolasi untuk situs example.com');
 
     // Action button
     expect(html).toContain('Buat Basis Data');

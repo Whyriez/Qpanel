@@ -37,6 +37,9 @@ async function fixture(page, theme) {
     } else if (url.pathname === '/api/v1/tenants') body = { tenants: [tenant] };
     else if (url.pathname === '/api/v1/sites') body = [];
     else if (url.pathname.includes('/php/versions')) body = { ppa_configured: true, versions: [] };
+    else if (url.pathname === '/api/v1/runtimes/catalog') body = { enabled: true, interval_hours: 24, sources: [] };
+    else if (url.pathname === '/api/v1/runtimes/node/versions') body = { versions: [{ version: '24.1.12', is_lts: true, lts_codename: 'Fixture', is_installed: false, support_status: 'lts' }], installed_count: 0 };
+    else if (url.pathname === '/api/v1/runtimes/python/versions') body = { catalog_ready: true, versions: [{ version: '3.14.8', major_minor: '3.14', is_default: true, is_lts_or_stable: true, is_installed: false }] };
     else if (url.pathname.includes('unread-count')) body = { count: 0, unread_count: 0 };
     else if (url.pathname.includes('/jobs')) body = { items: [], total: 0 };
     else if (url.pathname.includes('/notifications')) body = { notifications: [], total: 0 };
@@ -72,6 +75,34 @@ async function geometry(page, label, requireScroll = false) {
   check(Math.abs(after.headerY - before.header.y) < 1 && Math.abs(after.footerY - before.footer.y) < 1, `${label}: only the body moves on scroll`);
 }
 
+async function fieldClearance(page, label) {
+  const fields = page.locator('.dialog-overlay').last().locator('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):enabled, select:enabled, textarea:enabled');
+  check(await fields.count() > 0, `${label}: has form fields to inspect`);
+  for (const field of await fields.all()) {
+    // Re-enter focus even if geometry() scrolled the already-active field away.
+    await field.evaluate((control) => control.blur());
+    await field.focus();
+    const result = await field.evaluate((control) => {
+      const rect = control.getBoundingClientRect();
+      const style = getComputedStyle(control);
+      const halo = Math.max(1, parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset));
+      const clippedBy = [];
+      for (let parent = control.parentElement; parent; parent = parent.parentElement) {
+        const css = getComputedStyle(parent);
+        const bounds = parent.getBoundingClientRect();
+        const left = bounds.left + parent.clientLeft;
+        const top = bounds.top + parent.clientTop;
+        if (css.overflowX !== 'visible' && (rect.left - halo < left - 1 || rect.right + halo > left + parent.clientWidth + 1)) clippedBy.push(`${parent.className}: horizontal`);
+        if (css.overflowY !== 'visible' && (rect.top - halo < top - 1 || rect.bottom + halo > top + parent.clientHeight + 1)) clippedBy.push(`${parent.className}: vertical`);
+        if (parent.classList.contains('dialog-panel')) break;
+      }
+      return { field: control.getAttribute('placeholder') || control.id || control.tagName, clippedBy };
+    });
+    check(result.clippedBy.length === 0, `${label}: field border and focus outline stay visible ${JSON.stringify(result)}`);
+  }
+  await fields.first().focus();
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.NUSA_BROWSER_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' });
   try {
@@ -85,6 +116,8 @@ async function geometry(page, label, requireScroll = false) {
       const opener = page.getByRole('button', { name: 'Tambah Tenant', exact: true });
       await opener.click();
       await page.getByRole('heading', { name: 'Tambah Tenant Baru' }).waitFor();
+      await page.waitForTimeout(240);
+      await fieldClearance(page, `${name} tenant identity`);
       await page.getByPlaceholder('contoh: tokokami atau klien-a').fill('demo');
       await page.getByPlaceholder('Minimal 8 karakter kuat').fill('FixturePass123!');
       await page.getByRole('button', { name: 'Lanjut Pilih Paket' }).click();
@@ -117,6 +150,7 @@ async function geometry(page, label, requireScroll = false) {
       await page.getByRole('button', { name: 'Buat Paket Baru', exact: true }).click();
       await page.waitForTimeout(240);
       await geometry(page, `${name} plan form`, height <= 500);
+      await fieldClearance(page, `${name} plan form`);
       await page.screenshot({ path: path.join(output, `plan-${name}.png`) });
       check(await page.locator('.dialog-form .dialog-footer button[type="submit"]').count() === 1, `${name}: form footer keeps native submission`);
       await page.keyboard.press('Escape');
@@ -132,6 +166,32 @@ async function geometry(page, label, requireScroll = false) {
       await page.getByRole('button', { name: 'Situs baru', exact: true }).click();
       await page.waitForTimeout(240);
       await geometry(page, `${name} site wizard`);
+      await page.getByRole('button', { name: 'Lanjutkan', exact: true }).click();
+      await page.waitForTimeout(240);
+      await fieldClearance(page, `${name} site domain`);
+      await page.keyboard.press('Escape');
+      await page.locator('.dialog-overlay').waitFor({ state: 'detached' });
+
+      await page.goto(`${base}/runtime?tab=python`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Pasang Python', exact: true }).click();
+      await page.waitForTimeout(240);
+      await fieldClearance(page, `${name} Python catalog`);
+      await page.getByRole('button', { name: 'Masukkan versi lengkap', exact: true }).click();
+      await fieldClearance(page, `${name} Python manual version`);
+      await geometry(page, `${name} Python installation`);
+      await fieldClearance(page, `${name} Python after scroll`);
+      await page.screenshot({ path: path.join(output, `python-${name}.png`) });
+      await page.keyboard.press('Escape');
+      await page.locator('.dialog-overlay').waitFor({ state: 'detached' });
+      await page.goto(`${base}/runtime?tab=node`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Pasang Versi Node.js', exact: true }).click();
+      await page.waitForTimeout(240);
+      await fieldClearance(page, `${name} Node version`);
+      await page.getByRole('button', { name: /Pengaturan Lanjutan & Mirror/ }).click();
+      await fieldClearance(page, `${name} Node advanced fields`);
+      await geometry(page, `${name} Node installation`);
+      await fieldClearance(page, `${name} Node after scroll`);
+      await page.screenshot({ path: path.join(output, `node-${name}.png`) });
       await page.keyboard.press('Escape');
       await page.locator('.dialog-overlay').waitFor({ state: 'detached' });
       await page.close();

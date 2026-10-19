@@ -88,13 +88,52 @@ fn python_catalog_uses_latest_stable_supported_patch() {
     let item = |minor, patch, prerelease: Value| json!({"name":"cpython","os":"linux","libc":"gnu","arch":{"family":std::env::consts::ARCH},"major":3,"minor":minor,"patch":patch,"prerelease":prerelease,"variant":null});
     let mut wrong_arch = item(14, 99, Value::Null);
     wrong_arch["arch"]["family"] = json!("unsupported-arch");
-    let downloads = json!({"old":item(10,99,Value::Null),"a":item(14,2,Value::Null),"b":item(14,10,Value::Null),"c":item(15,0,Value::Null),"pre":item(16,0,json!("a1")),"wrong_arch":wrong_arch});
+    // Astral's stable downloads use an empty string, not null, for prerelease.
+    let downloads = json!({"old":item(10,99,json!("")),"a":item(14,2,json!("")),"b":item(14,10,json!("")),"c":item(15,0,json!("")),"pre":item(16,0,json!("a1")),"wrong_arch":wrong_arch});
     let versions = parse_python(downloads, &cycles, today()).unwrap();
     assert_eq!(versions.len(), 2);
     assert_eq!(versions[0].version, "3.15.0");
     assert!(versions[0].is_default);
     assert_eq!(versions[1].version, "3.14.10");
     assert!(parse_python(json!({}), &cycles, today()).is_err());
+}
+
+#[test]
+fn python_catalog_accepts_stable_markers_and_rejects_prerelease_or_invalid_markers() {
+    let cycles = json!({"metadata":{
+        "3.14":{"status":"bugfix","first_release":"2025-10-07","end_of_life":"2030-10-01"}
+    }});
+    let item = json!({"name":"cpython","os":"linux","libc":"gnu",
+        "arch":{"family":std::env::consts::ARCH,"variant":null},
+        "major":3,"minor":14,"patch":8,"variant":null});
+    for marker in [Some(Value::Null), Some(json!("")), None] {
+        let mut download = item.clone();
+        if let Some(marker) = marker {
+            download["prerelease"] = marker;
+        }
+        let versions = parse_python(json!({"stable":download}), &cycles, today()).unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].version, "3.14.8");
+        assert!(versions[0].is_default);
+        assert!(versions[0].is_lts_or_stable);
+    }
+    for marker in [
+        json!("a1"),
+        json!("b1"),
+        json!("rc1"),
+        json!(" "),
+        json!(false),
+        json!(0),
+        json!([]),
+        json!({}),
+    ] {
+        let mut download = item.clone();
+        download["prerelease"] = marker.clone();
+        assert!(
+            parse_python(json!({"unstable":download}), &cycles, today()).is_err(),
+            "Unexpected stable marker: {marker}"
+        );
+    }
 }
 
 #[test]

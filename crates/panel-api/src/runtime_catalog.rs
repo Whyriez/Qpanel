@@ -200,7 +200,8 @@ pub fn parse_python(
             || item["libc"] != "gnu"
             || item["arch"]["family"].as_str() != Some(std::env::consts::ARCH)
             || !item["arch"]["variant"].is_null()
-            || !item["prerelease"].is_null()
+            // Astral marks stable releases with ""; legacy metadata may use null.
+            || !(item["prerelease"].is_null() || item["prerelease"].as_str() == Some(""))
             || !item["variant"].is_null()
         {
             continue;

@@ -92,7 +92,7 @@ async function fixture(browser, role = 'admin') {
     await admin.page.getByRole('button', { name: 'Terminal di sini' }).click();
     await admin.page.getByRole('heading', { name: 'Terminal belum diaktifkan' }).waitFor();
     check(admin.posts().length === 1, 'file-manager terminal drawer enforces policy preflight');
-    await admin.page.getByRole('button', { name: 'Tutup terminal', exact: true }).click();
+    await admin.page.getByRole('button', { name: 'Tutup terminal berkas', exact: true }).click();
     admin.mode.policy = 'full';
     await admin.page.getByRole('button', { name: 'Terminal di sini' }).click();
     await admin.page.getByRole('alert').filter({ hasText: 'Fixture: panggilan PTY' }).waitFor();

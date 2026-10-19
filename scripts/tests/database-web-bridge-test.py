@@ -28,7 +28,26 @@ with tempfile.TemporaryDirectory(prefix="db-web-") as directory:
     source = source.replace("/usr/share/adminer", adminer.as_posix())
     entry = base / "entry.php"
     entry.write_text(source)
-    (pma / "index.php").write_text("<?php echo json_encode(['db'=>$_GET['db'],'route'=>$_GET['route'],'session_path'=>session_save_path()]);")
+    (pma / "index.php").write_text("""<?php
+// Exercise PHP's real cookie/session lifecycle with phpMyAdmin's HTTP/HTTPS names.
+if (getenv('PMA_SESSION_COOKIE')) {
+    session_name(getenv('PMA_SESSION_COOKIE'));
+    session_start();
+    if (empty($_SESSION['fixture-token'])) {
+        session_regenerate_id(true);
+        $_SESSION['fixture-token'] = bin2hex(random_bytes(16));
+        header('Location: ./index.php?route=/&reload=1');
+        session_write_close(); exit;
+    }
+    if ($_SERVER['REQUEST_METHOD'] === 'POST'
+        && ($_POST['token'] ?? '') !== $_SESSION['fixture-token']) {
+        http_response_code(403); exit('Invalid CSRF');
+    }
+    echo json_encode(['token'=>$_SESSION['fixture-token'],'cookies'=>array_keys($_COOKIE)]);
+    session_write_close(); exit;
+}
+echo json_encode(['db'=>$_GET['db'],'route'=>$_GET['route'],'session_path'=>session_save_path()]);
+""")
     (pma / "js/messages.php").write_text("<?php header('Content-Type: application/javascript'); echo 'const translated = true;';")
     (adminer / "adminer.php").write_text("""<?php
 class Adminer {}
@@ -51,7 +70,7 @@ session_write_close();
     cookies = {}
     checks = 0
 
-    def run(engine="postgresql", method="GET", body="", asset="", session="a" * 64, query=""):
+    def run(engine="postgresql", method="GET", body="", asset="", session="a" * 64, query="", cookie_name="", secure=False):
         env = os.environ.copy()
         env.update({"SCRIPT_FILENAME":str(entry),"REDIRECT_STATUS":"200","REQUEST_METHOD":method,
             "REQUEST_URI":"/api/v1/databases/1/web/", "SCRIPT_NAME":"/api/v1/databases/1/web/index.php",
@@ -60,7 +79,8 @@ session_write_close();
             "QUERY_STRING":query,"HTTP_COOKIE":"; ".join(f"{k}={v}" for k,v in cookies.items()),
             "PANEL_DATABASE":"p_alice_shop","PANEL_DB_ENGINE":engine,"PANEL_DB_USER":"qpw_fixture",
             "PANEL_DB_PASSWORD":"Fixture-Safe-Pass!","PANEL_WEB_PREFIX":"/api/v1/databases/1/web/",
-            "PANEL_WEB_SESSION":session,"PANEL_WEB_ASSET":asset})
+            "PANEL_WEB_SESSION":session,"PANEL_WEB_ASSET":asset,
+            "PMA_SESSION_COOKIE":cookie_name,"HTTPS":"on" if secure else "off"})
         result = subprocess.run([cgi,"-d","display_errors=0","-d","log_errors=0","-d","session.save_handler=files"], input=body.encode(), env=env, capture_output=True, check=True)
         head, content = result.stdout.split(b"\r\n\r\n",1)
         lines = head.decode().split("\r\n")
@@ -100,4 +120,26 @@ session_write_close();
     check(any("404" in line for line in headers), "arbitrary PHP paths are never executed or disclosed")
     headers, content = run(session="invalid")
     check(any("403" in line for line in headers), "malformed gateway context is rejected")
+    for name in ["phpMyAdmin_https", "__Secure-phpMyAdmin_https", "phpMyAdmin"]:
+        cookies.clear()
+        cookies.update({"nusa_session":"panel-secret", "__Secure-nusa_session":"panel-secret",
+            "pma_lang_https":"id", "__Secure-pma_lang_https":"id"})
+        options = {"engine":"mariadb", "cookie_name":name, "secure":name != "phpMyAdmin"}
+        headers, _ = run(**options)
+        check(any(line.startswith("Location:") for line in headers) and name in cookies,
+            f"{name}: bootstrap creates a rotated PHP session")
+        session_id = cookies[name]
+        headers, content = run(query="route=/&reload=1", **options)
+        check(not any(line.startswith("Location:") for line in headers),
+            f"{name}: next request resumes the session instead of redirecting again")
+        data = json.loads(content)
+        check(cookies[name] == session_id and "nusa_session" not in data["cookies"]
+            and "__Secure-nusa_session" not in data["cookies"]
+            and "__Secure-pma_lang_https" in data["cookies"],
+            f"{name}: only tool cookies reach PHP and session identity stays stable")
+        headers, content = run(method="POST", body="token=" + data["token"], **options)
+        check(json.loads(content)["token"] == data["token"], f"{name}: valid CSRF survives navigation")
+        headers, content = run(method="POST", body="token=wrong", **options)
+        check(any("403" in line for line in headers) and b"Invalid CSRF" in content,
+            f"{name}: invalid CSRF remains rejected")
     print(f"{checks} PHP bridge fixture checks passed; no database or daemon used.")

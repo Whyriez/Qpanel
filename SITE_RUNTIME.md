@@ -1,5 +1,14 @@
 # Pembuatan website PHP, Node.js dan Python
 
+Pada detail proyek > Basis data, pilihan **Mesin database** berasal dari pemeriksaan
+langsung server: hanya engine yang terpasang dan layanannya aktif yang ditawarkan.
+Tanpa engine siap atau saat pemeriksaan gagal, create dinonaktifkan dengan tombol
+muat ulang. Administrator memasang/menjalankan engine di **Runtime > Server basis
+data**; tenant mendapat pilihan setelah refresh, kembali ke jendela atau pemeriksaan
+berkala. Database existing tetap terlihat. API memeriksa ulang sebelum create;
+cache lama tidak dipakai sebagai bukti ketersediaan. SQL Server belum didukung
+oleh revisi ini; pemilih create sudah memakai metadata API. Lihat ADR-0124.
+
 Versi development tetap **0.1.0**. Perbaikan ini memerlukan pembaruan **panel-api
 dan panel-agent bersama**, lalu penerapan ulang konfigurasi website existing.
 Mengganti biner saja belum meregenerasi unit systemd dan vhost yang sudah ada.
@@ -137,6 +146,12 @@ manual mengambil kandidat paket APT. Cabang PHP baru di luar whitelist membutuhk
 upgrade panel. Python menggunakan patch stabil terbaru per lini yang didukung dari
 metadata Astral/Python, bukan daftar patch lama yang statis.
 
+Jika pemuatan Python menampilkan `Tidak ada Python stabil yang didukung` pada
+panel lama, parser sebelum P10-T6bj menolak marker `prerelease: ""` dari metadata
+Astral. Setelah memasang build panel yang memuat perbaikan, buka **Runtime >
+Pengaturan > Perbarui katalog sekarang**, lalu muat kembali daftar Python.
+Pembaruan katalog mengambil metadata saja; pemasangan runtime tetap manual.
+
 PHP 7.4 tetap tersedia untuk kompatibilitas aplikasi lama, termasuk ketika belum
 terpasang. Seluruh versi pada whitelist panel (7.4 dan 8.0–8.5) tetap ditampilkan;
 refresh katalog PHP hanya memperbarui informasi patch cabang aktif dan tidak
@@ -170,5 +185,13 @@ melewati pemeriksaan sesi dan kepemilikan panel. Impor melalui pengelola dibatas
 30 MiB per berkas; dump besar tetap memakai fitur job impor/ekspor yang sudah ada.
 
 Layanan menggunakan socket Unix, user non-root khusus, dan paket APT distribusi.
+Cloudflare Tunnel cukup diarahkan ke port HTTP panel yang sama: jalur
+`/api/v1/databases/{id}/web/` diteruskan API ke socket privat tersebut. Tidak perlu
+hostname atau port tambahan untuk phpMyAdmin. Untuk perbaikan loop redirect HTTPS
+P10-T6bo, perbarui **API dan agent**, lalu jalankan **Perbarui pengelola** agar
+`entry.php` yang sudah terpasang ikut diperbarui. Filter cookie API dan bridge PHP
+harus sama-sama mendukung `phpMyAdmin_https` dan `__Secure-phpMyAdmin_https`;
+memperbarui binary API saja belum cukup.
+
 Validasi sesi ini menggunakan mock/fixture lokal; instalasi dan akses database nyata
 di Linux belum diverifikasi. Rincian desain dan batas ada pada ADR-0119.

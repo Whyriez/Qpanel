@@ -1,6 +1,7 @@
 import { ModalOverlay } from '../ui/ModalOverlay';
 import { DatabaseWebAccessButton } from './DatabaseWebAccessButton';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { DatabaseEnginePicker } from './DatabaseEnginePicker';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Database,
   Plus,
@@ -24,6 +25,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import {
   fetchDatabases,
+  fetchAvailableDatabaseEngines,
   createDatabase,
   deleteDatabase,
   rotateDatabasePassword,
@@ -33,6 +35,7 @@ import {
 } from '../../api/client';
 import {
   DatabaseItem,
+  AvailableDatabaseEngine,
   DatabaseQuotaInfo,
   DatabaseEngine,
   CreateDatabaseRequest,
@@ -66,7 +69,39 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [createEngine, setCreateEngine] = useState<DatabaseEngine>('mariadb');
+  const [createEngine, setCreateEngine] = useState('');
+  const [engines, setEngines] = useState<AvailableDatabaseEngine[]>([]);
+  const [enginesLoading, setEnginesLoading] = useState(true);
+  const [enginesError, setEnginesError] = useState('');
+  const engineRequest = useRef(0);
+  const loadEngines = useCallback(async (quiet = false) => {
+    const request = ++engineRequest.current;
+    if (!quiet) setEnginesLoading(true);
+    setEnginesError('');
+    if (!quiet) setEngines([]);
+    try {
+      const available = await fetchAvailableDatabaseEngines();
+      if (engineRequest.current !== request) return;
+      setEngines(available);
+      setCreateEngine(current => available.some(item => item.engine === current) ? current : available[0]?.engine || '');
+    } catch (cause: unknown) {
+      if (engineRequest.current === request) {
+        setEnginesError(cause instanceof Error ? cause.message : 'Gagal memeriksa mesin basis data.');
+        setEngines([]);
+        setCreateEngine('');
+      }
+    } finally {
+      if (engineRequest.current === request) setEnginesLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void loadEngines();
+    const onFocus = () => { void loadEngines(true); };
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void loadEngines(true); }, 30000);
+    return () => { engineRequest.current++; window.removeEventListener('focus', onFocus); window.clearInterval(timer); };
+  }, [loadEngines]);
+  const openCreate = () => { setIsCreateModalOpen(true); void loadEngines(); };
   const [createDbName, setCreateDbName] = useState('');
   const [createDbUser, setCreateDbUser] = useState('');
   const [createPassword, setCreatePassword] = useState('');
@@ -163,7 +198,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
   // -------------------------------------------------------------
   const handleCreateDatabase = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canCreate || !createDbName.trim()) return;
+    if (!canCreate || isCreating || !engines.some(engine => engine.engine === createEngine) || !createDbName.trim()) return;
 
     setIsCreating(true);
     try {
@@ -198,8 +233,9 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
       setCreateAllowedHosts('localhost');
 
       await loadDatabases();
-    } catch (err: any) {
-      showToast(err.message || 'Gagal membuat basis data', 'error');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuat basis data', 'error');
+      void loadEngines();
     } finally {
       setIsCreating(false);
     }
@@ -310,7 +346,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
   };
 
   const isQuotaFull = quota !== null && quota.limit > 0 && quota.used >= quota.limit;
-  const canCreate = quota !== null && !isLoading && !loadError && !isQuotaFull;
+  const canCreate = quota !== null && !isLoading && !loadError && !isQuotaFull && !enginesLoading && !enginesError && engines.length > 0;
   const quotaPercentage =
     quota && quota.limit > 0 ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
 
@@ -356,8 +392,8 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {siteDomain
                 ? isEn
-                  ? `Isolated MariaDB and PostgreSQL databases for ${siteDomain}`
-                  : `Basis data MariaDB dan PostgreSQL terisolasi untuk situs ${siteDomain}`
+                  ? `Isolated databases for ${siteDomain}`
+                  : `Basis data terisolasi untuk situs ${siteDomain}`
                 : isEn
                 ? 'Create, manage, export, and protect your application databases'
                 : 'Buat, kelola, ekspor, dan amankan basis data aplikasi Anda'}
@@ -365,7 +401,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
           </div>
 
           <button
-            onClick={() => setIsCreateModalOpen(true)}
+            onClick={openCreate}
             disabled={!canCreate}
             className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition shadow-sm ${
               isQuotaFull
@@ -477,7 +513,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
           </div>
 
           <button
-            onClick={loadDatabases}
+            onClick={() => { void loadDatabases(); void loadEngines(); }}
             disabled={isLoading}
             className="p-2 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
             title="Muat Ulang"
@@ -486,6 +522,10 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
           </button>
         </div>
       </div>
+
+      {(enginesLoading || enginesError || engines.length === 0) && <div className="rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-5">
+        <DatabaseEnginePicker engines={engines} selected={createEngine} loading={enginesLoading} error={enginesError} onSelect={setCreateEngine} onRefresh={() => void loadEngines()} />
+      </div>}
 
       {/* Database List */}
       {isLoading ? (
@@ -518,7 +558,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
           </p>
           {!searchQuery && canCreate && (
             <button
-              onClick={() => setIsCreateModalOpen(true)}
+              onClick={openCreate}
               className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium transition"
             >
               <Plus className="w-4 h-4" />
@@ -732,45 +772,7 @@ export const SiteDatabaseTab: React.FC<SiteDatabaseTabProps> = ({
 
             <form onSubmit={handleCreateDatabase} className="dialog-form">
               <div className="dialog-body space-y-4">
-                {/* Engine Choice */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                    Mesin Database
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setCreateEngine('mariadb')}
-                      className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition text-left ${
-                        createEngine === 'mariadb'
-                          ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
-                    >
-                      <Server className="w-4 h-4" />
-                      <div>
-                        <div className="font-semibold">MariaDB</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">Port 3306 (MySQL)</div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCreateEngine('postgresql')}
-                      className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition text-left ${
-                        createEngine === 'postgresql'
-                          ? 'border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
-                    >
-                      <Server className="w-4 h-4" />
-                      <div>
-                        <div className="font-semibold">PostgreSQL</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">Port 5432 (PgSQL)</div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
+                <DatabaseEnginePicker engines={engines} selected={createEngine} loading={enginesLoading} error={enginesError} busy={isCreating} onSelect={setCreateEngine} onRefresh={() => void loadEngines()} />
 
                 {/* Database Name */}
                 <div>

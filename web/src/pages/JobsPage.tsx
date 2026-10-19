@@ -13,6 +13,7 @@ import {
 import { JobItem, JobProgressEvent } from '../types/api';
 import { fetchJobs, fetchJobDetail, fetchJobLogs, cancelJob, subscribeJobEvents } from '../api/client';
 import { JobQueueNotice } from '../components/jobs/JobQueueNotice';
+import { JobLogEntry } from '../components/jobs/JobLogEntry';
 import { jobProgressMessage, jobSnapshotEvent, mergeJobEvents, canCancelJob } from '../lib/jobProgress';
 import { StatusPill, StatusVariant } from '../components/ui/StatusPill';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -437,20 +438,9 @@ export const JobsPage: React.FC = () => {
                 <div ref={logView} role="log" aria-label="Log progres tugas" tabIndex={0} onScroll={event => {
                   const view = event.currentTarget;
                   if (view.scrollHeight - view.scrollTop - view.clientHeight >= 40) setFollowLog(false);
-                }} className="min-w-0 max-h-[45vh] overflow-y-auto p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-[11px] text-[var(--ink)] space-y-3 focus-visible:outline-2 focus-visible:outline-[var(--primary)]">
+                }} className="min-w-0 max-h-[45vh] overflow-y-auto p-3 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-xs leading-[18px] text-[var(--ink)] focus-visible:outline-2 focus-visible:outline-[var(--primary)]">
                   {streamEvents.map((ev, i) => (
-                    <div
-                      key={i}
-                      className="min-w-0 border-b border-[var(--line)]/30 pb-3 last:border-b-0"
-                    >
-                      <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="text-[var(--ink-muted)] text-[10px] shrink-0">
-                        [{new Date(ev.timestamp * 1000).toLocaleTimeString()}]
-                      </span>
-                      <span className="font-bold text-[var(--primary)] shrink-0">{ev.status}</span>
-                      </div>
-                      <p className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{ev.message || `Progres ${ev.progress}%`}</p>
-                    </div>
+                    <JobLogEntry key={i} event={ev} />
                   ))}
                 </div>
               </div>

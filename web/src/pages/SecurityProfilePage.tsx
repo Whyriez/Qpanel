@@ -42,6 +42,8 @@ export const SecurityProfilePage: React.FC = () => {
   // 2FA Setup State
   const [totpEnabled, setTotpEnabled] = useState(user?.totp_enabled || false);
   const [remainingCodes, setRemainingCodes] = useState<number>(0);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState('');
   const [isSettingUp2FA, setIsSettingUp2FA] = useState(false);
   const [qrBase64, setQrBase64] = useState<string | null>(null);
   const [secretKey, setSecretKey] = useState<string | null>(null);
@@ -59,12 +61,16 @@ export const SecurityProfilePage: React.FC = () => {
   const [disableError, setDisableError] = useState<string | null>(null);
 
   const load2FAStatus = useCallback(async () => {
+    setStatusLoading(true);
+    setStatusError('');
     try {
       const res = await fetch2FAStatus();
       setTotpEnabled(res.enabled);
       setRemainingCodes(res.remaining_recovery_codes || 0);
     } catch {
-      // ignore
+      setStatusError('Status autentikasi dua faktor belum dapat dimuat.');
+    } finally {
+      setStatusLoading(false);
     }
   }, []);
 
@@ -192,20 +198,20 @@ export const SecurityProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="security-profile">
       {/* Header */}
-      <div>
+      <header className="access-page-heading">
         <h1 className="text-xl font-bold tracking-tight text-[var(--ink)]">
           {t('profile.title')}
         </h1>
         <p className="text-xs text-[var(--ink-muted)] mt-1">
           {t('profile.subtitle')}
         </p>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="profile-overview">
         {/* Profile Details Card */}
-        <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 space-y-4">
+        <section className="profile-summary" aria-label={t('profile.myProfile')}>
           <div className="flex items-center gap-2 border-b border-[var(--line)] pb-3">
             <UserIcon className="w-4 h-4 text-[var(--primary)]" />
             <h2 className="font-semibold text-xs text-[var(--ink)]">
@@ -228,7 +234,7 @@ export const SecurityProfilePage: React.FC = () => {
                 {t('profile.role')}
               </span>
               <StatusPill
-                label={user?.role || 'user'}
+                label={user?.role === 'admin' ? 'Administrator' : 'Pengguna'}
                 variant={user?.role === 'admin' ? 'info' : 'neutral'}
               />
             </div>
@@ -242,13 +248,13 @@ export const SecurityProfilePage: React.FC = () => {
               </span>
             </div>
           </div>
-        </div>
+        </section>
 
         {/* Change Password Card */}
-        <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 space-y-4">
+        <section className="profile-section profile-credentials" aria-labelledby="profile-credentials-title">
           <div className="flex items-center gap-2 border-b border-[var(--line)] pb-3">
             <Lock className="w-4 h-4 text-[var(--primary)]" />
-            <h2 className="font-semibold text-xs text-[var(--ink)]">
+            <h2 id="profile-credentials-title" className="font-semibold text-xs text-[var(--ink)]">
               {user?.role === 'admin' ? 'Username dan kata sandi' : t('profile.changePassword')}
             </h2>
           </div>
@@ -306,9 +312,10 @@ export const SecurityProfilePage: React.FC = () => {
                 disabled={passwordLoading}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 8 karakter; kosongkan jika hanya ubah username"
+                aria-describedby="account-password-hint"
                 className="w-full bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] px-3 py-1.5 text-xs text-[var(--ink)] focus:outline-none focus:border-[var(--primary)]"
               />
+              <p id="account-password-hint" className="profile-field-hint">{user?.role === 'admin' ? 'Minimal 8 karakter; kosongkan jika hanya ubah username.' : 'Gunakan kata sandi baru dengan minimal 8 karakter.'}</p>
             </div>
 
             <div className="space-y-1">
@@ -336,31 +343,33 @@ export const SecurityProfilePage: React.FC = () => {
               <span>{t('common.save')}</span>
             </button>
           </form>
-        </div>
+        </section>
       </div>
 
       {/* 2FA Card */}
-      <div className="bg-[var(--surface)] border border-[var(--line)] rounded-[var(--radius-lg)] p-5 space-y-4">
+      <section className="profile-section profile-two-factor" aria-labelledby="profile-two-factor-title">
         <div className="flex items-center justify-between border-b border-[var(--line)] pb-3">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-[var(--primary)]" />
-            <h2 className="font-semibold text-xs text-[var(--ink)]">
+            <h2 id="profile-two-factor-title" className="font-semibold text-xs text-[var(--ink)]">
               {t('profile.twoFactor')}
             </h2>
           </div>
           <StatusPill
-            label={totpEnabled ? 'Aktif' : 'Tidak Aktif'}
-            variant={totpEnabled ? 'success' : 'neutral'}
+            label={statusLoading ? 'Memuat status' : statusError ? 'Belum terverifikasi' : totpEnabled ? 'Aktif' : 'Belum aktif'}
+            variant={!statusLoading && !statusError && totpEnabled ? 'success' : 'neutral'}
           />
         </div>
 
-        <p className="text-xs text-[var(--ink-muted)]">
-          {totpEnabled
+        {statusError ? <div role="alert" className="profile-status-error"><p>{statusError}</p><button type="button" className="access-button" onClick={() => void load2FAStatus()}><RefreshCw size={15} aria-hidden="true" />Coba lagi</button></div> : <p role={statusLoading ? 'status' : undefined} className="text-xs text-[var(--ink-muted)]">
+          {statusLoading ? 'Memeriksa perlindungan akun Anda…' :
+          totpEnabled
             ? `${t('profile.twoFactorEnabled')} (${remainingCodes} kode pemulihan tersisa).`
             : t('profile.twoFactorDisabled')}
-        </p>
+        </p>}
+        {setupError && !isSettingUp2FA && <p role="alert" className="text-sm text-[var(--danger)]">{setupError}</p>}
 
-        {!totpEnabled && !isSettingUp2FA && (
+        {!statusLoading && !statusError && !totpEnabled && !isSettingUp2FA && (
           <button
             onClick={handleStartSetup2FA}
             disabled={setupLoading}
@@ -375,7 +384,7 @@ export const SecurityProfilePage: React.FC = () => {
           </button>
         )}
 
-        {totpEnabled && !isDisabling2FA && (
+        {!statusLoading && !statusError && totpEnabled && !isDisabling2FA && (
           <button
             onClick={() => setIsDisabling2FA(true)}
             className="py-1.5 px-3 rounded-[var(--radius-sm)] border border-[var(--danger)] text-[var(--danger)] hover:bg-[var(--danger)]/10 text-xs font-medium cursor-pointer"
@@ -397,13 +406,16 @@ export const SecurityProfilePage: React.FC = () => {
               Masukkan 6 digit kode dari aplikasi autentikator atau kode pemulihan untuk mengonfirmasi penonaktifan.
             </p>
             {disableError && (
-              <div className="p-2 rounded bg-[var(--danger)]/10 text-[var(--danger)] text-xs">
+              <div role="alert" className="p-2 rounded bg-[var(--danger)]/10 text-[var(--danger)] text-xs">
                 {disableError}
               </div>
             )}
             <div className="max-w-xs">
+              <label htmlFor="account-disable-code" className="block mb-2 text-xs font-medium">Kode autentikasi atau pemulihan</label>
               <input
+                id="account-disable-code"
                 type="text"
+                autoComplete="one-time-code"
                 required
                 autoFocus
                 value={disableCode}
@@ -445,7 +457,7 @@ export const SecurityProfilePage: React.FC = () => {
             </p>
 
             {setupError && (
-              <div className="p-2 rounded bg-[var(--danger)]/10 text-[var(--danger)] text-xs">
+              <div role="alert" className="p-2 rounded bg-[var(--danger)]/10 text-[var(--danger)] text-xs">
                 {setupError}
               </div>
             )}
@@ -492,12 +504,16 @@ export const SecurityProfilePage: React.FC = () => {
             </div>
 
             <form onSubmit={handleVerifyAndEnable2FA} className="space-y-3 pt-2">
-              <label className="block text-xs font-medium text-[var(--ink)]">
+              <label htmlFor="account-verify-code" className="block text-xs font-medium text-[var(--ink)]">
                 Masukkan 6 digit kode dari aplikasi:
               </label>
-              <div className="max-w-xs flex gap-2">
+              <div className="profile-code-entry">
                 <input
+                  id="account-verify-code"
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
                   required
                   maxLength={6}
                   value={verifyCode}
@@ -530,7 +546,7 @@ export const SecurityProfilePage: React.FC = () => {
               {t('profile.recoveryCodesDesc')}
             </p>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-4 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-xs font-bold text-center text-[var(--ink)]">
+            <div className="profile-recovery-codes grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-4 bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] font-mono text-xs font-bold text-center text-[var(--ink)]">
               {recoveryCodes.map((code, idx) => (
                 <div key={idx} className="p-1.5 bg-[var(--surface)] rounded border border-[var(--line)]">
                   {code}
@@ -570,10 +586,10 @@ export const SecurityProfilePage: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </section>
 
       {/* SSH Keys Management */}
-      <div className="pt-2">
+      <div className="profile-ssh">
         <SshKeyManager />
       </div>
     </div>

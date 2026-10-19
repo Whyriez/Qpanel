@@ -27,8 +27,12 @@ if (!is_dir($sessionDirectory) && !mkdir($sessionDirectory, 0700, true) && !is_d
 }
 ini_set('session.save_path', $sessionDirectory);
 ini_set('session.use_strict_mode', '1');
-$_COOKIE = array_filter($_COOKIE, fn($key) => str_starts_with($key, 'adminer_')
-    || str_starts_with($key, 'pma') || $key === 'phpMyAdmin', ARRAY_FILTER_USE_KEY);
+// Match the API allowlist, including phpMyAdmin's HTTPS and secure-prefix names.
+$_COOKIE = array_filter($_COOKIE, static function ($key): bool {
+    if (str_starts_with($key, 'adminer_')) { return true; }
+    $name = str_starts_with($key, '__Secure-') ? substr($key, 9) : $key;
+    return str_starts_with($name, 'pma') || in_array($name, ['phpMyAdmin', 'phpMyAdmin_https'], true);
+}, ARRAY_FILTER_USE_KEY);
 
 $asset = getenv('PANEL_WEB_ASSET') ?: '';
 if ($engine === 'mariadb') {

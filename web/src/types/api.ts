@@ -1188,6 +1188,12 @@ export interface GenerateDeployKeyResponse {
 
 export type DatabaseEngine = 'mariadb' | 'postgresql';
 
+export interface AvailableDatabaseEngine {
+  engine: string;
+  label: string;
+  port: number;
+}
+
 export interface DatabaseServer {
   engine: DatabaseEngine;
   is_installed: boolean;
@@ -1227,7 +1233,7 @@ export interface DatabaseListResponse {
 }
 
 export interface CreateDatabaseRequest {
-  engine: DatabaseEngine;
+  engine: string;
   name: string;
   db_user?: string | null;
   password?: string | null;
