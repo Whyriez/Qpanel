@@ -32,6 +32,7 @@ import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { RouteLink, pagePath } from "../../lib/router";
 import { Brand } from "../ui/Brand";
+import { useActiveJobCounts } from "./useActiveJobCounts";
 
 export interface ShellProps {
   children: React.ReactNode;
@@ -57,6 +58,13 @@ export const Shell: React.FC<ShellProps> = ({
   const pageRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const admin = user?.role === "admin";
+  const activeJobs = useActiveJobCounts(admin ? user.id : null);
+  const hasActiveJobs = Boolean(activeJobs && activeJobs.total > 0);
+  const jobCountDescription = activeJobs
+    ? i18n.language.startsWith('en')
+      ? `${activeJobs.total} active tasks: ${activeJobs.queued} queued, ${activeJobs.running} running`
+      : `${activeJobs.total} tugas aktif: ${activeJobs.queued} antre, ${activeJobs.running} berjalan`
+    : '';
   useEffect(() => {
     const page = pageRef.current;
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -215,14 +223,19 @@ export const Shell: React.FC<ShellProps> = ({
                 <RouteLink
                   href={pagePath(id)}
                   key={id}
-                  className={`nav-link ${id === activeNav ? "is-active" : ""}`}
+                  className={`nav-link ${id === activeNav ? "is-active" : ""} ${id === 'jobs' && hasActiveJobs ? 'has-job-count' : ''}`}
                   aria-current={id === activeNav ? "page" : undefined}
                   aria-label={t(`nav.${id}`)}
-                  title={t(`nav.${id}`)}
+                  aria-describedby={id === 'jobs' && hasActiveJobs ? 'sidebar-active-jobs' : undefined}
+                  title={id === 'jobs' && hasActiveJobs ? jobCountDescription : t(`nav.${id}`)}
                   onClick={() => navigate(id)}
                 >
                   <Icon size={18} strokeWidth={1.7} />
                   <span className="nav-label">{t(`nav.${id}`)}</span>
+                  {id === 'jobs' && hasActiveJobs && activeJobs && <>
+                    <span className="nav-job-count" aria-hidden="true">{activeJobs.total > 99 ? '99+' : activeJobs.total}</span>
+                    <span id="sidebar-active-jobs" className="sr-only">{jobCountDescription}</span>
+                  </>}
                 </RouteLink>
               ))}
             </div>

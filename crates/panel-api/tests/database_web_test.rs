@@ -426,6 +426,86 @@ async fn cross_origin_posts_are_rejected_without_forwarding() {
 }
 
 #[tokio::test]
+async fn tunnel_bootstrap_posts_pass_origin_guard_before_private_backend_lookup() {
+    let f = fixture().await;
+    for query in ["route=/config/get", "route=/navigation&ajax_request=1"] {
+        let response = f
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/databases/{}/web/index.php?{query}",
+                        f.ids[0]
+                    ))
+                    .extension(axum::extract::ConnectInfo(
+                        "127.0.0.1:44000".parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .header("cookie", &f.cookies[1])
+                    .header("host", "panel.test")
+                    .header("origin", "https://panel.test")
+                    .header("sec-fetch-site", "same-origin")
+                    .header("x-forwarded-proto", "http")
+                    .header("cf-visitor", r#"{"scheme":"https"}"#)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        // The fixture's private RPC path does not exist: reaching its credential
+        // lookup proves the public HTTPS POST passed both origin and ownership.
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            json_body(response).await,
+            json!({"error":"Buka kembali pengelola melalui tombol pada daftar database"})
+        );
+    }
+}
+
+#[tokio::test]
+async fn tunnel_headers_never_allow_foreign_or_opaque_origins() {
+    let f = fixture().await;
+    for (origin, site) in [
+        ("https://evil.test", "same-origin"),
+        ("https://panel.test:444", "same-origin"),
+        ("null", "same-origin"),
+        ("http://panel.test", "same-origin"),
+        ("https://panel.test", "cross-site"),
+    ] {
+        let response = f
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/databases/{}/web/index.php?route=/config/get",
+                        f.ids[0]
+                    ))
+                    .extension(axum::extract::ConnectInfo(
+                        "127.0.0.1:44000".parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .header("cookie", &f.cookies[1])
+                    .header("host", "panel.test")
+                    .header("origin", origin)
+                    .header("sec-fetch-site", site)
+                    .header("x-forwarded-proto", "http")
+                    .header("cf-visitor", r#"{"scheme":"https"}"#)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            json_body(response).await,
+            json!({"error":"Permintaan lintas asal ditolak"})
+        );
+    }
+}
+
+#[tokio::test]
 async fn tool_csp_is_preserved_while_panel_csp_remains_strict_and_download_bytes_survive() {
     let app = axum::Router::new()
         .route(

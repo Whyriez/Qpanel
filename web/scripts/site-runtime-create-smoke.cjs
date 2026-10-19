@@ -5,7 +5,7 @@ const base = process.env.NUSA_UI_URL || 'http://127.0.0.1:5185';
 let checks = 0;
 function check(condition, message) { assert.ok(condition, message); checks++; }
 const owner = { id: 42, username: 'customer', linux_username: 'p_actual', linux_uid: 10042, status: 'active', role: 'user' };
-const versions = { node: '24.2.1', python: '3.13.7' };
+const versions = { php: '8.3', node: '24.2.1', python: '3.13.7' };
 
 async function fixture(browser, initial = {}) {
   const page = await browser.newPage();
@@ -23,6 +23,7 @@ async function fixture(browser, initial = {}) {
       body = mode.createFail ? { error: 'Runtime gagal diterapkan: entrypoint fixture tidak ditemukan.', code: 'site_provisioning_failed' }
         : { id: 7, user_id: 42, ...request.postDataJSON(), status: 'active', primary_domain: 'app.example.test', domains: [] };
     } else if (path === '/api/v1/sites') body = [];
+    else if (path === '/api/v1/php/versions') body = { ppa_configured: true, versions: [{ version: versions.php, installed: true, fpm_binary_exists: true }] };
     else if (path === '/api/v1/tenants') body = { tenants: [owner] };
     else if (path === '/api/v1/tenants/42') body = { tenant: owner, plan: null };
     else if (path === '/api/v1/runtimes/node/versions' || path === '/api/v1/runtimes/python') {
@@ -47,12 +48,14 @@ async function fixture(browser, initial = {}) {
   }
   return { page, mode, calls, errors, dialog: page.getByRole('dialog') };
 }
-const name = kind => kind === 'node' ? 'Node.js' : 'Python';
+const name = kind => ({ php: 'PHP', node: 'Node.js', python: 'Python' })[kind];
 async function choose(f, kind) {
-  await f.dialog.getByRole('button', { name: new RegExp(kind === 'node' ? 'Node\\.js' : 'Aplikasi Python') }).click();
+  await f.dialog.getByRole('button', { name: new RegExp(kind === 'php' ? '^PHP' : kind === 'node' ? 'Node\\.js' : 'Aplikasi Python') }).click();
 }
 async function ready(f, kind) {
-  await f.dialog.getByRole('status').filter({ hasText: `1 versi ${name(kind)} terpasang.` }).waitFor();
+  await f.page.waitForFunction(() => [...document.querySelectorAll('[role="dialog"] button')].some(button => button.textContent.trim() === 'Lanjutkan' && !button.disabled));
+  check(await f.dialog.getByText(/\d+ versi .* terpasang\./).count() === 0, `${kind}: ready inventory has no redundant installed-version count`);
+  check(await f.dialog.getByRole('status').count() === 0, `${kind}: successful inventory leaves no empty status panel`);
 }
 async function review(f, kind) {
   await f.dialog.getByRole('button', { name: 'Lanjutkan', exact: true }).click();
@@ -68,10 +71,16 @@ async function review(f, kind) {
 (async () => {
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
+    const php = await fixture(browser);
+    await choose(php, 'php'); await ready(php, 'php');
+    await review(php, 'php');
+    check(php.errors.length === 0, 'PHP wizard retains installed version selection without browser exceptions');
+    await php.page.close();
     for (const kind of ['node', 'python']) {
       let release;
       const nodeGate = kind === 'node' ? new Promise(resolve => { release = resolve; }) : undefined;
       const f = await fixture(browser, { nodeGate, createFail: true });
+      check(await f.dialog.getByText('Tersedia', { exact: true }).count() === 0 && await f.dialog.getByText('PHP-FPM', { exact: true }).count() === 0, 'site type cards omit redundant badges');
       if (kind === 'node') {
         const card = f.dialog.getByRole('button', { name: /Node\.js/ });
         await card.focus(); await card.press('Space');
@@ -116,7 +125,7 @@ async function review(f, kind) {
     await choose(f, 'node'); await choose(f, 'python'); await ready(f, 'python');
     const lateNode = f.page.waitForResponse(response => response.url().includes('/runtimes/node/versions'));
     release(); await lateNode;
-    check(await f.dialog.getByRole('status').textContent() === '1 versi Python terpasang.', 'late Node response does not replace selected Python inventory');
+    check(await f.dialog.getByRole('button', { name: /Aplikasi Python/ }).getAttribute('aria-pressed') === 'true' && await f.dialog.getByRole('status').count() === 0, 'late Node response does not replace ready Python selection');
     await review(f, 'python');
     check(await f.dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1), 'mobile dialog has no horizontal overflow');
     check(f.errors.length === 0, 'tenant wizard has no browser exceptions');

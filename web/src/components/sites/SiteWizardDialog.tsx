@@ -396,9 +396,6 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 >
                   <div className="flex items-center justify-between mb-2">
                     <FileCode2 className="w-5 h-5 text-[var(--primary)]" />
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
-                      Tersedia
-                    </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">
                     {t('sites.wizard.staticTitle')}
@@ -414,9 +411,6 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Server className="w-5 h-5 text-[var(--ink-muted)]" />
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--line)] text-[var(--ink-muted)] font-semibold uppercase">
-                      PHP-FPM
-                    </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">{t('sites.wizard.phpTitle')}</h3>
                   <p className="text-xs text-[var(--ink-muted)]">
@@ -437,9 +431,6 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Terminal className="w-5 h-5 text-[var(--primary)]" />
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
-                      Tersedia
-                    </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">{t('sites.wizard.nodeTitle')}</h3>
                   <p className="text-xs text-[var(--ink-muted)]">{t('sites.wizard.nodeDesc')}</p>
@@ -458,9 +449,6 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Terminal className="w-5 h-5 text-[var(--primary)]" />
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
-                      Tersedia
-                    </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">Aplikasi Python (uv + venv)</h3>
                   <p className="text-xs text-[var(--ink-muted)]">
@@ -479,9 +467,6 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Network className="w-5 h-5 text-[var(--primary)]" />
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--success)]/10 text-[var(--success)] font-semibold uppercase">
-                      Tersedia
-                    </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[var(--ink)] mb-1">Reverse Proxy (Nginx)</h3>
                   <p className="text-xs text-[var(--ink-muted)]">
@@ -493,10 +478,10 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
           )}
 
           {/* STEP 2: Domain & Routing */}
-          {isApplication && step <= 2 && (
+          {isApplication && step <= 2 && (applicationLoading || applicationError || applicationVersions.length === 0) && (
             <div role={applicationError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
               {applicationLoading ? `Memuat runtime ${applicationName}…` : applicationError ||
-                (applicationVersions.length ? `${applicationVersions.length} versi ${applicationName} terpasang.` : `Belum ada runtime ${applicationName} yang terpasang.`)}
+                `Belum ada runtime ${applicationName} yang terpasang.`}
               {!applicationLoading && (applicationError || applicationVersions.length === 0) && (
                 <div className="mt-2 flex flex-wrap gap-3">
                   <button type="button" onClick={() => setRuntimeReload(value => value + 1)} className="underline">Coba lagi</button>
@@ -507,14 +492,12 @@ export const SiteWizardDialog: React.FC<SiteWizardDialogProps> = ({
               )}
             </div>
           )}
-          {siteType === 'php' && step <= 2 && (
+          {siteType === 'php' && step <= 2 && (phpLoading || phpError || phpVersions.length === 0) && (
             <div role={phpError ? 'alert' : 'status'} className="p-3 border border-[var(--line)] rounded text-sm">
               {phpLoading
                 ? 'Memuat runtime PHP…'
                 : phpError ||
-                  (phpVersions.length
-                    ? `${phpVersions.length} versi PHP terpasang.`
-                    : 'Belum ada runtime PHP yang terpasang.')}
+                  'Belum ada runtime PHP yang terpasang.'}
               {!phpLoading && phpVersions.length === 0 && (
                 <div className="mt-2">
                   {user?.role === 'admin' ? (

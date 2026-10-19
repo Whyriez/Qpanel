@@ -43,6 +43,9 @@ tersedia di folder aplikasi; starter tidak menebak atau menimpa kode custom.
 Wizard membaca versi Node.js/Python yang terpasang dari server, tanpa daftar versi
 statis. Jika inventaris kosong atau gagal dimuat, gunakan tombol coba lagi atau
 pasang runtime dari Runtime Manager; create tidak dikirim dengan versi tebakan.
+Kartu jenis situs tidak menampilkan badge ketersediaan. Saat inventaris berhasil
+dimuat, pilihan versi langsung tersedia tanpa panel jumlah versi terpasang;
+pesan status hanya muncul saat memuat, kosong atau gagal.
 
 Penolakan provisioning PHP/Node.js/Python dikirim sebagai JSON 422 dengan detail
 tahap; gangguan komunikasi agent sebagai 503. Penolakan aplikasi tidak lagi
@@ -237,6 +240,14 @@ setelah itu, periksa header respons **Location** pada dua redirect berurutan
 untuk membedakan jalur pengelola dengan redirect protokol/domain; jangan membagikan
 Cookie atau token sesi. Status 302 dan alamat IP edge saja belum menentukan
 sumber loop pada server.
+
+Jika POST `route=/config/get` atau `route=/navigation&ajax_request=1` ditolak
+403 dengan JSON `Permintaan lintas asal ditolak`, perbaikan P10-T6bw memerlukan
+**panel-api build baru**, lalu tutup tab pengelola dan buka lagi dari daftar database.
+Gateway membaca HTTPS publik dari metadata proxy yang terhubung melalui loopback,
+termasuk CF-Visitor ketika jalur Nginx internal memakai HTTP. Origin tetap harus
+cocok dengan Host panel. Patch ini tidak mengubah bridge PHP sehingga tidak perlu
+memasang ulang pengelola apabila patch bridge sebelumnya sudah terpasang.
 
 Validasi sesi ini menggunakan mock/fixture lokal; instalasi dan akses database nyata
 di Linux belum diverifikasi. Rincian desain dan batas ada pada ADR-0119.

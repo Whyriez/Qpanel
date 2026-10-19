@@ -103,6 +103,23 @@ button:disabled {
   color: var(--primary);
   font-weight: 600;
 }
+.nav-link.has-job-count {
+  position: relative;
+}
+.nav-job-count {
+  margin-left: auto;
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--nav-active);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
 .sidebar-bottom {
   border-top: 1px solid var(--line);
   padding: 12px 14px 16px;
@@ -314,6 +331,14 @@ button:disabled {
 .is-collapsed .nav-link {
   justify-content: center;
   padding: 10px;
+}
+.is-collapsed .nav-job-count {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 18px;
+  padding: 0 4px;
+  font-size: 9px;
 }
 .is-collapsed .sidebar-preferences {
   flex-direction: column;
@@ -858,6 +883,12 @@ button:disabled {
   }
   .is-collapsed .nav-link {
     justify-content: flex-start;
+  }
+  .is-collapsed .nav-job-count {
+    position: static;
+    min-width: 24px;
+    padding: 2px 6px;
+    font-size: 11px;
   }
   .is-collapsed .sidebar-preferences {
     flex-direction: row;

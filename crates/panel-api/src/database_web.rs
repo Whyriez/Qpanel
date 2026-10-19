@@ -21,6 +21,37 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 const MAX_BODY: usize = 32 * 1024 * 1024;
 const MAX_RESPONSE: usize = 40 * 1024 * 1024;
 
+/// Production binds to loopback; only the directly connected local proxy can
+/// describe upstream TLS. Cookie policy is a minimum, never downgraded by headers.
+fn request_secure(request: &Request, configured_secure: bool) -> bool {
+    if configured_secure {
+        return true;
+    }
+    let local_proxy = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .is_some_and(|peer| peer.0.ip().is_loopback());
+    if !local_proxy {
+        return false;
+    }
+    let single_header = |name: &str| {
+        let mut values = request.headers().get_all(name).iter();
+        let value = values.next()?.to_str().ok()?;
+        values.next().is_none().then_some(value)
+    };
+    if single_header("x-forwarded-proto").is_some_and(|proto| proto == "https") {
+        return true;
+    }
+    // Nginx may rewrite X-Forwarded-Proto to its HTTP tunnel hop; Cloudflare's
+    // original visitor scheme still accompanies both navigation and AJAX.
+    single_header("cf-visitor")
+        .filter(|value| value.len() <= 128)
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+        .is_some_and(|value| {
+            value.get("scheme").and_then(|scheme| scheme.as_str()) == Some("https")
+        })
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/databases/web-tools", get(tool_status))
@@ -303,10 +334,8 @@ async fn proxy(
     if !valid_asset(&asset) {
         return error(StatusCode::BAD_REQUEST, "Jalur pengelola tidak valid");
     }
-    if !same_origin(
-        request.headers(),
-        state.auth_config.cookie_secure.unwrap_or(true),
-    ) {
+    let secure = request_secure(&request, state.auth_config.cookie_secure.unwrap_or(true));
+    if !same_origin(request.headers(), secure) {
         return error(StatusCode::FORBIDDEN, "Permintaan lintas asal ditolak");
     }
     let (engine, access) = match access_request(&state, &user, id, false).await {
@@ -371,17 +400,13 @@ async fn proxy(
         cookie: &cookie,
         session: &hash_token(&format!("{}:{id}", user.session_id)),
         credentials: &credentials,
-        secure: state.auth_config.cookie_secure.unwrap_or(true),
+        secure,
         length: body.len(),
     });
-    match private_request(&params, &body).await.and_then(|output| {
-        parse_response(
-            &output,
-            &prefix,
-            state.auth_config.cookie_secure.unwrap_or(true),
-            &host,
-        )
-    }) {
+    match private_request(&params, &body)
+        .await
+        .and_then(|output| parse_response(&output, &prefix, secure, &host))
+    {
         Ok(response) => response,
         Err(_) => error(
             StatusCode::BAD_GATEWAY,
@@ -670,3 +695,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "database_web_origin_tests.rs"]
+mod origin_tests;

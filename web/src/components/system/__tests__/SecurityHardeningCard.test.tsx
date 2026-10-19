@@ -12,6 +12,6 @@ describe('SecurityHardeningCard Component', () => {
 
   it('contains hardening keywords in output', () => {
     const html = renderToString(<SecurityHardeningCard />);
-    expect(html).toContain('card');
+    expect(html).toContain('Hardening Keamanan &amp; Firewall Loopback');
   });
 });

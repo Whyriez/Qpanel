@@ -77,7 +77,8 @@ async function fixture(browser,{authenticated=false,role='admin',installed=true}
     check(await p.getByText('37,5%',{exact:true}).count()===0,'waiting state clears previous values');
     first.mode.metrics='failed';await p.getByRole('button',{name:/Segarkan|Refresh/i}).first().click();await p.getByRole('alert').filter({hasText:'Collector gagal'}).waitFor();checks++;
     await p.getByRole('button',{name:'Situs baru',exact:true}).click();await p.getByRole('button',{name:/PHP/}).first().click();
-    await p.getByText('1 versi PHP terpasang.',{exact:true}).waitFor();
+    await p.waitForFunction(() => [...document.querySelectorAll('[role="dialog"] button')].some(button => button.textContent.trim() === 'Lanjutkan' && !button.disabled));
+    check(await p.getByRole('dialog').getByText(/\d+ versi PHP terpasang\./).count()===0,'ready PHP inventory omits redundant version count');
     await p.getByRole('button',{name:/Lanjut/}).last().click();await p.getByLabel('Versi PHP').waitFor();
     check(await p.getByLabel('Versi PHP').inputValue()==='8.3','PHP uses installed versions');
     await p.getByLabel('Preset PHP').selectOption('laravel');await p.locator('#step2-form input[type=text]').first().fill('new.example.test');
