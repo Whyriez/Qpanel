@@ -39,10 +39,17 @@ if ($engine === 'mariadb') {
     $_GET['db'] = $database;
     $_REQUEST['db'] = $database;
     if (isset($_POST['db'])) { $_POST['db'] = $database; }
-    if ($asset === '' || $asset === 'index.php') {
-        if (empty($_GET['route']) && empty($_POST['route'])) {
-            $_GET['route'] = $_REQUEST['route'] = '/database/structure';
-        }
+    $isIndex = $asset === '' || $asset === 'index.php';
+    if ($isIndex && empty($_GET['route']) && empty($_POST['route'])) {
+        $_GET['route'] = $_REQUEST['route'] = '/database/structure';
+    }
+    // phpMyAdmin routes from globals, but PSR-7 factories may parse the URI instead.
+    // Keep both views scoped; otherwise the controller sees no database and redirects
+    // to route=/&reload=1, which routes back to the same database controller forever.
+    $_SERVER['QUERY_STRING'] = http_build_query($_GET, '', '&', PHP_QUERY_RFC3986);
+    $_SERVER['REQUEST_URI'] = $prefix . ($asset === '' ? 'index.php' : $asset)
+        . '?' . $_SERVER['QUERY_STRING'];
+    if ($isIndex) {
         chdir('/usr/share/phpmyadmin');
         require '/usr/share/phpmyadmin/index.php';
         exit;

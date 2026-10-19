@@ -203,5 +203,14 @@ P10-T6bo, perbarui **API dan agent**, lalu jalankan **Perbarui pengelola** agar
 harus sama-sama mendukung `phpMyAdmin_https` dan `__Secure-phpMyAdmin_https`;
 memperbarui binary API saja belum cukup.
 
+Perbaikan lanjutan P10-T6bq menangani loop `index.php?route=/&reload=1` ketika
+request PSR-7 phpMyAdmin kehilangan konteks database: bridge kini menyelaraskan
+query dan URI, selain superglobal PHP. Patch ini juga membutuhkan **agent build
+baru + Perbarui pengelola** agar entry PHP di server terganti. Jika masih berulang
+setelah itu, periksa header respons **Location** pada dua redirect berurutan
+untuk membedakan jalur pengelola dengan redirect protokol/domain; jangan membagikan
+Cookie atau token sesi. Status 302 dan alamat IP edge saja belum menentukan
+sumber loop pada server.
+
 Validasi sesi ini menggunakan mock/fixture lokal; instalasi dan akses database nyata
 di Linux belum diverifikasi. Rincian desain dan batas ada pada ADR-0119.
