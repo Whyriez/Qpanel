@@ -15,14 +15,16 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, BTreeSet};
+use tokio::io::AsyncReadExt;
 
 pub const NODE_INDEX: &str = "https://nodejs.org/dist/index.json";
 pub const NODE_SCHEDULE: &str =
     "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json";
 pub const PHP_RELEASES: &str = "https://www.php.net/releases/active.php";
-pub const PYTHON_CYCLES: &str = "https://peps.python.org/api/python-releases.json";
+pub const PYTHON_CYCLES: &str = "https://peps.python.org/api/release-cycle.json";
 pub const PYTHON_DOWNLOADS: &str = "https://raw.githubusercontent.com/astral-sh/uv/main/crates/uv-python-managed/download-metadata.json";
 const MAX_AGE: i64 = 7 * 86400;
+const MAX_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 static REFRESH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +191,8 @@ pub fn parse_python(
     cycles: &Value,
     today: NaiveDate,
 ) -> Result<Vec<PythonVersionEntry>, String> {
+    // The compact official API is keyed by branch; accept the former full API too.
+    let cycles = cycles.get("metadata").unwrap_or(cycles);
     let mut versions = BTreeMap::new();
     for item in downloads
         .as_object()
@@ -214,11 +218,13 @@ pub fn parse_python(
             continue;
         };
         let branch = format!("{major}.{minor}");
-        let cycle = &cycles["metadata"][&branch];
+        let cycle = &cycles[&branch];
         if !matches!(cycle["status"].as_str(), Some("bugfix" | "security"))
             || !cycle["end_of_life"]
                 .as_str()
-                .and_then(date)
+                // The compact API expresses supported branches' EOL as YYYY-MM.
+                // Expire on the first day of that month, conservatively.
+                .and_then(|value| date(value).or_else(|| date(&format!("{value}-01"))))
                 .is_some_and(|d| today < d)
             || !cycle["first_release"]
                 .as_str()
@@ -292,29 +298,162 @@ pub async fn python_cache(pool: &SqlitePool) -> Result<Cache<Vec<PythonVersionEn
     read_setting(pool, "runtime.catalog.python").await
 }
 
-async fn fetch(url: &'static str) -> Result<Value, String> {
+#[derive(Debug)]
+struct SourceError {
+    reason: String,
+    retryable: bool,
+}
+impl SourceError {
+    fn permanent(reason: &str) -> Self {
+        Self {
+            reason: reason.into(),
+            retryable: false,
+        }
+    }
+    fn timeout() -> Self {
+        Self {
+            reason: "Batas waktu unduhan terlampaui".into(),
+            retryable: true,
+        }
+    }
+}
+
+fn source_name(url: &str) -> &'static str {
+    match url {
+        PYTHON_DOWNLOADS => "Katalog Python (Astral)",
+        PYTHON_CYCLES => "Status dukungan Python (PEP)",
+        NODE_INDEX => "Katalog Node.js",
+        NODE_SCHEDULE => "Status dukungan Node.js",
+        PHP_RELEASES => "Katalog PHP",
+        _ => "Katalog runtime",
+    }
+}
+
+fn decode_source(output: &[u8], exit: Option<i32>) -> Result<Value, SourceError> {
+    let split = output
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .ok_or_else(|| SourceError::permanent("Respons unduhan tidak lengkap"))?;
+    let http = std::str::from_utf8(&output[split + 1..])
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(0);
+    if exit != Some(0) || !(200..300).contains(&http) {
+        let reason = match exit {
+            Some(5 | 6) => "Nama host sumber gagal ditemukan (DNS)".into(),
+            Some(7) => "Koneksi ke sumber gagal".into(),
+            Some(28) => return Err(SourceError::timeout()),
+            Some(35 | 60) => "Koneksi TLS atau sertifikat sumber gagal diverifikasi".into(),
+            Some(63) => "Ukuran metadata melebihi batas 8 MiB".into(),
+            _ if http >= 300 => format!("Sumber mengembalikan HTTP {http}"),
+            _ => format!("Unduhan gagal (curl {})", exit.unwrap_or(-1)),
+        };
+        return Err(SourceError {
+            reason,
+            retryable: matches!(exit, Some(5 | 6 | 7 | 18 | 28 | 52 | 55 | 56 | 92))
+                || matches!(http, 408 | 429 | 500 | 502 | 503 | 504),
+        });
+    }
+    serde_json::from_slice(&output[..split])
+        .map_err(|_| SourceError::permanent("Metadata JSON sumber tidak valid"))
+}
+
+async fn fetch_once(url: &'static str) -> Result<Value, SourceError> {
     // Fixed provider URLs, bounded output and runtime; no API-supplied destination.
-    let output = tokio::process::Command::new("curl")
+    let mut child = tokio::process::Command::new("curl")
         .kill_on_drop(true)
         .args([
+            "--disable",
             "--fail",
             "--silent",
             "--show-error",
+            "--compressed",
             "--proto",
             "=https",
+            "--connect-timeout",
+            "5",
             "--max-time",
-            "15",
+            "20",
             "--max-filesize",
             "8388608",
+            "--write-out",
+            "\n%{http_code}",
             url,
         ])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| {
+            SourceError::permanent(if error.kind() == std::io::ErrorKind::NotFound {
+                "Program curl belum tersedia pada server"
+            } else {
+                "Program pengunduh tidak dapat dijalankan"
+            })
+        })?;
+    tokio::time::timeout(std::time::Duration::from_secs(22), async {
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| SourceError::permanent("Output pengunduh tidak tersedia"))?;
+        let output = read_source_output(stdout).await?;
+        let exit = child
+            .wait()
+            .await
+            .map_err(|_| SourceError::permanent("Status pengunduh tidak tersedia"))?;
+        decode_source(&output, exit.code())
+    })
+    .await
+    .map_err(|_| SourceError::timeout())?
+}
+
+async fn read_source_output(
+    stdout: impl tokio::io::AsyncRead + Unpin,
+) -> Result<Vec<u8>, SourceError> {
+    let mut output = Vec::new();
+    // Bound decompressed bytes too; older curl versions only bound wire size.
+    stdout
+        .take((MAX_SOURCE_BYTES + 1) as u64)
+        .read_to_end(&mut output)
         .await
-        .map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err("Sumber resmi tidak dapat dihubungi; katalog terakhir dipertahankan".into());
+        .map_err(|_| SourceError::permanent("Respons unduhan terputus"))?;
+    if output.len() > MAX_SOURCE_BYTES {
+        return Err(SourceError::permanent(
+            "Ukuran metadata melebihi batas 8 MiB",
+        ));
     }
-    serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())
+    Ok(output)
+}
+
+async fn fetch_retry<F, Fut>(name: &str, attempts: usize, mut request: F) -> Result<Value, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Value, SourceError>>,
+{
+    for attempt in 0..attempts {
+        match request().await {
+            Ok(value) => return Ok(value),
+            Err(error) if error.retryable && attempt + 1 < attempts => {
+                // A new process/output buffer per attempt prevents partial JSON concatenation.
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "{name}: {}. Katalog terakhir dipertahankan",
+                    error.reason
+                ));
+            }
+        }
+    }
+    Err(format!("{name}: unduhan tidak dijalankan"))
+}
+
+async fn fetch(url: &'static str) -> Result<Value, String> {
+    let attempts = if matches!(url, PYTHON_CYCLES | PYTHON_DOWNLOADS) {
+        2
+    } else {
+        1
+    };
+    fetch_retry(source_name(url), attempts, || fetch_once(url)).await
 }
 pub fn due(checked: Option<i64>, hours: u16, now: i64) -> bool {
     checked.is_none_or(|at| at > now || now.saturating_sub(at) >= i64::from(hours) * 3600)
@@ -439,3 +578,7 @@ pub async fn refresh_handler(State(state): State<AppState>, _: RequireAdminCsrf)
     }
     response(status(&state.pool).await)
 }
+
+#[cfg(test)]
+#[path = "runtime_catalog_source_tests.rs"]
+mod source_tests;

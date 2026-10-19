@@ -155,6 +155,132 @@ fn php_catalog_discovers_new_supported_branches_and_patches() {
     assert!(parse_php(json!({})).is_err());
 }
 
+#[test]
+fn python_compact_release_cycles_accept_month_eol_and_expire_conservatively() {
+    // Same shape as peps.python.org/api/release-cycle.json, including YYYY-MM EOL.
+    let mut cycles =
+        json!({"3.14":{"status":"bugfix","first_release":"2025-10-07","end_of_life":"2030-10"}});
+    let downloads = json!({"stable":{"name":"cpython","os":"linux","libc":"gnu",
+        "arch":{"family":std::env::consts::ARCH,"variant":null},
+        "major":3,"minor":14,"patch":8,"prerelease":"","variant":null}});
+    let versions = parse_python(downloads.clone(), &cycles, today()).unwrap();
+    assert_eq!(versions[0].version, "3.14.8");
+    assert!(
+        parse_python(
+            downloads.clone(),
+            &cycles,
+            NaiveDate::from_ymd_opt(2030, 10, 1).unwrap()
+        )
+        .is_err()
+    );
+    assert!(
+        parse_python(
+            downloads.clone(),
+            &cycles,
+            NaiveDate::from_ymd_opt(2030, 9, 30).unwrap()
+        )
+        .is_ok()
+    );
+    for invalid in ["2030", "2030-13", "2030-02-30", "2030-10-extra"] {
+        cycles["3.14"]["end_of_life"] = json!(invalid);
+        assert!(
+            parse_python(downloads.clone(), &cycles, today()).is_err(),
+            "{invalid}"
+        );
+    }
+    cycles["3.14"]["end_of_life"] = json!("2030-10");
+    for status in ["feature", "prerelease", "end-of-life"] {
+        cycles["3.14"]["status"] = json!(status);
+        assert!(parse_python(downloads.clone(), &cycles, today()).is_err());
+    }
+}
+
+#[tokio::test]
+async fn python_inventory_recovers_from_static_fallback_after_catalog_sync() {
+    let (state, app, cookie, _csrf, tmp) = router_fixture("admin").await;
+    let socket = tmp.path().join("no-agent");
+    #[cfg(unix)]
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    #[cfg(not(unix))]
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    #[cfg(not(unix))]
+    std::fs::write(&socket, listener.local_addr().unwrap().port().to_string()).unwrap();
+    let fixture = tokio::spawn(async move {
+        for _ in 0..3 {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut rpc = panel_proto::RpcStream::new(stream);
+            let request = rpc.recv_request().await.unwrap();
+            assert!(matches!(
+                request.payload,
+                panel_proto::RequestPayload::PythonRuntimeList(_)
+            ));
+            rpc.send_response(&panel_proto::RpcResponse::ok(
+                request.request_id,
+                panel_proto::ResponsePayload::PythonRuntimeList(
+                    panel_proto::PythonRuntimeListResponse { installed: vec![] },
+                ),
+            ))
+            .await
+            .unwrap();
+        }
+    });
+    let (status, before) = call(
+        &app,
+        &cookie,
+        None,
+        "GET",
+        "/api/v1/runtimes/python/versions",
+        json!(null),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(before["catalog_ready"], false);
+    assert!(
+        before["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|version| version["version"] == "3.12.9")
+    );
+    let downloads = json!({"stable":{"name":"cpython","os":"linux","libc":"gnu",
+        "arch":{"family":std::env::consts::ARCH,"variant":null},
+        "major":3,"minor":15,"patch":0,"prerelease":"","variant":null}});
+    let cycles =
+        json!({"3.15":{"status":"bugfix","first_release":"2026-10-09","end_of_life":"2031-10"}});
+    let catalog = parse_python(downloads, &cycles, today()).unwrap();
+    let now = chrono::Utc::now().timestamp();
+    store_refresh(&state.pool, "runtime.catalog.python", Ok(catalog), now)
+        .await
+        .unwrap();
+    for failed_refresh in [false, true] {
+        if failed_refresh {
+            store_refresh::<Vec<panel_runtime::python::PythonVersionEntry>>(
+                &state.pool,
+                "runtime.catalog.python",
+                Err("Status dukungan Python (PEP): batas waktu unduhan terlampaui".into()),
+                now,
+            )
+            .await
+            .unwrap();
+        }
+        let (status, body) = call(
+            &app,
+            &cookie,
+            None,
+            "GET",
+            "/api/v1/runtimes/python/versions",
+            json!(null),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["catalog_ready"], true);
+        assert_eq!(body["versions"].as_array().unwrap().len(), 1);
+        assert_eq!(body["versions"][0]["version"], "3.15.0");
+        assert_eq!(body["versions"][0]["is_installed"], false);
+    }
+    fixture.await.unwrap();
+}
+
 #[tokio::test]
 async fn refresh_failure_preserves_last_good_cache_and_schedule_across_reload() {
     let pool = panel_db::pool::init_pool("sqlite::memory:").await.unwrap();

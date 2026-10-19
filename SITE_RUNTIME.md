@@ -152,6 +152,16 @@ Astral. Setelah memasang build panel yang memuat perbaikan, buka **Runtime >
 Pengaturan > Perbarui katalog sekarang**, lalu muat kembali daftar Python.
 Pembaruan katalog mengambil metadata saja; pemasangan runtime tetap manual.
 
+Jika status Python masih `catalog_ready: false` dan menampilkan pesan sumber tidak
+dapat dihubungi, daftar 3.12.9/3.13.2 berasal dari fallback bawaan, bukan hasil
+sinkronisasi. Perbaikan P10-T6bp memakai API resmi PEP `release-cycle.json` yang
+lebih kecil, kompresi HTTP dan satu percobaan ulang untuk kegagalan sementara
+Python. Error sekarang menyebut sumber serta penyebab DNS/TLS/timeout/HTTP;
+snapshot sukses tetap dipertahankan. Setelah memasang binary API yang memuat
+perbaikan, jalankan **Runtime > Pengaturan > Perbarui katalog sekarang** lalu
+muat ulang tab Python. Mengambil ulang bootstrap tanpa release binary baru tidak
+menerapkan patch ini.
+
 PHP 7.4 tetap tersedia untuk kompatibilitas aplikasi lama, termasuk ketika belum
 terpasang. Seluruh versi pada whitelist panel (7.4 dan 8.0–8.5) tetap ditampilkan;
 refresh katalog PHP hanya memperbarui informasi patch cabang aktif dan tidak
