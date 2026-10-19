@@ -1,7 +1,7 @@
 import type { JobItem, JobProgressEvent } from '../types/api';
 
 export function canCancelJob(job: JobItem): boolean {
-  return job.status === 'queued' || (job.status === 'running' && !['php.install', 'php.repo.setup', 'database.server.install', 'cloudflare.install', 'cloudflare.change', 'email.install', 'email.mailbox', 'email.send', 'email.deliver'].includes(job.name));
+  return job.status === 'queued' || (job.status === 'running' && !['php.install', 'php.repo.setup', 'database.server.install', 'database.web.install', 'cloudflare.install', 'cloudflare.change', 'email.install', 'email.mailbox', 'email.send', 'email.deliver'].includes(job.name));
 }
 
 export function jobProgressMessage(status: JobProgressEvent['status'], message: string | null): string {

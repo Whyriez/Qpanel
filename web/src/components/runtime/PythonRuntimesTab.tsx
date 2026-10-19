@@ -6,7 +6,7 @@ import { runtimeJobVersion, useRuntimeJobs } from './useRuntimeJobs';
 import { RuntimeJobProgress } from './RuntimeJobProgress';
 import { ConfirmDangerDialog } from '../ui/ConfirmDangerDialog';
 import { toast } from 'sonner';
-import { PythonInstallModal } from './PythonInstallModal';
+import { PythonManualInstall } from './PythonManualInstall';
 
 const names = new Set(['python.install']);
 const secondaryButton = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--ink)] hover:bg-[var(--bg)] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]';
@@ -17,7 +17,6 @@ export function PythonRuntimesTab({ onCatalogRefresh }: { onCatalogRefresh?: () 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [remove, setRemove] = useState<string | null>(null);
-  const [installOpen, setInstallOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   const submitting = useRef(false);
@@ -66,14 +65,14 @@ export function PythonRuntimesTab({ onCatalogRefresh }: { onCatalogRefresh?: () 
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h2 className="text-sm font-semibold">Versi Python</h2><p className="text-xs text-[var(--ink-muted)]">Pasang CPython untuk dipilih situs Django, Flask, FastAPI, atau aplikasi sendiri.</p></div>
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={() => setInstallOpen(true)} className={primaryButton}><Download size={14} />Pasang Python</button>
+        <button type="button" onClick={() => { void refreshVersions().catch(cause => toast.error(cause instanceof Error ? cause.message : 'Gagal memperbarui katalog Python.')); }} disabled={loading || refreshing || Boolean(busy)} className={secondaryButton}><RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />{refreshing ? 'Memperbarui katalog…' : 'Perbarui katalog Python'}</button>
         <button type="button" onClick={() => void load()} disabled={loading || refreshing} className={secondaryButton}><RefreshCw size={14} />Muat ulang Python</button>
       </div>
     </div>
     {(error || jobs.error) && <p role="alert" className="text-sm text-[var(--danger)]">{error || jobs.error}</p>}
-    {data?.catalog_ready === false && <p role="status" className="text-sm text-[var(--ink-muted)]">Daftar otomatis belum tersedia atau sudah kedaluwarsa. Buka Pasang Python untuk memuat daftar terbaru atau memasukkan versi lengkap.</p>}
+    {data?.catalog_ready === false && <p role="status" className="text-sm text-[var(--ink-muted)]">Daftar otomatis belum tersedia atau sudah kedaluwarsa. Perbarui katalog atau gunakan pemasangan versi lengkap di bawah.</p>}
     {loading && !data && <p role="status">Memuat runtime Python…</p>}
-    {!loading && data && versions.length === 0 && <div className="space-y-2 border-y border-[var(--line)] py-5"><h3 className="text-sm font-semibold">Python belum terpasang</h3><p className="text-sm text-[var(--ink-muted)]">Klik Pasang Python untuk memilih atau memasukkan versi. Situs dapat menggunakan versi tersebut setelah pemasangan selesai.</p></div>}
+    {!loading && data && versions.length === 0 && <div className="space-y-2 border-y border-[var(--line)] py-5"><h3 className="text-sm font-semibold">Daftar versi Python belum tersedia</h3><p className="text-sm text-[var(--ink-muted)]">Perbarui katalog untuk menampilkan versi yang dapat dipasang. Runtime yang selesai dipasang dapat dipilih pada pengaturan situs.</p></div>}
     <div className="divide-y divide-[var(--line)] rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)]">
       {versions.map(version => {
         const job = jobs.jobs.find(j => runtimeJobVersion(j) === version.version);
@@ -89,10 +88,9 @@ export function PythonRuntimesTab({ onCatalogRefresh }: { onCatalogRefresh?: () 
       })}
     </div>
     {jobs.jobs.filter(job => !versions.some(v => v.version === runtimeJobVersion(job))).map(job => <div key={job.id} className="rounded border border-[var(--line)] p-4"><p className="mb-2 text-sm">Pemasangan Python {runtimeJobVersion(job)}</p><RuntimeJobProgress job={job} runtime={`Python ${runtimeJobVersion(job) ?? ''}`} /></div>)}
-    <PythonInstallModal isOpen={installOpen} onClose={() => setInstallOpen(false)} onInstall={install} onRefresh={refreshVersions} refreshing={refreshing}
-      versions={versions.filter(version => !version.is_installed)} installedVersions={data?.versions.filter(version => version.is_installed).map(version => version.version) ?? []}
+    <PythonManualInstall onInstall={install} installedVersions={data?.versions.filter(version => version.is_installed).map(version => version.version) ?? []}
       busyVersions={jobs.jobs.map(runtimeJobVersion).filter((version): version is string => Boolean(version))}
-      unavailableReason={jobs.error || error || (jobs.loading ? 'Memuat status tugas Python…' : loading ? 'Memeriksa Python terpasang…' : busy ? 'Tunggu permintaan Python yang sedang diproses.' : '')} />
+      unavailableReason={jobs.error || error || (jobs.loading ? 'Memuat status tugas Python…' : loading ? 'Memeriksa Python terpasang…' : refreshing ? 'Memperbarui katalog Python…' : busy ? 'Tunggu permintaan Python yang sedang diproses.' : '')} />
     <ConfirmDangerDialog isOpen={Boolean(remove)} title={`Hapus Python ${remove ?? ''}?`} description="Runtime yang masih dipakai situs tidak dapat dihapus. File proyek dan virtual environment situs tetap tersimpan." confirmMatchText={remove ?? ''} confirmButtonLabel="Hapus runtime" onConfirm={() => void confirmRemove()} onClose={() => setRemove(null)} />
   </section>;
 }

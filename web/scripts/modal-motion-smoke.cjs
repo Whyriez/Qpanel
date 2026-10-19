@@ -75,12 +75,13 @@ async function geometry(page, label, requireScroll = false) {
   check(Math.abs(after.headerY - before.header.y) < 1 && Math.abs(after.footerY - before.footer.y) < 1, `${label}: only the body moves on scroll`);
 }
 
-async function fieldClearance(page, label) {
-  const fields = page.locator('.dialog-overlay').last().locator('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):enabled, select:enabled, textarea:enabled');
+async function fieldClearance(page, label, scope = page.locator('.dialog-overlay').last()) {
+  const fields = scope.locator('input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):enabled, select:enabled, textarea:enabled');
   check(await fields.count() > 0, `${label}: has form fields to inspect`);
   for (const field of await fields.all()) {
-    // Re-enter focus even if geometry() scrolled the already-active field away.
+    // Inspect the focused field away from the page viewport edge as well as local clipping.
     await field.evaluate((control) => control.blur());
+    await field.evaluate((control) => control.scrollIntoView({ block: 'center', inline: 'nearest' }));
     await field.focus();
     const result = await field.evaluate((control) => {
       const rect = control.getBoundingClientRect();
@@ -93,7 +94,7 @@ async function fieldClearance(page, label) {
         const left = bounds.left + parent.clientLeft;
         const top = bounds.top + parent.clientTop;
         if (css.overflowX !== 'visible' && (rect.left - halo < left - 1 || rect.right + halo > left + parent.clientWidth + 1)) clippedBy.push(`${parent.className}: horizontal`);
-        if (css.overflowY !== 'visible' && (rect.top - halo < top - 1 || rect.bottom + halo > top + parent.clientHeight + 1)) clippedBy.push(`${parent.className}: vertical`);
+        if (css.overflowY !== 'visible' && (rect.top - halo < top - 1 || rect.bottom + halo > top + parent.clientHeight + 1)) clippedBy.push(`${parent.className}: vertical (field=${rect.top}..${rect.bottom}, container=${top}..${top + parent.clientHeight})`);
         if (parent.classList.contains('dialog-panel')) break;
       }
       return { field: control.getAttribute('placeholder') || control.id || control.tagName, clippedBy };
@@ -173,27 +174,17 @@ async function fieldClearance(page, label) {
       await page.locator('.dialog-overlay').waitFor({ state: 'detached' });
 
       await page.goto(`${base}/runtime?tab=python`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Pasang Python', exact: true }).click();
-      await page.waitForTimeout(240);
-      await fieldClearance(page, `${name} Python catalog`);
-      await page.getByRole('button', { name: 'Masukkan versi lengkap', exact: true }).click();
-      await fieldClearance(page, `${name} Python manual version`);
-      await geometry(page, `${name} Python installation`);
-      await fieldClearance(page, `${name} Python after scroll`);
+      await page.getByText('Pasang versi Python lainnya', { exact: true }).click();
+      await page.getByLabel('Nomor versi lengkap', { exact: true }).waitFor();
+      await fieldClearance(page, `${name} Python inline manual version`, page.locator('details[open]'));
+      check(await page.getByRole('dialog').count() === 0, `${name}: Python installation stays inline`);
       await page.screenshot({ path: path.join(output, `python-${name}.png`) });
-      await page.keyboard.press('Escape');
-      await page.locator('.dialog-overlay').waitFor({ state: 'detached' });
       await page.goto(`${base}/runtime?tab=node`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Pasang Versi Node.js', exact: true }).click();
-      await page.waitForTimeout(240);
-      await fieldClearance(page, `${name} Node version`);
-      await page.getByRole('button', { name: /Pengaturan Lanjutan & Mirror/ }).click();
-      await fieldClearance(page, `${name} Node advanced fields`);
-      await geometry(page, `${name} Node installation`);
-      await fieldClearance(page, `${name} Node after scroll`);
+      await page.getByText('Pengaturan pemasangan Node.js', { exact: true }).click();
+      await page.getByLabel('Mirror unduhan (opsional)', { exact: true }).waitFor();
+      await fieldClearance(page, `${name} Node inline options`, page.locator('details[open]'));
+      check(await page.getByRole('dialog').count() === 0, `${name}: Node installation stays inline`);
       await page.screenshot({ path: path.join(output, `node-${name}.png`) });
-      await page.keyboard.press('Escape');
-      await page.locator('.dialog-overlay').waitFor({ state: 'detached' });
       await page.close();
     }
     const reduced = await browser.newPage({ viewport: { width: 390, height: 600 }, reducedMotion: 'reduce' });

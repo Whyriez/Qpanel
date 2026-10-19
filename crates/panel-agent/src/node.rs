@@ -43,28 +43,7 @@ where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     F: FnOnce(CancellationToken) -> Result<NodeRuntimeActionResponse, AgentError> + Send + 'static,
 {
-    let cancel = CancellationToken::new();
-    let _cancel_on_drop = cancel.clone().drop_guard();
-    let operation_cancel = cancel.clone();
-    let work = async move {
-        let guard = NODE_INSTALL_LOCK.lock().await;
-        tokio::task::spawn_blocking(move || {
-            let _guard = guard;
-            operation(operation_cancel)
-        })
-        .await
-        .map_err(|e| AgentError::Internal(format!("Worker instalasi Node.js gagal: {e}")))?
-    };
-    tokio::pin!(work);
-    tokio::select! {
-        result = &mut work => result,
-        _ = rpc.recv_request() => {
-            cancel.cancel();
-            // Do not drop the blocking task or its installation lock mid-cleanup.
-            let _ = work.await;
-            Err(AgentError::Internal("Instalasi Node.js dibatalkan karena koneksi pemanggil ditutup".into()))
-        }
-    }
+    crate::runtime_install::connected(rpc, &NODE_INSTALL_LOCK, operation).await
 }
 
 /// Resolves the base installation directory for Node.js runtimes.

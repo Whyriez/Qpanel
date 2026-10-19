@@ -16,7 +16,7 @@ impl JobHandler for PendingNodeHandler {
             ctx.report_progress(15, Some("Pending Node RPC fixture"))
                 .await
                 .unwrap();
-            ctx.run_cancellable_node_install(std::future::pending::<Option<String>>())
+            ctx.run_cancellable_runtime_install(std::future::pending::<Option<String>>())
                 .await
         })
     }
@@ -24,6 +24,15 @@ impl JobHandler for PendingNodeHandler {
 
 #[tokio::test]
 async fn cancelled_node_rpc_releases_worker_for_queued_php_repository() {
+    cancelled_runtime_releases_worker("node.install").await;
+}
+
+#[tokio::test]
+async fn cancelled_python_rpc_releases_worker_for_queued_php_repository() {
+    cancelled_runtime_releases_worker("python.install").await;
+}
+
+async fn cancelled_runtime_releases_worker(runtime: &str) {
     let temp = tempfile::tempdir().unwrap();
     let path = temp
         .path()
@@ -33,14 +42,14 @@ async fn cancelled_node_rpc_releases_worker_for_queued_php_repository() {
     let pool = init_pool(&format!("sqlite://{path}")).await.unwrap();
     run_migrations(&pool).await.unwrap();
     let mut registry = JobRegistry::new();
-    registry.register("node.install", PendingNodeHandler);
+    registry.register(runtime, PendingNodeHandler);
     registry.register("php.repo.setup", EchoHandler);
     let runner = Arc::new(JobRunner::with_registry(pool, registry));
     let (node, _) = runner
         .enqueue(
             None,
             Some("01-node".into()),
-            "node.install".into(),
+            runtime.into(),
             "{}".into(),
             Some(1),
         )

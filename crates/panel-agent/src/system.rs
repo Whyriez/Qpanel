@@ -126,6 +126,17 @@ pub trait SystemRunner: Send + Sync {
         }
         self.run_command("curl", args)
     }
+    /// Only the managed Python installer supports process cancellation, never APT.
+    fn run_cancellable_python(
+        &self,
+        args: &[&str],
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<std::process::Output, AgentError> {
+        if cancel.is_cancelled() {
+            return Err(AgentError::Internal("Pemasangan Python dibatalkan".into()));
+        }
+        self.run_command(crate::uv::UV_BIN, args)
+    }
     fn create_dir_all(&self, path: &Path, mode: u32, uid: u32, gid: u32) -> Result<(), AgentError>;
     fn set_permissions(&self, path: &Path, mode: u32) -> Result<(), AgentError>;
     fn set_ownership(&self, path: &Path, uid: u32, gid: u32) -> Result<(), AgentError>;
@@ -200,13 +211,21 @@ pub struct RealSystemRunner;
 /// Kill and reap the download process before reporting cancellation. Concurrent
 /// pipe readers prevent a full stderr buffer from blocking cancellation.
 fn run_cancellable_curl(
+    command: std::process::Command,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<std::process::Output, AgentError> {
+    run_cancellable_installer(command, "curl", cancel)
+}
+
+fn run_cancellable_installer(
     mut command: std::process::Command,
+    binary: &str,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<std::process::Output, AgentError> {
     use std::io::Read;
     use std::process::Stdio;
     if cancel.is_cancelled() {
-        return Err(AgentError::Internal("Unduhan Node.js dibatalkan".into()));
+        return Err(AgentError::Internal("Pemasangan runtime dibatalkan".into()));
     }
     let mut child = command
         .stdout(Stdio::piped())
@@ -240,7 +259,7 @@ fn run_cancellable_curl(
         let status = status?;
         if !status.success() {
             return Err(AgentError::CommandFailed {
-                binary: "curl".into(),
+                binary: binary.into(),
                 code: status.code(),
                 stderr: String::from_utf8_lossy(&stderr).into_owned(),
             });
@@ -259,7 +278,7 @@ fn wait_for_download(
 ) -> Result<std::process::ExitStatus, AgentError> {
     loop {
         if cancel.is_cancelled() {
-            return Err(AgentError::Internal("Unduhan Node.js dibatalkan".into()));
+            return Err(AgentError::Internal("Pemasangan runtime dibatalkan".into()));
         }
         if let Some(status) = child.try_wait()? {
             return Ok(status);
@@ -477,6 +496,15 @@ impl SystemRunner for RealSystemRunner {
         let mut command = panel_core::production::system_command("curl");
         command.args(args);
         run_cancellable_curl(command, cancel)
+    }
+    fn run_cancellable_python(
+        &self,
+        args: &[&str],
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<std::process::Output, AgentError> {
+        let mut command = panel_core::production::system_command(crate::uv::UV_BIN);
+        command.args(args);
+        run_cancellable_installer(command, crate::uv::UV_BIN, cancel)
     }
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError> {
         if !ALLOWED_BINARIES.contains(&binary) {

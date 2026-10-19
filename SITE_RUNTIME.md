@@ -111,13 +111,39 @@ belakang, progres yang tetap tersedia setelah navigasi, serta penghapusan yang
 ditolak bila runtime dipakai situs. Pemasangan Python memerlukan admin dan CSRF;
 respons API instalasi kini JobItem HTTP 202, termasuk alias endpoint legacy.
 
-Di **Runtime > Python**, tombol **Pasang Python** selalu tampil di atas daftar,
-termasuk ketika katalog belum tersinkronisasi. Dialog menyediakan pilihan
-rilis stabil terbaru, **Muat daftar versi Python**, serta **Masukkan versi lengkap**
-untuk versi CPython eksplisit seperti `3.13.9`. Isian manual bukan rekomendasi versi
-terbaru; administrator memilih rilis yang masih didukung. Ketersediaan binary
-diperiksa saat tugas berjalan. Membuka tab/dialog atau memperbarui katalog tidak
-memasang Python secara otomatis.
+Di **Runtime > Python**, daftar rilis stabil langsung menyediakan tombol **Pasang**
+per versi, seperti PHP dan Node.js, tanpa dialog pemasangan tambahan. Tombol
+**Perbarui katalog Python** mengambil daftar terbaru. Jika katalog belum tersedia,
+bagian **Pasang versi Python lainnya** tetap menyediakan isian versi lengkap seperti
+`3.15.0` di halaman yang sama. Isian manual bukan rekomendasi versi terbaru;
+administrator memilih rilis yang masih didukung. Ketersediaan binary diperiksa
+saat tugas berjalan. Membuka tab atau memperbarui katalog tidak memasang Python.
+
+Sebelum memasang Python, agent memeriksa `uv` pada `/usr/local/bin/uv` atau
+`/usr/bin/uv`. Jika belum tersedia, agent mengunduh binary resmi `uv` versi
+`0.13.1` sesuai arsitektur x86_64/aarch64 GNU Linux, memverifikasi SHA256 yang
+dipatok dalam build, lalu menerbitkan executable global secara atomik. Agent
+tidak menjalankan skrip installer unduhan atau bergantung pada `uv` di home root.
+Kegagalan prasyarat menghentikan tugas dengan pesan terkait `uv`. Server perlu
+dapat mengakses GitHub Release melalui HTTPS. Perbaikan ini memerlukan build
+agent baru, bersama API/bundle frontend release yang sesuai.
+
+Node.js juga dipasang langsung lewat tombol per versi. Bagian **Pengaturan
+pemasangan Node.js** menyediakan Corepack, mirror dan arsip offline secara inline;
+opsi tersebut berlaku untuk pemasangan berikutnya. Versi yang sedang dipasang
+tetap terkunci, dan progres dipulihkan setelah navigasi/reload. Penghapusan runtime
+tetap memerlukan dialog konfirmasi.
+
+Saat tugas pemasangan masih antre, tombol **Batalkan** tersedia di sebelah
+progres. Node.js dan Python juga dapat dibatalkan ketika berjalan. Tombol tetap
+terkunci selama permintaan diproses; jika gagal, pesan error tampil dan pembatalan
+dapat dicoba lagi. Status dan inventaris diperiksa kembali, termasuk setelah
+reload. Membatalkan tugas tidak menghapus runtime lain yang sudah terpasang.
+
+PHP yang sudah memasuki proses APT tidak dapat dihentikan dengan aman; pembatalan
+PHP hanya tersedia saat masih antre. Jika worker mulai tepat sebelum pembatalan,
+server menolak permintaan dan UI memperbarui status. Dukungan penghentian proses
+Python memerlukan agent dan API build baru, bukan hanya pembaruan frontend.
 
 Tab dapat dibuka langsung melalui `/runtime?tab=python` dan tetap dipertahankan
 setelah reload. Administrator juga dapat membuka pengelola versi dari pengaturan

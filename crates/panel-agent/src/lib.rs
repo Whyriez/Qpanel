@@ -23,10 +23,12 @@ pub mod python_site;
 pub mod quota;
 pub mod reliability;
 pub mod resource;
+mod runtime_install;
 pub mod slice;
 pub mod ssh;
 pub mod system;
 pub mod user;
+mod uv;
 pub mod webserver;
 
 use panel_proto::{
@@ -1652,7 +1654,13 @@ impl AgentServer {
                     }
                 }
                 RequestPayload::PythonRuntimeInstall(data) => {
-                    match python_site::install_python_runtime(self.runner.as_ref(), &data) {
+                    match python_site::install_python_runtime_connected(
+                        std::sync::Arc::clone(&self.runner),
+                        data,
+                        &mut rpc,
+                    )
+                    .await
+                    {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,
                             ResponsePayload::PythonRuntimeInstalled(res),
@@ -1661,6 +1669,7 @@ impl AgentServer {
                     }
                 }
                 RequestPayload::PythonRuntimeRemove(data) => {
+                    let _guard = python_site::PYTHON_INSTALL_LOCK.lock().await;
                     match python_site::remove_python_runtime(self.runner.as_ref(), &data) {
                         Ok(res) => RpcResponse::ok(
                             &req.request_id,

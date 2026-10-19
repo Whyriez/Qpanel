@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Cpu,
@@ -44,7 +44,7 @@ import {
 } from '../api/client';
 import { ConfirmDangerDialog } from '../components/ui/ConfirmDangerDialog';
 import { PhpExtensionsModal } from '../components/runtime/PhpExtensionsModal';
-import { NodeInstallModal } from '../components/runtime/NodeInstallModal';
+import { NodeInstallSettings, defaultNodeInstallOptions, nodeInstallPayload } from '../components/runtime/NodeInstallSettings';
 import { runtimeJobVersion, useRuntimeJobs } from '../components/runtime/useRuntimeJobs';
 import { RuntimeJobProgress } from '../components/runtime/RuntimeJobProgress';
 import { UnifiedProcessCard } from '../components/sites/UnifiedProcessCard';
@@ -86,8 +86,8 @@ export const RuntimePage: React.FC = () => {
   const [nodeSearch, setNodeSearch] = useState('');
   const [processingNodeVersion, setProcessingNodeVersion] = useState<string | null>(null);
   const [nodeVersionToRemove, setNodeVersionToRemove] = useState<NodeVersionItem | null>(null);
-  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
-  const [preselectedNodeVersion, setPreselectedNodeVersion] = useState<string | undefined>();
+  const [nodeInstallOptions, setNodeInstallOptions] = useState(defaultNodeInstallOptions);
+  const nodeSubmitting = useRef(false);
 
   // =========================================================
   // Process Monitoring State (Phase 7 - P7-T5)
@@ -247,9 +247,9 @@ export const RuntimePage: React.FC = () => {
   // Node.js Handlers
   // =========================================================
   const handleInstallNode = async (payload: NodeRuntimeInstallRequest) => {
-    if (jobsUnavailable || nodeBusyVersions.includes(payload.version.trim().replace(/^v/, ''))) {
-      throw new Error('Status tugas belum tersedia atau versi ini sedang dipasang. Periksa halaman Tugas.');
-    }
+    if (nodeSubmitting.current || jobsUnavailable || nodeLoading || nodeError || nodeData?.is_offline_fallback ||
+      nodeBusyVersions.includes(payload.version) || !nodeData?.versions.some(item => item.version === payload.version && !item.is_installed)) return;
+    nodeSubmitting.current = true;
     setProcessingNodeVersion(payload.version);
     try {
       const job = await installNodeVersion(payload);
@@ -262,6 +262,7 @@ export const RuntimePage: React.FC = () => {
       toast.error(`Pemasangan Node.js gagal`, { description: msg });
       throw err;
     } finally {
+      nodeSubmitting.current = false;
       setProcessingNodeVersion(null);
     }
   };
@@ -385,20 +386,6 @@ export const RuntimePage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {activeTab === 'node' && (
-            <button
-              onClick={() => {
-                setPreselectedNodeVersion(undefined);
-                setIsInstallModalOpen(true);
-              }}
-              disabled={jobsUnavailable}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors shadow-sm"
-            >
-              <Download className="w-3.5 h-3.5" />
-              {t('runtime.installNode')}
-            </button>
-          )}
-
           <button
             onClick={() => {
               if (activeTab === 'php') loadPhpData();
@@ -891,11 +878,9 @@ export const RuntimePage: React.FC = () => {
                           </>
                         ) : (
                           <button
-                            onClick={() => {
-                              setPreselectedNodeVersion(v.version);
-                              setIsInstallModalOpen(true);
-                            }}
-                            disabled={isProcessing || jobsUnavailable}
+                            onClick={() => { void handleInstallNode(nodeInstallPayload(v.version, nodeInstallOptions)).catch(() => {}); }}
+                            disabled={isProcessing || jobsUnavailable || nodeLoading || Boolean(nodeError) || Boolean(processingNodeVersion) || nodeData?.is_offline_fallback}
+                            aria-label={`Pasang Node.js ${v.version}`}
                             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-[var(--radius-md)] bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm"
                           >
                             {isProcessing ? (
@@ -913,6 +898,7 @@ export const RuntimePage: React.FC = () => {
               )}
             </div>
           </div>
+          <NodeInstallSettings value={nodeInstallOptions} onChange={setNodeInstallOptions} disabled={jobsUnavailable || Boolean(processingNodeVersion)} />
         </>
       )}
 
@@ -1091,19 +1077,6 @@ export const RuntimePage: React.FC = () => {
         />
       )}
 
-      {/* Node.js Installation Modal */}
-      <NodeInstallModal
-        isOpen={isInstallModalOpen}
-        onClose={() => {
-          setIsInstallModalOpen(false);
-          setPreselectedNodeVersion(undefined);
-        }}
-        availableVersions={nodeData?.versions || []}
-        onInstall={handleInstallNode}
-        preselectedVersion={preselectedNodeVersion}
-        busyVersions={nodeBusyVersions}
-        jobsUnavailable={jobsUnavailable}
-      />
     </div>
   );
 };

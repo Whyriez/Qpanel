@@ -25,6 +25,22 @@ describe('Queue and monitor progress', () => {
     expect(canCancelJob({ ...job, name: 'php.install', status: 'running' })).toBe(false);
     expect(canCancelJob(job)).toBe(true);
     expect(canCancelJob({ ...job, name: 'node.install', status: 'running' })).toBe(true);
+    expect(canCancelJob({ ...job, name: 'python.install', status: 'running' })).toBe(true);
+    expect(canCancelJob({ ...job, name: 'database.web.install', status: 'running' })).toBe(false);
+  });
+
+  it('offers direct cancellation for queued PHP and running Python/Node only', () => {
+    for (const name of ['python.install', 'node.install']) {
+      const html = renderToString(<RuntimeJobProgress job={{ ...job, name, status: 'running' }} runtime="fixture" />);
+      expect(html).toContain('Batalkan pemasangan fixture');
+    }
+    const queued = renderToString(<RuntimeJobProgress job={job} runtime="PHP" />);
+    expect(queued).toContain('Batalkan pemasangan PHP');
+    const running = renderToString(<RuntimeJobProgress job={{ ...job, status: 'running' }} runtime="PHP" />);
+    expect(running).not.toContain('Batalkan pemasangan PHP');
+    expect(running).toContain('tidak dapat dihentikan dengan aman');
+    const done = renderToString(<RuntimeJobProgress job={{ ...job, status: 'succeeded' }} runtime="PHP" />);
+    expect(done).not.toContain('Batalkan');
   });
   it('explains waiting without implying installation has started', () => {
     const html = renderToString(<JobQueueNotice jobId={job.id} />);

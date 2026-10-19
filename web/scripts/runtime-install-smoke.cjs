@@ -60,8 +60,7 @@ async function fixture(browser, width = 1280) {
 async function openNode(page) {
   await page.goto(base + '/runtime', { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.getByRole('button', { name: /^Node\.js/ }).click();
-  await page.getByRole('button', { name: 'Pasang', exact: true }).click();
-  await page.getByRole('dialog', { name: 'Pasang Versi Node.js' }).waitFor();
+  await page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).waitFor();
 }
 async function monitor(browser, width) {
   const f = await fixture(browser, width), p = f.page;
@@ -110,8 +109,8 @@ async function completionInventory(browser, runtime) {
 
   f.mode.inventoryHold = true;
   f.mode[runtime] = 'succeeded';
-  const updating = p.getByRole('button', { name: 'Memperbarui daftar', exact: true });
-  await updating.waitFor();
+  const updating = p.getByRole('button', { name: runtime === 'node' ? 'Pasang Node.js 24.20.0' : 'Memperbarui daftar', exact: true });
+  await updating.filter({ hasText: 'Memperbarui daftar' }).waitFor();
   check(await updating.isDisabled(), `${label} stays blocked while successful inventory refresh is pending`);
   check(await p.getByRole('button', { name: 'Pasang', exact: true }).count() === 0, `${label} never exposes Install between job success and inventory refresh`);
   await p.waitForFunction(() => document.querySelector('progress')?.value === 100);
@@ -144,15 +143,13 @@ async function completionInventory(browser, runtime) {
     const f = await fixture(browser), p = f.page;
     await openNode(p);
     f.mode.hold = true;
-    await p.getByRole('button', { name: 'Mulai Pemasangan', exact: true }).click();
-    await p.getByRole('status').filter({ hasText: 'Membuat tugas pemasangan' }).waitFor();
-    check(await p.getByRole('button', { name: 'Tutup', exact: true }).first().isEnabled(), 'close stays enabled before enqueue response');
-    check(await p.getByRole('button', { name: 'Membuat tugas...', exact: true }).isDisabled(), 'duplicate submit blocked');
-    await p.getByRole('button', { name: 'Tutup', exact: true }).first().click();
-    await p.getByRole('dialog').waitFor({ state: 'detached' });
-    check(true, 'modal closes while request is pending');
-    await p.getByRole('button', { name: 'Pasang Versi Node.js', exact: true }).click();
-    await p.getByRole('dialog').waitFor();
+    const directInstall = p.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true });
+    await directInstall.click();
+    check(await directInstall.isDisabled(), 'direct installation blocks duplicate submission while enqueue is pending');
+    check(await p.getByRole('dialog').count() === 0, 'installing Node.js opens no extra dialog');
+    await p.getByRole('navigation', { name: 'Navigasi runtime' }).getByRole('button', { name: /^PHP/ }).click();
+    await p.getByRole('button', { name: /^Node\.js/ }).click();
+    check(await directInstall.isDisabled(), 'changing tabs during enqueue keeps installation blocked');
     await assert.doesNotReject(async () => {
       const deadline = Date.now() + 20000;
       while (!f.mode.release && Date.now() < deadline) await p.waitForTimeout(20);
@@ -160,36 +157,32 @@ async function completionInventory(browser, runtime) {
     });
     f.mode.release();
     await p.getByText('Tugas pemasangan Node.js v24.20.0 telah dibuat', { exact: true }).waitFor();
-    check(await p.getByRole('dialog').isVisible(), 'response from a closed modal does not dismiss a newly opened modal');
-    await p.keyboard.press('Escape');
-    await p.getByRole('dialog').waitFor({ state: 'detached' });
+    check(await p.getByRole('dialog').count() === 0, 'accepted enqueue remains inline');
     check(!await p.getByText('Node.js v24.20.0 berhasil dipasang', { exact: true }).count(), 'enqueue does not claim install succeeded');
     f.mode.node = 'succeeded';
     await p.getByText('Pemasangan Node.js selesai', { exact: true }).waitFor();
     check(f.calls.filter(c => c.name === '/api/v1/runtimes/node/install').length === 1, 'background polling never resubmits installation');
     check(f.calls.filter(c => c.name === '/api/v1/runtimes/node/versions').length >= 2, 'runtime inventory refreshes when job completes');
     check(f.calls.find(c => c.name === '/api/v1/runtimes/node/install').body.version === '24.20.0', 'chosen version preserved');
+    check(f.calls.find(c => c.name === '/api/v1/runtimes/node/install').body.enable_corepack === true, 'direct installation preserves the default Corepack option');
     check(f.errors.length === 0, f.errors.join('\n'));
     await p.close();
 
     const failure = await fixture(browser);
     failure.mode.fail = true;
     await openNode(failure.page);
-    await failure.page.getByRole('button', { name: 'Mulai Pemasangan', exact: true }).click();
-    await failure.page.getByRole('dialog').getByRole('alert').filter({ hasText: 'Antrean tugas sementara tidak tersedia' }).waitFor();
-    check(true, 'enqueue failure stays readable in the modal without an unhandled rejection');
-    await failure.page.keyboard.press('Escape');
-    await failure.page.getByRole('dialog').waitFor({ state: 'detached' });
+    await failure.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).click();
+    await failure.page.getByText('Antrean tugas sementara tidak tersedia', { exact: false }).first().waitFor();
+    check(await failure.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).isEnabled(), 'enqueue failure is readable and allows direct retry');
     check(failure.errors.length === 0, failure.errors.join('\n'));
     await failure.page.close();
 
     const accepted = await fixture(browser);
     await openNode(accepted.page);
-    await accepted.page.getByRole('button', { name: 'Mulai Pemasangan', exact: true }).click();
-    await accepted.page.getByRole('dialog').waitFor({ state: 'detached' });
-    check(accepted.calls.some(c => c.name === '/api/v1/runtimes/node/install'), 'accepted job closes the modal immediately, without waiting for runtime completion');
-    await accepted.page.getByRole('button', { name: 'Sedang dipasang', exact: true }).waitFor();
-    check(await accepted.page.getByRole('button', { name: 'Sedang dipasang', exact: true }).isDisabled(), 'accepted installation remains busy while queued');
+    await accepted.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).click();
+    await accepted.page.getByRole('progressbar', { name: 'Progres tugas Node.js v24.20.0' }).waitFor();
+    check(await accepted.page.getByRole('dialog').count() === 0, 'accepted job shows progress directly in the runtime list');
+    check(await accepted.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).isDisabled(), 'accepted installation remains busy while queued');
     await accepted.page.goto(base + '/jobs', { waitUntil: 'domcontentloaded' });
     await accepted.page.locator('tbody').getByText('node.install', { exact: true }).waitFor();
     check(true, 'queued installation stays visible after navigating away from Runtime');
@@ -199,19 +192,16 @@ async function completionInventory(browser, runtime) {
     accepted.mode.noise = 105;
     await accepted.page.goto(base + '/runtime', { waitUntil: 'domcontentloaded' });
     await accepted.page.getByRole('button', { name: /^Node\.js/ }).click();
-    await accepted.page.getByRole('button', { name: 'Sedang dipasang', exact: true }).waitFor();
-    check(await accepted.page.getByRole('button', { name: 'Sedang dipasang', exact: true }).isDisabled(), 'returning to Runtime restores the active job and blocks duplicate install');
+    await accepted.page.getByRole('progressbar', { name: 'Progres tugas Node.js v24.20.0' }).waitFor();
+    check(await accepted.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).isDisabled(), 'returning to Runtime restores the active job and blocks duplicate install');
     check(accepted.calls.some(call => call.name === '/api/v1/jobs' && new URLSearchParams(call.query).get('page') === '2'), 'active install is recovered beyond the first 100 queued jobs');
     accepted.mode.node = 'running';
     await accepted.page.getByRole('status').filter({ hasText: 'Sedang dipasang' }).waitFor();
     await accepted.page.reload({ waitUntil: 'domcontentloaded' });
     await accepted.page.getByRole('button', { name: /^Node\.js/ }).click();
     await accepted.page.getByRole('status').filter({ hasText: 'Sedang dipasang' }).waitFor();
-    check(await accepted.page.getByRole('button', { name: 'Sedang dipasang', exact: true }).isDisabled(), 'refresh restores a running install with visible progress');
-    await accepted.page.getByRole('button', { name: 'Pasang Versi Node.js', exact: true }).click();
-    await accepted.page.getByRole('dialog').getByText('Versi ini sedang dipasang.', { exact: false }).waitFor();
-    check(await accepted.page.getByRole('button', { name: 'Mulai Pemasangan', exact: true }).isDisabled(), 'general installation modal also blocks the active version');
-    await accepted.page.keyboard.press('Escape');
+    check(await accepted.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).isDisabled(), 'refresh restores a running install with visible progress');
+    check(await accepted.page.getByRole('dialog').count() === 0, 'running installation stays inline');
     accepted.mode.node = 'succeeded';
     await accepted.page.getByText('Pemasangan Node.js selesai', { exact: true }).waitFor();
     await accepted.page.getByText('Terpasang', { exact: true }).waitFor();
@@ -245,8 +235,8 @@ async function completionInventory(browser, runtime) {
 
     const failedJob = await fixture(browser);
     await openNode(failedJob.page);
-    await failedJob.page.getByRole('button', { name: 'Mulai Pemasangan', exact: true }).click();
-    await failedJob.page.getByRole('dialog').waitFor({ state: 'detached' });
+    await failedJob.page.getByRole('button', { name: 'Pasang Node.js 24.20.0', exact: true }).click();
+    await failedJob.page.getByRole('progressbar', { name: 'Progres tugas Node.js v24.20.0' }).waitFor();
     failedJob.mode.node = 'failed';
     await failedJob.page.getByText('Pemasangan Node.js gagal', { exact: true }).waitFor();
     check(failedJob.calls.filter(c => c.name === '/api/v1/runtimes/node/install').length === 1, 'worker failure is reported without retrying the HTTP install request');

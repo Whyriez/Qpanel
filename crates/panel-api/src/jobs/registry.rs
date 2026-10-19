@@ -138,15 +138,15 @@ impl JobContext {
             .await
             .map_err(|e| e.to_string())
     }
-    /// Node installation cancels on RPC disconnect in the agent. Do not apply
+    /// Node/Python installation cancels on RPC disconnect in the agent. Do not apply
     /// this to APT or other operations without agent-side cancellation support.
-    pub async fn run_cancellable_node_install<F: Future>(
+    pub async fn run_cancellable_runtime_install<F: Future>(
         &self,
         operation: F,
     ) -> Result<F::Output, String> {
         tokio::select! {
             biased;
-            _ = self.cancel_token.cancelled() => Err("Instalasi Node.js dibatalkan".into()),
+            _ = self.cancel_token.cancelled() => Err("Pemasangan runtime dibatalkan".into()),
             result = operation => Ok(result),
         }
     }
@@ -479,7 +479,7 @@ impl JobHandler for NodeInstallHandler {
             ctx.report_progress(15, Some(&format!("Mengunduh dan memverifikasi Node.js v{version}; kemudian mengekstrak runtime dan menyiapkan Corepack.")))
                 .await.map_err(|e| e.to_string())?;
             let res = ctx
-                .run_cancellable_node_install(self.agent_client.install_node_runtime(req))
+                .run_cancellable_runtime_install(self.agent_client.install_node_runtime(req))
                 .await?
                 .map_err(|e| format!("Instalasi Node.js v{version} gagal: {e}"))?;
             if !res.success {
@@ -527,10 +527,9 @@ impl JobHandler for PythonInstallHandler {
             )
             .await
             .map_err(|e| e.to_string())?;
-            let installed = self
-                .0
-                .install_python_runtime(request)
-                .await
+            let installed = ctx
+                .run_cancellable_runtime_install(self.0.install_python_runtime(request))
+                .await?
                 .map_err(|e| e.to_string())?;
             if !installed.success {
                 return Err(installed.message);

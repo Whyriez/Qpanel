@@ -24,6 +24,24 @@ use std::time::Instant;
 
 pub const DEFAULT_SYSTEMD_DIR: &str = "/etc/systemd/system";
 pub const DEFAULT_ENV_DIR: &str = "/etc/panel/env";
+#[cfg(test)]
+#[path = "python_cancel_tests.rs"]
+mod cancellation_tests;
+pub(crate) static PYTHON_INSTALL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub async fn install_python_runtime_connected<T>(
+    runner: std::sync::Arc<dyn SystemRunner>,
+    req: PythonRuntimeInstallRequest,
+    rpc: &mut panel_proto::RpcStream<T>,
+) -> Result<PythonRuntimeActionResponse, AgentError>
+where
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    crate::runtime_install::connected(rpc, &PYTHON_INSTALL_LOCK, move |cancel| {
+        install_python_runtime_cancellable(runner.as_ref(), &req, &cancel)
+    })
+    .await
+}
 
 /// Validates site ID string (alphanumeric, hyphens, underscores).
 pub fn validate_site_id(site_id: &str) -> Result<(), AgentError> {
@@ -858,20 +876,58 @@ pub fn install_python_runtime(
     runner: &dyn SystemRunner,
     req: &PythonRuntimeInstallRequest,
 ) -> Result<PythonRuntimeActionResponse, AgentError> {
+    install_python_runtime_cancellable(runner, req, &tokio_util::sync::CancellationToken::new())
+}
+
+fn install_python_runtime_cancellable(
+    runner: &dyn SystemRunner,
+    req: &PythonRuntimeInstallRequest,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<PythonRuntimeActionResponse, AgentError> {
+    if req.base_dir.is_some() {
+        return Err(AgentError::InvalidInput(
+            "Direktori runtime Python dikelola agent".into(),
+        ));
+    }
     let base_dir_str = req.base_dir.as_deref().unwrap_or(DEFAULT_PYTHON_BASE_DIR);
     let norm_ver = normalize_python_version(&req.version);
     panel_runtime::python::validate_python_version(&norm_ver)
         .map_err(|error| AgentError::InvalidInput(error.to_string()))?;
     let target_dir = format!("{}/{}", base_dir_str, norm_ver);
 
-    let mut cmd = build_uv_python_install_cmd(DEFAULT_UV_BIN, &norm_ver, Some(&target_dir));
+    if cancel.is_cancelled() {
+        return Err(AgentError::Internal("Pemasangan Python dibatalkan".into()));
+    }
+    // Never remove an existing runtime on cancellation or re-run its installation.
+    if runner.path_exists(Path::new(&target_dir)) {
+        return Err(AgentError::InvalidInput(
+            "Direktori runtime Python sudah ada; muat ulang inventaris sebelum memasang kembali"
+                .into(),
+        ));
+    }
+    let uv = crate::uv::ensure(runner, cancel)?;
+    let mut cmd = build_uv_python_install_cmd(uv, &norm_ver, Some(&target_dir));
     cmd.extend([
         "--python-downloads-json-url".into(),
         panel_runtime::python::PYTHON_DOWNLOADS_JSON.into(),
     ]);
     let args_ref: Vec<&str> = cmd[1..].iter().map(|s| s.as_str()).collect();
 
-    let output = runner.run_command(&cmd[0], &args_ref)?;
+    let result = runner.run_cancellable_python(&args_ref, cancel);
+    if cancel.is_cancelled() || !matches!(&result, Ok(output) if output.status.success()) {
+        // The child has exited and been reaped. Clean only this new managed target.
+        if runner.path_exists(Path::new(&target_dir)) {
+            runner.remove_dir_all(Path::new(&target_dir))?;
+        }
+    }
+    if cancel.is_cancelled() {
+        return Err(AgentError::Internal("Pemasangan Python dibatalkan".into()));
+    }
+    let output = result.map_err(|error| {
+        AgentError::Internal(format!(
+            "Gagal menjalankan uv untuk memasang Python {norm_ver}: {error}"
+        ))
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(AgentError::CommandFailed {
@@ -939,7 +995,8 @@ mod tests {
             );
         }
         assert!(runner.recorded_actions().is_empty());
-        runner.set_response("uv", 0, b"installed", b"");
+        runner.add_existing_path(crate::uv::UV_BIN);
+        runner.set_response(crate::uv::UV_BIN, 0, b"installed", b"");
         assert!(
             install_python_runtime(
                 &runner,
@@ -952,9 +1009,9 @@ mod tests {
             .success
         );
         let commands = runner.get_commands();
-        assert!(commands[0].contains(
+        assert!(commands.iter().any(|command| command.contains(
             "--python-downloads-json-url https://raw.githubusercontent.com/astral-sh/uv/"
-        ));
+        )));
     }
 
     #[test]
