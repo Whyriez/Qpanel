@@ -467,9 +467,10 @@ async fn dns01_production_installs_immutable_origin_certificate_and_preserves_tl
         .unwrap()
         .unwrap();
     assert!(cert.cert_path.contains(&id));
-    let configs = f.configs.lock().unwrap();
-    assert!(configs.last().unwrap().contains("ssl_certificate"));
-    drop(configs);
+    {
+        let configs = f.configs.lock().unwrap();
+        assert!(configs.last().unwrap().contains("ssl_certificate"));
+    }
     let b: (i64, i64) =
         sqlx::query_as("SELECT certificate_id,renew_at FROM dns01_bindings WHERE site_id=?")
             .bind(f.site)
