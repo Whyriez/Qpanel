@@ -478,6 +478,8 @@ async fn test_terminal_rest_lifecycle_and_quota_enforcement() {
 #[tokio::test]
 async fn test_terminal_websocket_streaming_and_reconnect() {
     let ctx = setup_test_context().await;
+    // Browser Origin must match the listener's Host, including its assigned port.
+    let origin = format!("http://{}", ctx.addr);
 
     // 1. Create a session for Alice via oneshot
     let create_payload = serde_json::to_vec(&CreateTerminalSessionRequest {
@@ -516,7 +518,7 @@ async fn test_terminal_websocket_streaming_and_reconnect() {
          Upgrade: websocket\r\n\
          Sec-WebSocket-Version: 13\r\n\
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-         Origin: http://localhost:3000\r\n\r\n",
+         Origin: {origin}\r\n\r\n",
         session.session_id, ctx.addr
     );
     stream
@@ -564,7 +566,7 @@ async fn test_terminal_websocket_streaming_and_reconnect() {
          Upgrade: websocket\r\n\
          Sec-WebSocket-Version: 13\r\n\
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-         Origin: http://localhost:3000\r\n\
+         Origin: {origin}\r\n\
          Cookie: {SESSION_COOKIE_NAME}={}\r\n\r\n",
         session.session_id, ctx.addr, ctx.bob_session
     );
@@ -588,7 +590,7 @@ async fn test_terminal_websocket_streaming_and_reconnect() {
          Upgrade: websocket\r\n\
          Sec-WebSocket-Version: 13\r\n\
          Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-         Origin: http://localhost:3000\r\n\
+         Origin: {origin}\r\n\
          Cookie: {SESSION_COOKIE_NAME}={}\r\n\r\n",
         session.session_id, ctx.addr, ctx.alice_session
     );
