@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// Supported database management engines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseEngine {
     MariaDb,

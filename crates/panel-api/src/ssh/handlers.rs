@@ -15,8 +15,8 @@ use axum::{
     response::IntoResponse,
 };
 use panel_core::ssh::{
-    SshConnectionParams, generate_sftp_command, generate_sftp_url, generate_ssh_command,
-    generate_ssh_config_snippet, parse_ssh_public_key,
+    SshConnectionParams, generate_sftp_cd_command, generate_sftp_command, generate_sftp_url,
+    generate_ssh_command, generate_ssh_config_snippet, parse_ssh_public_key,
 };
 use panel_core::tenant::ShellPolicy;
 use panel_db::models::CreateSshKey;
@@ -489,7 +489,6 @@ pub async fn apply_ssh_dropin_handler(
 pub async fn get_ssh_connection_info_handler(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
-    req_headers: HeaderMap,
     Query(query): Query<SshConnectionInfoQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     let plan_repo = SqlitePlanRepository::new(state.pool.clone());
@@ -535,6 +534,13 @@ pub async fn get_ssh_connection_info_handler(
             ));
         }
 
+        if site.status == "suspended" {
+            return Err(connection_error(
+                StatusCode::FORBIDDEN,
+                "Situs sedang ditangguhkan.",
+            ));
+        }
+
         site_docroot = Some(site.docroot);
 
         // Fetch primary domain
@@ -543,28 +549,13 @@ pub async fn get_ssh_connection_info_handler(
         }
     }
 
-    // 3. Resolve path (active_path and relative_path)
+    // Lexical tenant-relative paths only; no filesystem/RPC path lookup.
     let raw_path = query
         .path
         .as_deref()
         .or(site_docroot.as_deref())
         .unwrap_or("");
-    let raw_path_clean = raw_path.trim();
-
-    let (active_path, relative_path) = if raw_path_clean.is_empty() {
-        (home_dir.clone(), String::new())
-    } else if let Some(stripped) = raw_path_clean.strip_prefix(&home_dir) {
-        let rel = stripped.trim_start_matches('/').to_string();
-        (raw_path_clean.to_string(), rel)
-    } else if raw_path_clean.starts_with('/') {
-        let rel = raw_path_clean.trim_start_matches('/').to_string();
-        (format!("{}/{}", home_dir, rel), rel)
-    } else {
-        (
-            format!("{}/{}", home_dir, raw_path_clean),
-            raw_path_clean.to_string(),
-        )
-    };
+    let (active_path, relative_path) = connection_path(&home_dir, raw_path)?;
 
     // 4. Resolve effective shell policy
     let plan = if let Some(plan_id) = target_user.plan_id {
@@ -588,54 +579,155 @@ pub async fn get_ssh_connection_info_handler(
     let shell_policy = ShellPolicy::parse(policy_str).unwrap_or(ShellPolicy::None);
 
     // 5. Check registered SSH public keys
-    let keys = ssh_repo
-        .list_by_user(target_user.id)
-        .await
-        .unwrap_or_default();
+    let keys = ssh_repo.list_by_user(target_user.id).await.map_err(|_| {
+        connection_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Gagal memuat kunci SSH tenant.",
+        )
+    })?;
     let has_ssh_keys = !keys.is_empty();
     let ssh_keys_count = keys.len();
 
-    // 6. Resolve host and port
-    let host = if let Some(h) = query.host.filter(|h| !h.trim().is_empty()) {
-        h.trim().to_string()
-    } else if let Some(ref dom) = site_domain {
-        dom.clone()
-    } else if let Some(host_hdr) = req_headers.get("host").and_then(|h| h.to_str().ok()) {
-        host_hdr
-            .split(':')
-            .next()
-            .unwrap_or("127.0.0.1")
-            .to_string()
+    // Selection is scoped to the resolved active tenant, never the HTTP Host or
+    // website domain. A project primary takes precedence even for non-direct paths.
+    let selected = panel_db::repositories::SqliteConnectivityRepository::new(state.pool.clone())
+        .ssh_candidates(target_user.id, query.site_id)
+        .await
+        .map_err(|err| {
+            tracing::error!(error=%err, "SSH endpoint lookup failed");
+            connection_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Gagal memuat endpoint SSH.",
+            )
+        })?
+        .into_iter()
+        .next();
+    let manual = query.host.is_some() || query.port.is_some();
+    let direct = selected
+        .as_ref()
+        .is_some_and(|e| e.config.transport == panel_core::connectivity::EndpointTransport::Direct);
+    let endpoint_state = if manual {
+        "manual_preview"
+    } else if selected.is_none() {
+        "missing"
+    } else if direct {
+        "configured"
     } else {
-        "127.0.0.1".to_string()
+        "unsupported_transport"
+    }
+    .to_owned();
+    let host = if let Some(h) = query.host.as_deref() {
+        Some(
+            panel_core::connectivity::EndpointHost::parse(h)
+                .map_err(|_| {
+                    connection_error(
+                        StatusCode::BAD_REQUEST,
+                        "Gunakan hostname atau IP tanpa URL, port, spasi, atau tanda kurung.",
+                    )
+                })?
+                .as_str()
+                .to_owned(),
+        )
+    } else if direct && (!manual || query.port.is_some()) {
+        selected.as_ref().map(|e| e.config.host.as_str().to_owned())
+    } else {
+        None
     };
-
-    let port = query.port.unwrap_or(22);
-
-    // 7. Format commands via panel_core::ssh
-    let conn_params = SshConnectionParams {
-        username: &linux_username,
-        host: &host,
-        port,
-        folder: Some(&active_path),
-        policy: shell_policy,
+    if manual && host.is_none() {
+        return Err(connection_error(
+            StatusCode::BAD_REQUEST,
+            "Host manual wajib diisi jika endpoint direct belum diatur.",
+        ));
+    }
+    let port = if manual {
+        Some(
+            query
+                .port
+                .or_else(|| {
+                    selected
+                        .as_ref()
+                        .filter(|_| direct)
+                        .map(|e| e.config.port.get())
+                })
+                .filter(|p| *p > 0)
+                .ok_or_else(|| {
+                    connection_error(StatusCode::BAD_REQUEST, "Port SSH manual harus 1-65535.")
+                })?,
+        )
+    } else {
+        selected
+            .as_ref()
+            .filter(|_| direct)
+            .map(|e| e.config.port.get())
     };
-
-    let ssh_command = generate_ssh_command(&conn_params);
-    let sftp_command = generate_sftp_command(&conn_params);
-    let sftp_url = generate_sftp_url(&conn_params);
-    let alias = site_domain
-        .clone()
-        .unwrap_or_else(|| format!("{}-vps", linux_username));
-    let ssh_config_snippet =
-        generate_ssh_config_snippet(&alias, &host, &linux_username, port, None);
-
+    let sftp_path = if shell_policy == ShellPolicy::Sftp {
+        active_path
+            .strip_prefix("/home")
+            .unwrap_or(&active_path)
+            .to_owned()
+    } else {
+        active_path.clone()
+    };
     let can_shell = shell_policy == ShellPolicy::Full;
     let can_sftp = shell_policy != ShellPolicy::None;
+    let params = host
+        .as_deref()
+        .zip(port)
+        .map(|(host, port)| SshConnectionParams {
+            username: &linux_username,
+            host,
+            port,
+            folder: Some(&active_path),
+            policy: shell_policy,
+        });
+    let ssh_command = params.as_ref().and_then(generate_ssh_command);
+    let sftp_params = params.as_ref().map(|p| SshConnectionParams {
+        folder: Some(&sftp_path),
+        ..p.clone()
+    });
+    let sftp_command = sftp_params.as_ref().and_then(generate_sftp_command);
+    let sftp_cd_command = sftp_params.as_ref().and_then(generate_sftp_cd_command);
+    let sftp_url = sftp_params.as_ref().and_then(generate_sftp_url);
+    let alias = format!("{}-server", linux_username);
+    let ssh_config_snippet = params
+        .as_ref()
+        .filter(|_| can_sftp)
+        .map(|p| generate_ssh_config_snippet(&alias, p.host, p.username, p.port, None));
+    let host_keys = if !manual && direct && can_sftp {
+        state.agent_client.ssh_host_keys().await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let host_keys_status = if manual {
+        "untrusted_override"
+    } else if !direct || !can_sftp {
+        "not_applicable"
+    } else if host_keys.is_empty() {
+        "unavailable"
+    } else {
+        "local_configuration"
+    }
+    .to_owned();
+    let endpoint_id = selected.as_ref().filter(|_| !manual).map(|e| e.id.clone());
+    let endpoint_revision = selected.as_ref().filter(|_| !manual).map(|e| e.revision);
+    let transport = if manual {
+        Some("direct".to_owned())
+    } else {
+        selected
+            .as_ref()
+            .map(|e| e.config.transport.as_str().to_owned())
+    };
 
     Ok(Json(SshConnectionInfoResponse {
         host,
         port,
+        endpoint_state,
+        endpoint_id,
+        endpoint_revision,
+        transport,
+        host_keys,
+        host_keys_status,
+        sftp_path,
         username: linux_username,
         user_id: target_user.id,
         home_dir,
@@ -649,7 +741,62 @@ pub async fn get_ssh_connection_info_handler(
         ssh_command,
         sftp_command,
         sftp_url,
+        sftp_cd_command,
         ssh_config_snippet,
         site_domain,
     }))
+}
+
+fn connection_error(status: StatusCode, message: &str) -> (StatusCode, Json<serde_json::Value>) {
+    (status, Json(serde_json::json!({"error":message})))
+}
+
+fn connection_path(
+    home: &str,
+    raw: &str,
+) -> Result<(String, String), (StatusCode, Json<serde_json::Value>)> {
+    if raw.len() > 4000 || raw.chars().any(char::is_control) || raw.contains('\\') {
+        return Err(connection_error(
+            StatusCode::BAD_REQUEST,
+            "Path folder tidak valid.",
+        ));
+    }
+    let relative = if raw == home {
+        ""
+    } else if let Some(rel) = raw.strip_prefix(&format!("{home}/")) {
+        rel
+    } else if raw.starts_with("/home/") {
+        return Err(connection_error(
+            StatusCode::FORBIDDEN,
+            "Folder berada di luar home tenant.",
+        ));
+    } else {
+        raw.trim_start_matches('/')
+    };
+    let mut parts = Vec::new();
+    for part in relative.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                return Err(connection_error(
+                    StatusCode::BAD_REQUEST,
+                    "Path traversal tidak diizinkan.",
+                ));
+            }
+            _ => parts.push(part),
+        }
+    }
+    let relative = parts.join("/");
+    let active = if relative.is_empty() {
+        home.to_owned()
+    } else {
+        format!("{home}/{relative}")
+    };
+    if active.len() > 4000 {
+        return Err(connection_error(
+            StatusCode::BAD_REQUEST,
+            "Path folder terlalu panjang.",
+        ));
+    }
+    Ok((active, relative))
 }

@@ -61,6 +61,68 @@ pub struct SshManager {
 }
 
 impl SshManager {
+    /// No caller-controlled paths, no private key reads, no daemon/reload or scan.
+    /// Only keys named by the effective default sshd configuration are shown.
+    pub fn host_key_fingerprints(
+        &self,
+    ) -> Result<Vec<panel_core::ssh::SshHostKeyFingerprint>, AgentError> {
+        let output = self.runner.run_command("sshd", &["-T"])?;
+        if !output.status.success() || output.stdout.len() > 256 * 1024 {
+            return Err(AgentError::Internal(
+                "Identitas OpenSSH tidak tersedia.".into(),
+            ));
+        }
+        let config = String::from_utf8(output.stdout)
+            .map_err(|_| AgentError::Internal("Konfigurasi OpenSSH tidak valid.".into()))?;
+        let mut keys = Vec::new();
+        for (private, public, algorithm) in [
+            (
+                "/etc/ssh/ssh_host_ed25519_key",
+                "/etc/ssh/ssh_host_ed25519_key.pub",
+                "ssh-ed25519",
+            ),
+            (
+                "/etc/ssh/ssh_host_ecdsa_key",
+                "/etc/ssh/ssh_host_ecdsa_key.pub",
+                "ecdsa-sha2-nistp256",
+            ),
+            (
+                "/etc/ssh/ssh_host_rsa_key",
+                "/etc/ssh/ssh_host_rsa_key.pub",
+                "ssh-rsa",
+            ),
+        ] {
+            if !config.lines().any(|line| {
+                let mut tokens = line.split_whitespace();
+                tokens.next() == Some("hostkey")
+                    && tokens.next() == Some(private)
+                    && tokens.next().is_none()
+            }) {
+                continue;
+            }
+            let Ok(bytes) = self.runner.read_file(Path::new(public)) else {
+                continue;
+            };
+            if bytes.len() > 16 * 1024 {
+                continue;
+            }
+            let Ok(text) = std::str::from_utf8(&bytes) else {
+                continue;
+            };
+            let Ok(key) = panel_core::ssh::parse_ssh_public_key(text) else {
+                continue;
+            };
+            if key.key_type != algorithm {
+                continue;
+            }
+            keys.push(panel_core::ssh::SshHostKeyFingerprint {
+                key_type: key.key_type,
+                fingerprint_sha256: key.fingerprint_sha256,
+            });
+        }
+        Ok(keys)
+    }
+
     pub fn new(runner: Arc<dyn SystemRunner>) -> Self {
         Self {
             runner,
@@ -340,6 +402,72 @@ impl SshManager {
             sftp_group_member,
             message: format!("Kebijakan shell '{}' berhasil diterapkan", policy),
         })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod host_identity_tests {
+    use super::*;
+    use crate::system::MockSystemRunner;
+    const KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl fixture";
+
+    #[test]
+    fn configured_public_host_identity_is_read_only() {
+        let runner = Arc::new(MockSystemRunner::new());
+        runner.set_response(
+            "sshd -T",
+            0,
+            b"port 2222\nhostkey /etc/ssh/ssh_host_ed25519_key\n",
+            b"",
+        );
+        runner.set_file_content("/etc/ssh/ssh_host_ed25519_key.pub", KEY.as_bytes());
+        let manager = SshManager::new(runner.clone());
+        let keys = manager.host_key_fingerprints().unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(
+            keys[0].fingerprint_sha256,
+            panel_core::ssh::parse_ssh_public_key(KEY)
+                .unwrap()
+                .fingerprint_sha256
+        );
+        assert_eq!(runner.get_commands(), vec!["sshd -T"]);
+        assert!(
+            runner
+                .recorded_actions()
+                .iter()
+                .all(|a| matches!(a, crate::system::MockAction::Command { .. }))
+        );
+    }
+
+    #[test]
+    fn custom_unconfigured_missing_and_malformed_keys_are_not_advertised() {
+        let runner = Arc::new(MockSystemRunner::new());
+        runner.set_file_content("/etc/ssh/ssh_host_ed25519_key.pub", KEY.as_bytes());
+        runner.set_response(
+            "sshd -T",
+            0,
+            b"hostkey /arbitrary/private\nhostkey /etc/ssh/ssh_host_rsa_key\n",
+            b"",
+        );
+        let manager = SshManager::new(runner.clone());
+        assert!(manager.host_key_fingerprints().unwrap().is_empty());
+        runner.set_response(
+            "sshd -T",
+            0,
+            b"hostkey /etc/ssh/ssh_host_ed25519_key\n",
+            b"",
+        );
+        runner.set_file_content("/etc/ssh/ssh_host_ed25519_key.pub", b"invalid key");
+        assert!(manager.host_key_fingerprints().unwrap().is_empty());
+        runner.set_response(
+            "sshd -T",
+            1,
+            b"hostkey /etc/ssh/ssh_host_ed25519_key\n",
+            b"bad config",
+        );
+        assert!(manager.host_key_fingerprints().is_err());
     }
 }
 

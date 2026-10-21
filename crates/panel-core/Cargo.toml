@@ -21,10 +21,16 @@ totp-rs = { workspace = true }
 uuid = { workspace = true }
 idna = { workspace = true }
 chacha20poly1305 = { workspace = true }
+x509-parser = { workspace = true }
+tokio-rustls = { workspace = true }
 
 [features]
 default = []
 openapi = ["dep:utoipa"]
+
+[dev-dependencies]
+rcgen = { workspace = true }
+time = { workspace = true }
 
 [lints]
 workspace = true

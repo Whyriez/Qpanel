@@ -6,6 +6,7 @@
 @import "./command-palette.css";
 @import "./site-overview.css";
 @import "./account-access.css";
+@import "./connectivity.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

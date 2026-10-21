@@ -89,6 +89,7 @@ export const Shell: React.FC<ShellProps> = ({
         { id: "email", icon: Mail },
         { id: "files", icon: FolderTree },
         { id: "terminal", icon: Terminal },
+        ...(!admin ? [{ id: "connectivity", icon: Globe }] : []),
         { id: "analytics", icon: BarChart3 },
       ],
     },

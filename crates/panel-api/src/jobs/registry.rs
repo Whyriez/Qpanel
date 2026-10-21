@@ -1091,6 +1091,14 @@ impl JobRegistry {
 
     pub fn new_with_agent(agent_client: Arc<crate::agent_client::AgentClient>) -> Self {
         let mut reg = Self::new();
+        reg.register(
+            "ssl.dns01.issue",
+            crate::dns01::Handler(Arc::clone(&agent_client)),
+        );
+        reg.register(
+            "panel.tls.issue",
+            crate::panel_tls::PanelTlsHandler(Arc::clone(&agent_client)),
+        );
         for name in [
             "email.install",
             "email.mailbox",

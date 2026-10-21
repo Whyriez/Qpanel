@@ -1,5 +1,5 @@
 import { ModalOverlay } from './ModalOverlay';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 
 export interface ConfirmDangerDialogProps {
@@ -27,6 +27,7 @@ export const ConfirmDangerDialog: React.FC<ConfirmDangerDialogProps> = ({
   purgeOptionLabel = 'Hapus seluruh direktori dan berkas milik tenant secara permanen',
   isLoading = false,
 }) => {
+  const confirmationId = useId();
   const [inputText, setInputText] = useState('');
   const [purgeFiles, setPurgeFiles] = useState(false);
 
@@ -91,11 +92,12 @@ export const ConfirmDangerDialog: React.FC<ConfirmDangerDialogProps> = ({
 
           {/* Input Confirmation */}
           <div className="mb-4">
-            <label className="block text-xs font-medium text-[var(--ink)] mb-1.5">
+            <label htmlFor={confirmationId} className="block text-xs font-medium text-[var(--ink)] mb-1.5">
               Ketik <span className="font-mono font-bold text-[var(--danger)]">{confirmMatchText}</span> untuk
               mengonfirmasi:
             </label>
             <input
+              id={confirmationId}
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}

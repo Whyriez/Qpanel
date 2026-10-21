@@ -447,7 +447,7 @@ async fn tunnel_bootstrap_posts_pass_origin_guard_before_private_backend_lookup(
                     .header("origin", "https://panel.test")
                     .header("sec-fetch-site", "same-origin")
                     .header("x-forwarded-proto", "http")
-                    .header("cf-visitor", r#"{"scheme":"https"}"#)
+                    .header("x-qpanel-cf-visitor", r#"{"scheme":"https"}"#)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -491,7 +491,7 @@ async fn tunnel_headers_never_allow_foreign_or_opaque_origins() {
                     .header("origin", origin)
                     .header("sec-fetch-site", site)
                     .header("x-forwarded-proto", "http")
-                    .header("cf-visitor", r#"{"scheme":"https"}"#)
+                    .header("x-qpanel-cf-visitor", r#"{"scheme":"https"}"#)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -499,8 +499,8 @@ async fn tunnel_headers_never_allow_foreign_or_opaque_origins() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(
-            json_body(response).await,
-            json!({"error":"Permintaan lintas asal ditolak"})
+            json_body(response).await["detail"],
+            "Permintaan lintas asal ditolak."
         );
     }
 }

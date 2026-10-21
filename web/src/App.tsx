@@ -54,6 +54,7 @@ const AnalyticsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
+const ConnectivityPage = lazy(() => import('./pages/ConnectivityPage').then(m => ({ default: m.ConnectivityPage })));
 
 const PageFallback: React.FC = () => (
   <div className="p-8 flex flex-col items-center justify-center space-y-2 text-xs text-[var(--ink-muted)]">
@@ -203,7 +204,8 @@ const MainApp: React.FC = () => {
           {activeNav === 'terminal' && <TerminalPage />}
           {activeNav === 'analytics' && <AnalyticsPage />}
           {activeNav === 'settings' && <SettingsPage />}
-          {!['dashboard','audit','email','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','login','setup'].includes(activeNav) && <NotFoundPage />}
+          {activeNav === 'connectivity' && <ConnectivityPage />}
+          {!['dashboard','audit','email','jobs','profile','sites','site-detail','tenants','tenant-detail','users','plans','runtime','files','terminal','analytics','settings','connectivity','login','setup'].includes(activeNav) && <NotFoundPage />}
         </Suspense>
       </Shell>
       <ToastProvider />

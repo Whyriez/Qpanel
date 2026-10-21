@@ -5,9 +5,12 @@ pub mod audit;
 pub mod auth;
 pub mod backups;
 pub mod config;
+pub mod connectivity;
+mod connectivity_diagnosis;
 pub mod cron;
 pub mod database_web;
 pub mod databases;
+pub mod dns01;
 pub mod email;
 pub mod env_vars;
 pub mod files;
@@ -21,10 +24,13 @@ pub mod node;
 pub mod node_site;
 pub mod notifications;
 pub mod optimizer;
+pub mod panel_tls;
+pub mod panel_url_settings;
 pub mod php;
 pub mod plans;
 pub mod processes;
 pub mod proxy_site;
+pub mod public_url;
 pub mod python_site;
 pub mod retention;
 pub mod routes;
@@ -49,7 +55,6 @@ use axum::{
     routing::{get, post, put},
 };
 use routes::{ApiDoc, AppState, healthz_handler, system_info_handler};
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -59,6 +64,10 @@ pub fn create_router(state: AppState) -> Router {
 
     let api_routes = Router::new()
         .merge(database_web::router())
+        .merge(connectivity::router())
+        .merge(panel_url_settings::router())
+        .merge(panel_tls::router())
+        .merge(dns01::router())
         .route(
             "/api/v1/runtimes/catalog",
             get(runtime_catalog::get_status).put(runtime_catalog::update_schedule),
@@ -723,7 +732,11 @@ pub fn create_router(state: AppState) -> Router {
             post(system_reliability::restore_system_backup_handler),
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api/v1/openapi.json", api_doc))
-        .layer(CorsLayer::permissive())
+        .fallback(static_files::static_handler)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            public_url::middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(
             security_headers::security_headers_middleware,
@@ -731,5 +744,5 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state);
 
     // Fallback to static files from web/dist for all non-API paths
-    api_routes.fallback(static_files::static_handler)
+    api_routes
 }

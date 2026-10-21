@@ -2,6 +2,7 @@ pub mod api_token;
 pub mod audit_log;
 pub mod backup;
 pub mod certificate;
+pub mod connectivity;
 pub mod cron;
 pub mod database;
 pub mod domain;
@@ -33,6 +34,7 @@ pub use certificate::{
     AcmeAccount, Certificate, CertificateIssuer, CertificateStatus, CreateAcmeAccount,
     CreateCertificate, UpdateCertificate,
 };
+pub use connectivity::{EndpointEvidenceRecord, ServiceEndpoint};
 pub use cron::{CreateCronJob, CreateCronRun, CronJob, CronRun, UpdateCronJob};
 pub use database::{CreateDatabaseInput, DatabaseModel, DatabaseServer, UpdateDatabaseInput};
 pub use domain::{CreateDomain, Domain, DomainStatus, RedirectMode, UpdateDomain};

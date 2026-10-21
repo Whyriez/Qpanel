@@ -7,6 +7,12 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+mod connectivity;
+mod dns01;
+mod panel_tls;
+pub use connectivity::*;
+pub use dns01::*;
+pub use panel_tls::*;
 mod cloudflare;
 pub use cloudflare::*;
 mod email;
@@ -66,6 +72,11 @@ impl RpcRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "cmd", content = "data")]
 pub enum RequestPayload {
+    /// Read-only inspection of the fixed local OpenSSH host identity.
+    SshHostKeys,
+    ConnectivityInspect(ConnectivityTarget),
+    PanelTls(PanelTlsRequest),
+    Dns01(Dns01Request),
     Email(EmailRequest),
     Cloudflare(CloudflareRequest),
     /// Opt-in streaming for a closed set of package-manager operations.
@@ -308,6 +319,10 @@ impl RpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
 pub enum ResponsePayload {
+    SshHostKeys(Vec<panel_core::ssh::SshHostKeyFingerprint>),
+    ConnectivityInspected(ConnectivityInspection),
+    PanelTls(PanelTlsStatus),
+    Dns01(serde_json::Value),
     Email(serde_json::Value),
     Cloudflare(serde_json::Value),
     InstallationProgress(InstallationProgress),

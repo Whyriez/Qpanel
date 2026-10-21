@@ -522,14 +522,12 @@ fn render_python_vhost_for_site(
     })
 }
 
-/// Recompiles the Nginx virtual host configuration for a site from its current DB state
-/// and applies it atomically with automatic rollback via the privileged agent.
-pub async fn recompile_and_apply_site_vhost(
-    state: &AppState,
+/// Render only: certificate switches must not restart application runtimes.
+pub(crate) fn render_site_vhost(
     site: &Site,
     user: &User,
     domains: &[Domain],
-) -> Result<(), (StatusCode, String)> {
+) -> Result<String, (StatusCode, String)> {
     let primary_domain = domains
         .iter()
         .find(|d| d.is_primary)
@@ -562,7 +560,7 @@ pub async fn recompile_and_apply_site_vhost(
     let (alias_domains, redirects) =
         build_domain_redirects_and_aliases(domains, primary_domain, has_ssl, force_https);
 
-    let (resolved_linux_name, resolved_linux_uid) =
+    let (resolved_linux_name, _resolved_linux_uid) =
         crate::tenant_context::execution_identity(user)?;
     let linux_uname = resolved_linux_name.as_str();
 
@@ -842,6 +840,29 @@ pub async fn recompile_and_apply_site_vhost(
         })?
     };
 
+    Ok(rendered)
+}
+
+/// Recompiles the Nginx virtual host configuration for a site from its current DB state
+/// and applies it atomically with automatic rollback via the privileged agent.
+pub async fn recompile_and_apply_site_vhost(
+    state: &AppState,
+    site: &Site,
+    user: &User,
+    domains: &[Domain],
+) -> Result<(), (StatusCode, String)> {
+    let rendered = render_site_vhost(site, user, domains)?;
+    let primary_domain = domains
+        .iter()
+        .find(|d| d.is_primary)
+        .map(|d| d.name.as_str())
+        .unwrap_or("unknown");
+    let settings: serde_json::Value = serde_json::from_str(&site.settings_json).unwrap_or_default();
+    let (resolved_linux_name, resolved_linux_uid) =
+        crate::tenant_context::execution_identity(user)?;
+    let linux_uname = resolved_linux_name.as_str();
+    let is_nodejs = site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs");
+    let is_python = site.kind == "python" || site.runtime.as_deref() == Some("python");
     let enable = site.status == "active";
     // If Node.js site is active, also ensure systemd unit and env file are applied on host
     if is_nodejs && site.status == "active" {

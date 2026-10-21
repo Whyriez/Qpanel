@@ -1,3 +1,4 @@
+import { panelWebSocketUrl } from '../lib/panelUrl';
 import { ModalOverlay } from '../components/ui/ModalOverlay';
 import { navigate, RouteLink, useBrowserRoute } from '../lib/router';
 import { canonicalSiteUrl, sitePath } from '../lib/siteRoutes';
@@ -511,9 +512,8 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
     }
 
     // Connect to WebSocket endpoint
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws/logs/${siteId}?log_type=${logType}&lines=${logLinesCount}`;
+
+    const wsUrl = panelWebSocketUrl(`/ws/logs/${siteId}?log_type=${logType}&lines=${logLinesCount}`);
 
     let isMounted = true;
     const ws = new WebSocket(wsUrl);
@@ -1151,6 +1151,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
         <div className="pt-2">
           <FileManager
             tenant={String(site.user_id)}
+            siteId={site.id}
             initialPath={site.docroot.replace(/^\/home\/[^/]+(?:\/|$)/, '')}
             title={`Berkas Situs: ${site.primary_domain}`}
           />

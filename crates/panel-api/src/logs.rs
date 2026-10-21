@@ -7,7 +7,7 @@
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Json};
 use panel_db::repositories::{SqliteDomainRepository, SqliteSiteRepository, SqliteUserRepository};
 use panel_proto::SiteLogsReadRequest;
@@ -55,32 +55,10 @@ pub struct WsLogMessage {
 }
 
 /// Validates WebSocket Origin header against cross-site WebSocket hijacking (CSWSH).
-pub fn validate_ws_origin(headers: &HeaderMap) -> bool {
-    let Some(origin_val) = headers.get(header::ORIGIN) else {
-        return true;
-    };
-    let Ok(origin) = origin_val.to_str() else {
-        return false;
-    };
-
-    let origin_lower = origin.to_lowercase();
-    if origin_lower.starts_with("http://localhost")
-        || origin_lower.starts_with("https://localhost")
-        || origin_lower.starts_with("http://127.0.0.1")
-        || origin_lower.starts_with("https://127.0.0.1")
-        || origin_lower.starts_with("http://[::1]")
-        || origin_lower.starts_with("https://[::1]")
-    {
-        return true;
-    }
-
-    if let Some(host) = headers.get(header::HOST).and_then(|h| h.to_str().ok()) {
-        let host_clean = host.split(':').next().unwrap_or(host).to_lowercase();
-        if origin_lower.contains(&host_clean) {
-            return true;
-        }
-    }
-    false
+pub fn validate_ws_origin(headers: &HeaderMap, secure: bool) -> bool {
+    crate::public_url::single(headers, "host")
+        .and_then(|host| crate::public_url::PanelOrigin::from_authority(host, secure).ok())
+        .is_some_and(|origin| origin.matches_origin(headers, true))
 }
 
 #[utoipa::path(
@@ -192,9 +170,10 @@ pub async fn site_logs_ws_handler(
     Query(query): Query<SiteLogsWsQuery>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
+    axum::Extension(context): axum::Extension<crate::public_url::PublicRequest>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, (StatusCode, &'static str)> {
-    if !validate_ws_origin(&headers) {
+    if !validate_ws_origin(&headers, context.origin.secure) {
         warn!(
             "WebSocket rejected due to disallowed Origin header for site {}",
             site_id

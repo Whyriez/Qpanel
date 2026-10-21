@@ -132,11 +132,22 @@ impl NotificationService {
         &self,
         event: &DispatchNotificationEvent,
     ) -> Result<(String, String), String> {
+        let origin = crate::public_url::canonical(&self.pool)
+            .await
+            .map_err(|_| "URL panel belum dapat dimuat")?;
+        let action = match origin {
+            Some(origin) => origin
+                .action_url(event.action_url.as_deref().unwrap_or("/dashboard"))?
+                .to_string(),
+            None => {
+                "URL panel belum diaktifkan; buka alamat panel yang biasa Anda gunakan.".to_string()
+            }
+        };
         crate::email::load_template(&self.pool).await?.render(
             &event.title,
             &event.message,
             event.category.as_str(),
-            event.action_url.as_deref().unwrap_or("/dashboard"),
+            &action,
         )
     }
 
@@ -342,5 +353,42 @@ impl NotificationService {
         }
 
         Ok(triggered)
+    }
+}
+
+#[cfg(test)]
+mod panel_url_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[tokio::test]
+    async fn email_actions_use_only_the_activated_url_and_reject_external_paths() {
+        let pool = panel_db::init_pool("sqlite::memory:").await.unwrap();
+        panel_db::run_migrations(&pool).await.unwrap();
+        let service = NotificationService::new(pool.clone(), None);
+        let mut event = DispatchNotificationEvent {
+            user_id: None,
+            site_id: None,
+            category: NotificationCategory::JobFailed,
+            severity: NotificationSeverity::Error,
+            title: "Fixture".into(),
+            message: "Fixture".into(),
+            metadata_json: None,
+            action_url: Some("/jobs?status=failed".into()),
+        };
+        let (_, body) = service.email_content(&event).await.unwrap();
+        assert!(body.contains("URL panel belum diaktifkan"));
+        sqlx::query("INSERT INTO panel_url_policy(id,revision,canonical_url,endpoint_id,endpoint_revision,updated_at) VALUES(1,1,'https://[2001:db8::7]:19443','fixture',1,0)").execute(&pool).await.unwrap();
+        let (_, body) = service.email_content(&event).await.unwrap();
+        assert!(body.contains("https://[2001:db8::7]:19443/jobs?status=failed"));
+        for path in [
+            "https://evil.test",
+            "//evil.test",
+            "/%2f%2fevil.test",
+            "/../evil",
+        ] {
+            event.action_url = Some(path.into());
+            assert!(service.email_content(&event).await.is_err());
+        }
     }
 }

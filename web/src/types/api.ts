@@ -627,8 +627,8 @@ export interface SshConnectionInfoQuery {
 }
 
 export interface SshConnectionInfoResponse {
-  host: string;
-  port: number;
+  host: string | null;
+  port: number | null;
   username: string;
   user_id: number;
   home_dir: string;
@@ -641,9 +641,17 @@ export interface SshConnectionInfoResponse {
   ssh_keys_count: number;
   ssh_command: string | null;
   sftp_command: string | null;
+  sftp_cd_command: string | null;
   sftp_url: string | null;
-  ssh_config_snippet: string;
+  ssh_config_snippet: string | null;
   site_domain: string | null;
+  endpoint_state: 'configured' | 'manual_preview' | 'missing' | 'unsupported_transport';
+  endpoint_id: string | null;
+  endpoint_revision: number | null;
+  transport: string | null;
+  host_keys: { key_type: string; fingerprint_sha256: string }[];
+  host_keys_status: 'local_configuration' | 'unavailable' | 'untrusted_override' | 'not_applicable';
+  sftp_path: string;
 }
 
 // Node.js Runtime Types (Phase 7 - P7-T1)

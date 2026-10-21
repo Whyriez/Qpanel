@@ -112,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.pool.clone(),
         catalog_shutdown_rx,
     ));
+    let ssl_handle = panel_api::ssl::start_ssl_renewal_scheduler(state.clone());
     let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.server.listen_addr).await?;
@@ -136,6 +137,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = retention_handle.await;
     let _ = metrics_handle.await;
     let _ = catalog_handle.await;
+    ssl_handle.abort();
+    let _ = ssl_handle.await;
 
     info!("Panel API shutdown gracefully.");
     Ok(())

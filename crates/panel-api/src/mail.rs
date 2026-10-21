@@ -178,7 +178,7 @@ impl SmtpSession {
         .map_err(|_| "Timeout membaca SMTP".to_string())?
     }
 }
-fn system_trust() -> Result<Arc<rustls::ClientConfig>, String> {
+pub(crate) fn system_trust() -> Result<Arc<rustls::ClientConfig>, String> {
     let mut roots = rustls::RootCertStore::empty();
     for cert in rustls_native_certs::load_native_certs().certs {
         roots

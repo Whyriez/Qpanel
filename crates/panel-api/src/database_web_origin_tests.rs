@@ -74,7 +74,7 @@ fn cloudflare_visitor_scheme_survives_an_http_nginx_hop() {
             .headers_mut()
             .insert("x-forwarded-proto", HeaderValue::from_static("http"));
         request.headers_mut().insert(
-            "cf-visitor",
+            "x-qpanel-cf-visitor",
             HeaderValue::from_static(r#"{"scheme":"https"}"#),
         );
         assert!(request_secure(&request, false));
@@ -93,7 +93,7 @@ fn forwarded_scheme_requires_a_known_loopback_peer() {
             .headers_mut()
             .insert("x-forwarded-proto", HeaderValue::from_static("https"));
         request.headers_mut().insert(
-            "cf-visitor",
+            "x-qpanel-cf-visitor",
             HeaderValue::from_static(r#"{"scheme":"https"}"#),
         );
         assert!(!request_secure(&request, false));
@@ -105,7 +105,7 @@ fn forwarded_scheme_requires_a_known_loopback_peer() {
 }
 
 #[test]
-fn bad_or_ambiguous_metadata_cannot_select_https_or_downgrade_tls_policy() {
+fn cookie_minimum_does_not_change_transport_and_ambiguous_metadata_cannot_select_https() {
     for value in ["http", "https,http", "ftp", "https://", ""] {
         let mut request = browser(
             "POST",
@@ -117,7 +117,7 @@ fn bad_or_ambiguous_metadata_cannot_select_https_or_downgrade_tls_policy() {
             .headers_mut()
             .insert("x-forwarded-proto", HeaderValue::from_str(value).unwrap());
         assert!(!request_secure(&request, false));
-        assert!(request_secure(&request, true));
+        assert!(!request_secure(&request, true));
     }
     let mut request = browser("GET", "", "https://panel.test", Some("127.0.0.1:44000"));
     request
@@ -136,8 +136,89 @@ fn bad_or_ambiguous_metadata_cannot_select_https_or_downgrade_tls_policy() {
     ] {
         request
             .headers_mut()
-            .insert("cf-visitor", HeaderValue::from_str(value).unwrap());
+            .insert("x-qpanel-cf-visitor", HeaderValue::from_str(value).unwrap());
         assert!(!request_secure(&request, false));
+    }
+}
+
+#[test]
+fn custom_ports_ipv6_and_default_port_redirects_use_the_request_origin() {
+    let prefix = "/api/v1/databases/1/web/";
+    for (host, location) in [
+        (
+            "panel.test",
+            "https://PANEL.test:443/api/v1/databases/1/web/index.php?route=%2Fsql",
+        ),
+        (
+            "panel.test:8443",
+            "https://panel.test:8443/api/v1/databases/1/web/index.php",
+        ),
+        (
+            "[2001:db8::7]:19443",
+            "https://[2001:db8::7]:19443/api/v1/databases/1/web/index.php",
+        ),
+    ] {
+        let response = parse_response(
+            format!("Location: {location}\r\n\r\n").as_bytes(),
+            prefix,
+            true,
+            host,
+        )
+        .unwrap();
+        assert!(
+            response.headers()["location"]
+                .to_str()
+                .unwrap()
+                .starts_with(prefix)
+        );
+    }
+    for location in [
+        "https://panel.test.evil.test/api/v1/databases/1/web/",
+        "http://panel.test/api/v1/databases/1/web/",
+        "//evil.test",
+        "/api/v1/databases/1/web/../other",
+        "/api/v1/databases/1/web/%2e%2e/other",
+        "https://panel.test:8443/api/v1/databases/1/web/",
+    ] {
+        assert!(
+            parse_response(
+                format!("Location: {location}\r\n\r\n").as_bytes(),
+                prefix,
+                true,
+                "panel.test"
+            )
+            .is_err(),
+            "{location}"
+        );
+    }
+    let credentials = DatabaseWebCredentials {
+        username: "fixture".into(),
+        password: "fixture".into(),
+    };
+    for (host, server, port) in [
+        ("[2001:db8::7]:19443", "2001:db8::7", "19443"),
+        ("panel.test:8443", "panel.test", "8443"),
+    ] {
+        let params: std::collections::HashMap<_, _> = parameters(WebRequest {
+            engine: "mariadb",
+            database: "fixture",
+            prefix,
+            asset: "index.php",
+            query: "",
+            method: "GET",
+            content_type: "",
+            host,
+            cookie: "",
+            session: "fixture",
+            credentials: &credentials,
+            secure: true,
+            length: 0,
+        })
+        .into_iter()
+        .collect();
+        assert_eq!(params["SERVER_NAME"], server);
+        assert_eq!(params["SERVER_PORT"], port);
+        assert_eq!(params["HTTP_HOST"], host);
     }
 }
 

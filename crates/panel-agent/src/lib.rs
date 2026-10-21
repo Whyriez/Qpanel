@@ -3,10 +3,12 @@
 pub mod audit;
 pub mod backups;
 pub mod cloudflare;
+pub mod connectivity;
 pub mod cron;
 pub mod crypto;
 pub mod database_web;
 pub mod databases;
+pub mod dns01;
 pub mod email;
 pub mod fs_manager;
 pub mod git_deploy;
@@ -16,6 +18,7 @@ pub mod nftables;
 pub mod node;
 pub mod node_site;
 pub mod optimizer;
+pub mod panel_tls;
 pub mod php;
 pub mod proxy;
 pub mod pty;
@@ -645,6 +648,8 @@ impl AgentServer {
                 RequestPayload::SslCertDeploy(d) => {
                     ("ssl.cert_deploy".to_string(), d.domain.clone())
                 }
+                RequestPayload::Dns01(_) => ("dns01".into(), "dns01".into()),
+                RequestPayload::PanelTls(_) => ("panel.tls".into(), "panel".into()),
                 RequestPayload::SiteLogsRead(d) => (
                     "nginx.site_logs_read".to_string(),
                     format!("{}/{}", d.username, d.site_domain),
@@ -990,6 +995,10 @@ impl AgentServer {
                 RequestPayload::NftablesStatus(_) => {
                     ("nftables.status".to_string(), "loopback_guard".to_string())
                 }
+                RequestPayload::ConnectivityInspect(_) => {
+                    ("connectivity.inspect".into(), "fixed-service".into())
+                }
+                RequestPayload::SshHostKeys => ("ssh.host_keys".into(), "local-openssh".into()),
                 RequestPayload::SystemDoctorCheck(_) => {
                     ("system.doctor_check".to_string(), "system".to_string())
                 }
@@ -1015,6 +1024,20 @@ impl AgentServer {
             };
 
             let response = match req.payload {
+                RequestPayload::SshHostKeys => {
+                    let manager = Arc::clone(&self.ssh_manager);
+                    match tokio::task::spawn_blocking(move || manager.host_key_fingerprints()).await
+                    {
+                        Ok(Ok(keys)) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::SshHostKeys(keys))
+                        }
+                        _ => RpcResponse::err(&req.request_id, "Identitas OpenSSH tidak tersedia."),
+                    }
+                }
+                RequestPayload::ConnectivityInspect(target) => RpcResponse::ok(
+                    &req.request_id,
+                    ResponsePayload::ConnectivityInspected(connectivity::inspect(target).await),
+                ),
                 RequestPayload::Email(operation) => {
                     let runner = Arc::clone(&self.runner);
                     match tokio::task::spawn_blocking(move || {
@@ -1033,6 +1056,25 @@ impl AgentServer {
                     }
                 }
 
+                RequestPayload::Dns01(operation) => {
+                    static DNS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+                    let _guard = DNS_LOCK.lock().await;
+                    let runner = Arc::clone(&self.runner);
+                    match tokio::task::spawn_blocking(move || {
+                        dns01::execute(runner.as_ref(), operation)
+                    })
+                    .await
+                    {
+                        Ok(Ok(value)) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::Dns01(value))
+                        }
+                        Ok(Err(e)) => RpcResponse::err(&req.request_id, e.to_string()),
+                        Err(_) => RpcResponse::err(
+                            &req.request_id,
+                            "Operasi DNS-01 terputus; periksa jurnal cleanup.",
+                        ),
+                    }
+                }
                 RequestPayload::Cloudflare(operation) => {
                     static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
                     let _guard = LOCK.lock().await;
@@ -1211,6 +1253,10 @@ impl AgentServer {
                         Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
                     }
                 }
+                RequestPayload::PanelTls(data) => match self.webserver_manager.panel_tls(data) {
+                    Ok(res) => RpcResponse::ok(&req.request_id, ResponsePayload::PanelTls(res)),
+                    Err(e) => RpcResponse::err(&req.request_id, e.to_string()),
+                },
                 RequestPayload::SiteLogsRead(data) => {
                     match self.webserver_manager.read_site_logs(data) {
                         Ok(res) => {

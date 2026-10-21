@@ -5,6 +5,7 @@ import { checkProjectDns, cloudflareCommand, fetchCloudflareStatus, fetchNetwork
 import type { CloudflareCommand, CloudflarePage, CloudflareStatus, DnsRecord, NetworkOverview, RecordDraft, Tunnel, Zone } from '../../api/network';
 import type { JobItem } from '../../types/api';
 import { useRuntimeJobs } from '../runtime/useRuntimeJobs';
+import { Dns01Settings } from './Dns01Settings';
 import { RuntimeJobProgress } from '../runtime/RuntimeJobProgress';
 
 const jobNames = new Set(['cloudflare.change', 'cloudflare.install']);
@@ -23,7 +24,7 @@ function Pager({ page, total, onPage, disabled }: { page: number; total: number;
 }
 
 export function NetworkSettings() {
-  const [tab, setTab] = useState<'public' | 'dns' | 'tunnels'>('public');
+  const [tab, setTab] = useState<'public' | 'dns' | 'tunnels' | 'certificates'>('public');
   const [network, setNetwork] = useState<NetworkOverview | null>(null);
   const [status, setStatus] = useState<CloudflareStatus | null>(null);
   const [ipv4, setIpv4] = useState(''); const [ipv6, setIpv6] = useState('');
@@ -110,7 +111,7 @@ export function NetworkSettings() {
     return () => { active = false; };
   }, []);
   useEffect(() => {
-    if (!status?.configured || tab === 'public') return;
+    if (!status?.configured || tab === 'public' || tab === 'certificates') return;
     void loadZones().catch(cause => { if (mounted.current) setError(errorText(cause)); });
     if (tab === 'tunnels') void loadTunnels().catch(cause => { if (mounted.current) setError(errorText(cause)); });
   }, [status?.configured, tab, loadZones, loadTunnels]);
@@ -136,13 +137,14 @@ export function NetworkSettings() {
   return <div className="space-y-6 text-[var(--ink)]" data-testid="network-settings">
     <div><h2 className="text-lg font-semibold">DNS dan Cloudflare</h2><p className="mt-1 text-sm text-[var(--ink-muted)]">Hubungkan domain ke IP publik server atau terbitkan project melalui Cloudflare Tunnel.</p></div>
     <nav aria-label="Pengaturan koneksi domain" className="flex flex-wrap gap-2 border-b border-[var(--line)] pb-3">
-      {([['public', 'IP publik'], ['dns', 'Cloudflare DNS'], ['tunnels', 'Cloudflare Tunnel']] as const).map(([key, label]) => <button key={key} className={tab === key ? primaryStyle : buttonStyle} aria-pressed={tab === key} onClick={() => { setTab(key); setError(''); setMessage(''); }}>{label}</button>)}
+      {([['public', 'IP publik'], ['dns', 'Cloudflare DNS'], ['tunnels', 'Cloudflare Tunnel'], ['certificates', 'Sertifikat DNS-01']] as const).map(([key, label]) => <button key={key} className={tab === key ? primaryStyle : buttonStyle} aria-pressed={tab === key} onClick={() => { setTab(key); setError(''); setMessage(''); }}>{label}</button>)}
     </nav>
     {(error || runtime.error) && <div role="alert" className="border-l-2 border-[var(--danger)] pl-3 text-sm text-[var(--danger)]">{error || runtime.error}<button className={`${buttonStyle} ml-3`} disabled={busy} onClick={() => { void refreshStatus(); }}>Muat ulang status</button></div>}
     {message && <p role="status" className="text-sm text-[var(--ink-muted)]">{message}</p>}
     {runtime.jobs.map(job => <div key={job.id} className="space-y-2 border border-[var(--line)] rounded-[var(--radius-md)] p-4"><p className="text-sm font-medium">{job.name === 'cloudflare.install' ? 'Pemasangan cloudflared' : 'Perubahan tunnel'} · {job.status === 'queued' ? 'Dalam antrean' : job.status === 'succeeded' ? 'Memverifikasi status' : 'Sedang berjalan'}</p><RuntimeJobProgress job={job} runtime="Cloudflare" /></div>)}
     {busy && <p role="status" className="flex items-center gap-2 text-sm"><RefreshCw className="h-4 w-4 animate-spin" />Memproses permintaan…</p>}
 
+    {tab === 'certificates' && <Dns01Settings />}
     {tab === 'public' && <section className="space-y-5" aria-label="DNS IP publik">
       <div><h3 className="font-semibold">Alamat publik server</h3><p className="mt-1 text-sm text-[var(--ink-muted)]">Masukkan IP publik atau IP NAT yang mengarah ke server ini. Nilai ini digunakan untuk panduan record dan pemeriksaan DNS.</p></div>
       {!network ? <p role="status">Konfigurasi jaringan belum berhasil dimuat.</p> : <>
@@ -157,7 +159,7 @@ export function NetworkSettings() {
       </>}
     </section>}
 
-    {tab !== 'public' && <>
+    {(tab === 'dns' || tab === 'tunnels') && <>
       <section className="space-y-4 border-b border-[var(--line)] pb-5" aria-label="Koneksi akun Cloudflare">
         <div><h3 className="font-semibold">Akun Cloudflare · {status?.configured ? 'Terhubung' : status ? 'Belum terhubung' : 'Status belum tersedia'}</h3><p className="mt-1 text-sm text-[var(--ink-muted)]">Gunakan API token dengan izin Account Settings Read, Zone Read, dan DNS Edit. Tambahkan Zone Edit untuk domain baru, serta Cloudflare Tunnel Edit untuk tunnel. Token dibuat sekali di akun Cloudflare dan disimpan terenkripsi di server.</p></div>
         <form onSubmit={(e: FormEvent) => { e.preventDefault(); void run(async () => { await cloudflareCommand({ action: 'configure', account_id: account.trim(), api_token: token.trim() }); setToken(''); await refreshStatus(); await loadZones(); setMessage('Akun Cloudflare tersambung. Token tidak ditampilkan kembali.'); }); }} className="space-y-4">

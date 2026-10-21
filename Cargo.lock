@@ -641,6 +641,9 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "digest"
@@ -1368,7 +1371,9 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "time",
  "tokio",
+ "x509-parser",
 ]
 
 [[package]]
@@ -1876,13 +1881,16 @@ dependencies = [
  "panel-runtime",
  "panel-webserver",
  "rand_core 0.6.4",
+ "rcgen",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tar",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
@@ -1935,6 +1943,7 @@ dependencies = [
  "rustls-native-certs",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "tar",
  "tempfile",
@@ -1989,13 +1998,17 @@ dependencies = [
  "idna",
  "md-5",
  "rand_core 0.6.4",
+ "rcgen",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror",
+ "time",
+ "tokio-rustls",
  "totp-rs",
  "utoipa",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]

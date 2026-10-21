@@ -1,3 +1,4 @@
+import { panelHttpUrl } from '../../lib/panelUrl';
 import { ModalOverlay } from '../ui/ModalOverlay';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -272,7 +273,7 @@ export const SiteDeployTab: React.FC<SiteDeployTabProps> = ({
   };
 
   const webhookFullUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/api/v1/webhooks/deploy/${siteId}`
+    ? panelHttpUrl(`/api/v1/webhooks/deploy/${siteId}`).toString()
     : `/api/v1/webhooks/deploy/${siteId}`;
 
   return (

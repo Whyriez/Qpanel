@@ -547,13 +547,15 @@ async fn test_websocket_origin_security_and_auth() {
         header::ORIGIN,
         HeaderValue::from_static("http://localhost:3000"),
     );
-    assert!(validate_ws_origin(&headers));
+    headers.insert(header::HOST, HeaderValue::from_static("localhost:3000"));
+    assert!(validate_ws_origin(&headers, false));
 
     headers.insert(
         header::ORIGIN,
         HeaderValue::from_static("https://127.0.0.1:8443"),
     );
-    assert!(validate_ws_origin(&headers));
+    headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:8443"));
+    assert!(validate_ws_origin(&headers, true));
 
     headers.insert(
         header::ORIGIN,
@@ -561,7 +563,7 @@ async fn test_websocket_origin_security_and_auth() {
     );
     headers.insert(header::HOST, HeaderValue::from_static("panel.example.com"));
     assert!(
-        !validate_ws_origin(&headers),
+        !validate_ws_origin(&headers, true),
         "Cross-site Origin MUST be rejected"
     );
 
@@ -569,8 +571,12 @@ async fn test_websocket_origin_security_and_auth() {
         header::ORIGIN,
         HeaderValue::from_static("https://panel.example.com:8443"),
     );
+    headers.insert(
+        header::HOST,
+        HeaderValue::from_static("panel.example.com:8443"),
+    );
     assert!(
-        validate_ws_origin(&headers),
+        validate_ws_origin(&headers, true),
         "Matching panel host Origin is allowed"
     );
 
@@ -607,7 +613,7 @@ Connection: Upgrade\r\n\
 Upgrade: websocket\r\n\
 Sec-WebSocket-Version: 13\r\n\
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-Origin: http://localhost:3000\r\n\r\n",
+Origin: http://{addr}\r\n\r\n",
         site.id, addr
     );
     tokio::io::AsyncWriteExt::write_all(&mut stream, no_auth_req.as_bytes())
@@ -657,7 +663,7 @@ Connection: Upgrade\r\n\
 Upgrade: websocket\r\n\
 Sec-WebSocket-Version: 13\r\n\
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-Origin: http://localhost:3000\r\n\
+Origin: http://{addr}\r\n\
 Cookie: {SESSION_COOKIE_NAME}={}\r\n\r\n",
         site.id, addr, ctx.bob_session
     );
@@ -682,7 +688,7 @@ Connection: Upgrade\r\n\
 Upgrade: websocket\r\n\
 Sec-WebSocket-Version: 13\r\n\
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
-Origin: http://localhost:3000\r\n\
+Origin: http://{addr}\r\n\
 Cookie: {SESSION_COOKIE_NAME}={}\r\n\r\n",
         site.id, addr, ctx.alice_session
     );

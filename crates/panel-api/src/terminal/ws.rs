@@ -42,10 +42,11 @@ pub async fn terminal_ws_handler(
     Path(session_id): Path<String>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
+    axum::Extension(context): axum::Extension<crate::public_url::PublicRequest>,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, (StatusCode, &'static str)> {
     // 1. Validate Origin header to eliminate Cross-Site WebSocket Hijacking (CSWSH)
-    if !validate_ws_origin(&headers) {
+    if !validate_ws_origin(&headers, context.origin.secure) {
         warn!(
             "Terminal WebSocket rejected due to invalid Origin header for session {}",
             session_id

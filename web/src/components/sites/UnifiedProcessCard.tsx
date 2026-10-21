@@ -1,3 +1,4 @@
+import { panelWebSocketUrl } from '../../lib/panelUrl';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Activity,
@@ -192,8 +193,7 @@ export const UnifiedProcessCard: React.FC<UnifiedProcessCardProps> = ({
     }
 
     let isMounted = true;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/logs/${siteId}?type=app&lines=${logLinesCount}`;
+    const wsUrl = panelWebSocketUrl(`/ws/logs/${siteId}?type=app&lines=${logLinesCount}`);
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

@@ -1,502 +1,490 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-
-use std::sync::Arc;
-use std::time::Duration;
-
-use axum::body::Body;
-use axum::http::{Request, StatusCode, header};
-use http_body_util::BodyExt;
-use panel_agent::ssh::SshManager;
-use panel_agent::system::MockSystemRunner;
-use panel_agent::{AgentConfig, AgentServer};
-use panel_api::agent_client::AgentClient;
-use panel_api::auth::{LockoutManager, SESSION_COOKIE_NAME};
-use panel_api::config::AuthConfig;
-use panel_api::create_router;
-use panel_api::routes::AppState;
-use panel_core::auth::hash_password;
-use panel_db::models::{CreateDomain, CreatePlan, CreateSite, CreateUser};
-use panel_db::pool::{DbPool, init_pool, run_migrations};
-use panel_db::repositories::{
-    SqliteDomainRepository, SqlitePlanRepository, SqliteSiteRepository, SqliteUserRepository,
+//! In-process API, temporary SQLite and optional typed RPC stub only. No daemon.
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
 };
-use serde_json::Value;
+use http_body_util::BodyExt;
+use panel_api::{
+    auth::{LockoutManager, SESSION_COOKIE_NAME},
+    config::AuthConfig,
+    routes::AppState,
+};
+use panel_core::connectivity::*;
+use panel_db::{
+    CreateDomain, CreateSession, CreateSite, CreateUser, DbPool, SqliteConnectivityRepository,
+    SqliteDomainRepository, SqliteSessionRepository, SqliteSiteRepository, SqliteUserRepository,
+};
+use serde_json::{Value, json};
+use std::{num::NonZeroU16, sync::Arc};
 use tower::ServiceExt;
 
-struct TestContext {
+struct Fixture {
     app: axum::Router,
     pool: DbPool,
-    alice_id: i64,
-    alice_session: String,
-    bob_id: i64,
-    bob_session: String,
-    admin_session: String,
-    _temp: tempfile::TempDir,
-    _agent_shutdown_tx: tokio::sync::broadcast::Sender<()>,
+    users: Vec<i64>,
+    sites: Vec<i64>,
+    task: Option<tokio::task::JoinHandle<()>>,
+    _tmp: tempfile::TempDir,
 }
-
-fn extract_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
-    for pair in cookie_header.split(';') {
-        let (key, val) = pair.trim().split_once('=')?;
-        if key == cookie_name {
-            return Some(val.to_string());
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        if let Some(task) = &self.task {
+            task.abort();
         }
     }
-    None
 }
-
-async fn setup_test_context() -> TestContext {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let sock_path = tmp.path().join("agent.sock");
-    let db_path = tmp.path().join("panel_test.db");
-    let ssh_keys_dir = tmp.path().join("etc_panel_ssh_authorized_keys");
-    let sshd_dropin_path = tmp.path().join("50-panel.conf");
-    std::fs::create_dir_all(&ssh_keys_dir).expect("create ssh keys dir");
-
-    let runner = Arc::new(MockSystemRunner::new());
-    let ssh_manager = Arc::new(SshManager::with_paths(
-        runner,
-        ssh_keys_dir.clone(),
-        sshd_dropin_path,
-    ));
-
-    let agent_cfg = AgentConfig {
-        socket_path: sock_path.clone(),
-        allowed_uid: None,
-    };
-    let agent_server = Arc::new(AgentServer::new(agent_cfg).with_ssh_manager(ssh_manager));
-    let (agent_shutdown_tx, agent_shutdown_rx) = tokio::sync::broadcast::channel(1);
-
-    tokio::spawn(async move {
-        let _ = agent_server.run(agent_shutdown_rx).await;
-    });
-
-    let start = std::time::Instant::now();
-    while !sock_path.exists() && start.elapsed() < Duration::from_secs(3) {
-        tokio::time::sleep(Duration::from_millis(10)).await;
+async fn fixture() -> Fixture {
+    fixture_rpc(false).await
+}
+async fn fixture_rpc(with_rpc: bool) -> Fixture {
+    let tmp = tempfile::tempdir().unwrap();
+    let pool = panel_db::init_pool("sqlite::memory:").await.unwrap();
+    panel_db::run_migrations(&pool).await.unwrap();
+    let mut users = vec![];
+    let mut sites = vec![];
+    for (i, role) in ["admin", "user", "user"].iter().enumerate() {
+        let user = SqliteUserRepository::new(pool.clone())
+            .create(&CreateUser {
+                username: format!("actor{i}"),
+                password_hash: "fixture".into(),
+                role: role.to_string(),
+                email: None,
+                linux_username: if i > 0 {
+                    Some(format!("p_actor{i}"))
+                } else {
+                    None
+                },
+                linux_uid: if i > 0 { Some(10000 + i as i64) } else { None },
+                plan_id: None,
+            })
+            .await
+            .unwrap();
+        users.push(user.id);
+        SqliteUserRepository::new(pool.clone())
+            .update_shell_policy(user.id, Some(if i == 2 { "sftp" } else { "full" }))
+            .await
+            .unwrap();
+        SqliteSessionRepository::new(pool.clone())
+            .create(&CreateSession {
+                id: format!("sid-{i}"),
+                user_id: user.id,
+                token_hash: panel_core::hash_token(&format!("cookie-{i}")),
+                ip_address: None,
+                user_agent: None,
+                expires_at: chrono::Utc::now().timestamp() + 3600,
+            })
+            .await
+            .unwrap();
+        if i > 0 {
+            let site = SqliteSiteRepository::new(pool.clone())
+                .create(&CreateSite {
+                    user_id: user.id,
+                    kind: "static".into(),
+                    docroot: "/sites/app/public".into(),
+                    runtime: None,
+                    version: None,
+                    status: None,
+                    settings_json: None,
+                })
+                .await
+                .unwrap();
+            SqliteDomainRepository::new(pool.clone())
+                .create(&CreateDomain {
+                    site_id: site.id,
+                    name: format!("site{i}.example.com"),
+                    unicode_name: format!("site{i}.example.com"),
+                    is_primary: true,
+                    redirect_mode: None,
+                    redirect_target: None,
+                    status: None,
+                })
+                .await
+                .unwrap();
+            sites.push(site.id);
+        }
     }
-
-    let pool = init_pool(&format!(
-        "sqlite://{}",
-        db_path.to_str().expect("db_path").replace('\\', "/")
-    ))
-    .await
-    .expect("init db pool");
-    run_migrations(&pool).await.expect("run db migrations");
-
-    let user_repo = SqliteUserRepository::new(pool.clone());
-    let plan_repo = SqlitePlanRepository::new(pool.clone());
-
-    let full_plan = plan_repo
-        .create(&CreatePlan {
-            name: "Standard Plan".to_string(),
-            description: None,
-            cpu_quota_percent: Some(100),
-            memory_limit_bytes: Some(1024 * 1024 * 1024),
-            memory_high_bytes: None,
-            tasks_max: Some(50),
-            io_weight: Some(100),
-            disk_limit_bytes: Some(5 * 1024 * 1024 * 1024),
-            inode_limit: Some(500_000),
-            max_sites: Some(5),
-            max_domains: Some(5),
-            max_databases: Some(2),
-            max_cron_jobs: Some(5),
-            max_terminal_sessions: Some(2),
-            max_upload_bytes: Some(50 * 1024 * 1024),
-            shell_policy: Some("full".to_string()),
-            allow_external_upstream: Some(false),
-        })
-        .await
-        .expect("create plan");
-
-    let pw_hash = hash_password("Password123!").expect("hash password");
-
-    let admin = user_repo
-        .create(&CreateUser {
-            username: "admin".to_string(),
-            password_hash: pw_hash.clone(),
-            role: "admin".to_string(),
-            email: Some("admin@example.com".to_string()),
-            plan_id: None,
-            linux_uid: None,
-            linux_username: None,
-        })
-        .await
-        .expect("create admin");
-
-    let alice = user_repo
-        .create(&CreateUser {
-            username: "alice".to_string(),
-            password_hash: pw_hash.clone(),
-            role: "user".to_string(),
-            email: Some("alice@example.com".to_string()),
-            plan_id: Some(full_plan.id),
-            linux_uid: Some(10001),
-            linux_username: Some("p_alice".to_string()),
-        })
-        .await
-        .expect("create alice");
-
-    let bob = user_repo
-        .create(&CreateUser {
-            username: "bob".to_string(),
-            password_hash: pw_hash.clone(),
-            role: "user".to_string(),
-            email: Some("bob@example.com".to_string()),
-            plan_id: Some(full_plan.id),
-            linux_uid: Some(10002),
-            linux_username: Some("p_bob".to_string()),
-        })
-        .await
-        .expect("create bob");
-
-    // Set Bob's shell policy to SFTP
-    user_repo
-        .update_shell_policy(bob.id, Some("sftp"))
-        .await
-        .expect("set bob policy");
-
-    let agent_client = Arc::new(AgentClient::new(sock_path));
-    let auth_config = AuthConfig {
-        session_duration_secs: 3600,
-        max_failed_attempts: 5,
-        lockout_duration_secs: 300,
-        cookie_secure: Some(false),
-    };
-    let lockout_manager = Arc::new(LockoutManager::new(5, 300));
-    let state = AppState::new(
-        agent_client,
-        pool.clone(),
-        "testing".to_string(),
-        auth_config,
-        lockout_manager,
-    );
-    let app = create_router(state);
-
-    let login_as = |username: &str| {
-        let app = app.clone();
-        let u = username.to_string();
-        async move {
-            let req = Request::builder()
-                .method("POST")
-                .uri("/api/v1/auth/login")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    serde_json::json!({
-                        "username": u,
-                        "password": "Password123!"
-                    })
-                    .to_string(),
+    let rpc_path = tmp.path().join("mock-rpc");
+    let task = if with_rpc {
+        #[cfg(unix)]
+        let listener = tokio::net::UnixListener::bind(&rpc_path).unwrap();
+        #[cfg(not(unix))]
+        let listener = {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            std::fs::write(&rpc_path, listener.local_addr().unwrap().port().to_string()).unwrap();
+            listener
+        };
+        Some(tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let mut rpc = panel_proto::RpcStream::new(stream);
+                let req = rpc.recv_request().await.unwrap();
+                assert_eq!(req.payload, panel_proto::RequestPayload::SshHostKeys);
+                rpc.send_response(&panel_proto::RpcResponse::ok(
+                    req.request_id,
+                    panel_proto::ResponsePayload::SshHostKeys(vec![
+                        panel_core::ssh::SshHostKeyFingerprint {
+                            key_type: "ssh-ed25519".into(),
+                            fingerprint_sha256: "SHA256:fixturehost".into(),
+                        },
+                    ]),
                 ))
+                .await
                 .unwrap();
-            let res = app.oneshot(req).await.unwrap();
-            assert_eq!(res.status(), StatusCode::OK);
-            let cookie_hdr = res
-                .headers()
-                .get(header::SET_COOKIE)
-                .unwrap()
-                .to_str()
-                .unwrap();
-            extract_cookie_value(cookie_hdr, SESSION_COOKIE_NAME).unwrap()
-        }
+            }
+        }))
+    } else {
+        None
     };
-
-    let admin_session = login_as(&admin.username).await;
-    let alice_session = login_as(&alice.username).await;
-    let bob_session = login_as(&bob.username).await;
-
-    TestContext {
-        app,
+    let state = AppState::new(
+        Arc::new(panel_api::agent_client::AgentClient::new(rpc_path)),
+        pool.clone(),
+        "development".into(),
+        AuthConfig {
+            cookie_secure: Some(false),
+            ..Default::default()
+        },
+        Arc::new(LockoutManager::new(5, 60)),
+    );
+    Fixture {
+        app: panel_api::create_router(state),
         pool,
-        alice_id: alice.id,
-        alice_session,
-        bob_id: bob.id,
-        bob_session,
-        admin_session,
-        _temp: tmp,
-        _agent_shutdown_tx: agent_shutdown_tx,
+        users,
+        sites,
+        task,
+        _tmp: tmp,
     }
 }
-
-#[tokio::test]
-async fn test_ssh_connection_info_default_alice() {
-    let ctx = setup_test_context().await;
-
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.alice_session),
-        )
-        .header(header::HOST, "panel.example.com")
-        .body(Body::empty())
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["username"], "p_alice");
-    assert_eq!(json["user_id"], ctx.alice_id);
-    assert_eq!(json["home_dir"], "/home/p_alice");
-    assert_eq!(json["active_path"], "/home/p_alice");
-    assert_eq!(json["relative_path"], "");
-    assert_eq!(json["shell_policy"], "full");
-    assert_eq!(json["can_shell"], true);
-    assert_eq!(json["can_sftp"], true);
-    assert_eq!(json["port"], 22);
-    assert_eq!(json["host"], "panel.example.com");
-
-    let ssh_cmd = json["ssh_command"].as_str().unwrap();
-    assert_eq!(
-        ssh_cmd,
-        "ssh -t p_alice@panel.example.com \"cd '/home/p_alice' && exec \\$SHELL -l\""
-    );
-
-    let sftp_cmd = json["sftp_command"].as_str().unwrap();
-    assert_eq!(sftp_cmd, "sftp p_alice@panel.example.com:'/home/p_alice'");
-
-    let sftp_url = json["sftp_url"].as_str().unwrap();
-    assert_eq!(sftp_url, "sftp://p_alice@panel.example.com/home/p_alice");
-
-    let config_snippet = json["ssh_config_snippet"].as_str().unwrap();
-    assert!(config_snippet.contains("User p_alice"));
-    assert!(config_snippet.contains("HostName panel.example.com"));
-}
-
-#[tokio::test]
-async fn test_ssh_connection_info_with_path_and_custom_port() {
-    let ctx = setup_test_context().await;
-
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info?path=/sites/my-app/public&port=2222&host=custom.ssh.host")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.alice_session),
-        )
-        .body(Body::empty())
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["host"], "custom.ssh.host");
-    assert_eq!(json["port"], 2222);
-    assert_eq!(json["active_path"], "/home/p_alice/sites/my-app/public");
-    assert_eq!(json["relative_path"], "sites/my-app/public");
-
-    let ssh_cmd = json["ssh_command"].as_str().unwrap();
-    assert_eq!(
-        ssh_cmd,
-        "ssh -p 2222 -t p_alice@custom.ssh.host \"cd '/home/p_alice/sites/my-app/public' && exec \\$SHELL -l\""
-    );
-
-    let sftp_cmd = json["sftp_command"].as_str().unwrap();
-    assert_eq!(
-        sftp_cmd,
-        "sftp -P 2222 p_alice@custom.ssh.host:'/home/p_alice/sites/my-app/public'"
-    );
-
-    let sftp_url = json["sftp_url"].as_str().unwrap();
-    assert_eq!(
-        sftp_url,
-        "sftp://p_alice@custom.ssh.host:2222/home/p_alice/sites/my-app/public"
-    );
-}
-
-#[tokio::test]
-async fn test_ssh_connection_info_single_quote_path_escaping() {
-    let ctx = setup_test_context().await;
-
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info?path=sites/alice's%20blog")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.alice_session),
-        )
-        .header(header::HOST, "localhost")
-        .body(Body::empty())
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["active_path"], "/home/p_alice/sites/alice's blog");
-    let ssh_cmd = json["ssh_command"].as_str().unwrap();
-    assert_eq!(
-        ssh_cmd,
-        "ssh -t p_alice@localhost \"cd '/home/p_alice/sites/alice'\\''s blog' && exec \\$SHELL -l\""
-    );
-}
-
-#[tokio::test]
-async fn test_ssh_connection_info_with_site_context() {
-    let ctx = setup_test_context().await;
-    let site_repo = SqliteSiteRepository::new(ctx.pool.clone());
-    let domain_repo = SqliteDomainRepository::new(ctx.pool.clone());
-
-    let site = site_repo
-        .create(&CreateSite {
-            user_id: ctx.alice_id,
-            kind: "static".to_string(),
-            docroot: "/sites/super-app/public".to_string(),
-            runtime: None,
-            version: None,
-            status: Some("active".to_string()),
-            settings_json: None,
-        })
+async fn call(f: &Fixture, actor: Option<usize>, query: &str) -> (StatusCode, Value) {
+    let mut req = Request::builder()
+        .uri(format!("/api/v1/ssh/connection-info{query}"))
+        .header("host", "panel-tunnel.example.com");
+    if let Some(i) = actor {
+        req = req.header("cookie", format!("{SESSION_COOKIE_NAME}=cookie-{i}"));
+    }
+    let res = f
+        .app
+        .clone()
+        .oneshot(req.body(Body::empty()).unwrap())
         .await
         .unwrap();
-
-    let _domain = domain_repo
-        .create(&CreateDomain {
-            site_id: site.id,
-            name: "superapp.com".to_string(),
-            unicode_name: "superapp.com".to_string(),
-            is_primary: true,
-            redirect_mode: Some("none".to_string()),
-            redirect_target: None,
-            status: Some("active".to_string()),
-        })
-        .await
-        .unwrap();
-
-    let req = Request::builder()
-        .method("GET")
-        .uri(format!("/api/v1/ssh/connection-info?site_id={}", site.id))
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.alice_session),
+    let status = res.status();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| json!({"text":String::from_utf8_lossy(&bytes)})),
+    )
+}
+async fn endpoint(
+    f: &Fixture,
+    scope: EndpointScope,
+    transport: EndpointTransport,
+    host: &str,
+    port: u16,
+) -> String {
+    SqliteConnectivityRepository::new(f.pool.clone())
+        .create(
+            f.users[0],
+            &EndpointConfig {
+                service: EndpointService::Ssh,
+                scope,
+                transport,
+                host: EndpointHost::parse(host).unwrap(),
+                port: NonZeroU16::new(port).unwrap(),
+                tls_mode: EndpointTlsMode::Ssh,
+                certificate_id: None,
+                enabled: true,
+                primary: true,
+            },
         )
-        .body(Body::empty())
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["host"], "superapp.com");
-    assert_eq!(json["site_domain"], "superapp.com");
-    assert_eq!(json["active_path"], "/home/p_alice/sites/super-app/public");
-    assert_eq!(json["relative_path"], "sites/super-app/public");
+        .await
+        .unwrap()
+        .id
 }
 
 #[tokio::test]
-async fn test_ssh_connection_info_sftp_policy_bob() {
-    let ctx = setup_test_context().await;
-
-    // Bob has shell_policy: "sftp"
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.bob_session),
-        )
-        .header(header::HOST, "vps.example.com")
-        .body(Body::empty())
+async fn missing_never_infers_website_or_request_host() {
+    let f = fixture().await;
+    for q in [String::new(), format!("?site_id={}", f.sites[0])] {
+        let (s, v) = call(&f, Some(1), &q).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v["endpoint_state"], "missing");
+        assert!(v["host"].is_null());
+        assert!(v["port"].is_null());
+        assert!(v["ssh_command"].is_null());
+        assert!(v["sftp_command"].is_null());
+        assert!(v["ssh_config_snippet"].is_null());
+    }
+}
+#[tokio::test]
+async fn host_direct_ipv6_and_project_primary_use_explicit_ports() {
+    let f = fixture().await;
+    let global = endpoint(
+        &f,
+        EndpointScope::Host,
+        EndpointTransport::Direct,
+        "2001:db8::1",
+        2222,
+    )
+    .await;
+    let (_, v) = call(&f, Some(1), "").await;
+    assert_eq!(v["endpoint_id"], global);
+    assert_eq!(v["endpoint_state"], "configured");
+    assert_eq!(v["port"], 2222);
+    assert!(
+        v["ssh_command"]
+            .as_str()
+            .unwrap()
+            .starts_with("ssh -p 2222 -t p_actor1@2001:db8::1 ")
+    );
+    assert!(
+        v["sftp_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("sftp://p_actor1@[2001:db8::1]:2222/")
+    );
+    assert_eq!(v["host_keys_status"], "unavailable");
+    assert_eq!(v["host_keys"], json!([]));
+    let project = endpoint(
+        &f,
+        EndpointScope::Project {
+            site_id: f.sites[0],
+        },
+        EndpointTransport::Direct,
+        "ssh.example.com",
+        2200,
+    )
+    .await;
+    let (_, v) = call(&f, Some(1), &format!("?site_id={}", f.sites[0])).await;
+    assert_eq!(v["endpoint_id"], project);
+    assert_eq!(v["host"], "ssh.example.com");
+    assert_eq!(v["port"], 2200);
+    assert_eq!(v["site_domain"], "site1.example.com");
+    let (_, v) = call(&f, Some(2), "").await;
+    assert_eq!(v["endpoint_id"], global);
+}
+#[tokio::test]
+async fn non_direct_project_does_not_fall_back_to_global_direct() {
+    let f = fixture().await;
+    endpoint(
+        &f,
+        EndpointScope::Host,
+        EndpointTransport::Direct,
+        "ssh.example.com",
+        22,
+    )
+    .await;
+    endpoint(
+        &f,
+        EndpointScope::Project {
+            site_id: f.sites[0],
+        },
+        EndpointTransport::CloudflareAccess,
+        "access.example.com",
+        22,
+    )
+    .await;
+    let (_, v) = call(&f, Some(1), &format!("?site_id={}", f.sites[0])).await;
+    assert_eq!(v["endpoint_state"], "unsupported_transport");
+    assert_eq!(v["transport"], "cloudflare_access");
+    assert!(v["ssh_command"].is_null());
+    assert!(v["sftp_command"].is_null());
+    assert!(v["host"].is_null());
+}
+#[tokio::test]
+async fn disabled_or_secondary_endpoint_is_not_selected() {
+    let f = fixture().await;
+    let id = endpoint(
+        &f,
+        EndpointScope::Host,
+        EndpointTransport::Direct,
+        "ssh.example.com",
+        22,
+    )
+    .await;
+    for (enabled, primary) in [(1, 0), (0, 0)] {
+        sqlx::query("UPDATE service_endpoints SET enabled=?,is_primary=? WHERE id=?")
+            .bind(enabled)
+            .bind(primary)
+            .bind(&id)
+            .execute(&f.pool)
+            .await
+            .unwrap();
+        let (_, v) = call(&f, Some(1), "").await;
+        assert_eq!(v["endpoint_state"], "missing");
+    }
+}
+#[tokio::test]
+async fn policies_and_chroot_path_are_preserved() {
+    let f = fixture().await;
+    endpoint(
+        &f,
+        EndpointScope::Host,
+        EndpointTransport::Direct,
+        "ssh.example.com",
+        2022,
+    )
+    .await;
+    let (_, v) = call(&f, Some(2), "?path=/sites/app/public").await;
+    assert_eq!(v["shell_policy"], "sftp");
+    assert_eq!(v["can_shell"], false);
+    assert_eq!(v["can_sftp"], true);
+    assert_eq!(v["sftp_path"], "/p_actor2/sites/app/public");
+    assert!(v["ssh_command"].is_null());
+    assert!(
+        v["sftp_cd_command"]
+            .as_str()
+            .unwrap()
+            .contains("/p_actor2/sites/app/public")
+    );
+    SqliteUserRepository::new(f.pool.clone())
+        .update_shell_policy(f.users[2], Some("none"))
+        .await
         .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["username"], "p_bob");
-    assert_eq!(json["shell_policy"], "sftp");
-    assert_eq!(json["can_shell"], false);
-    assert_eq!(json["can_sftp"], true);
-    assert!(json["ssh_command"].is_null());
-    assert!(!json["sftp_command"].is_null());
+    let (_, v) = call(&f, Some(2), "").await;
+    assert_eq!(v["can_sftp"], false);
+    assert!(v["ssh_config_snippet"].is_null());
+    assert!(v["sftp_url"].is_null());
+}
+#[tokio::test]
+async fn manual_preview_is_validated_and_never_publishes_identity() {
+    let f = fixture().await;
+    endpoint(
+        &f,
+        EndpointScope::Host,
+        EndpointTransport::Direct,
+        "ssh.example.com",
+        2222,
+    )
+    .await;
+    let (_, v) = call(
+        &f,
+        Some(1),
+        "?host=2001:db8::2&port=2200&path=sites/bob%27s%20%22%24HOME%22%20%60id%60%20%24%28id%29%20%5Bapp%5D",
+    )
+    .await;
+    assert_eq!(v["endpoint_state"], "manual_preview");
+    assert!(v["endpoint_id"].is_null());
+    assert_eq!(v["host_keys_status"], "untrusted_override");
+    assert_eq!(v["host_keys"], json!([]));
+    assert!(
+        v["sftp_url"]
+            .as_str()
+            .unwrap()
+            .contains("bob%27s%20%22%24HOME%22%20%60id%60%20%24%28id%29%20%5Bapp%5D/")
+    );
+    // A real POSIX parser checks these generated fixture commands separately,
+    // using shell functions in place of every SSH/SFTP client and remote action.
+    std::fs::write(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/ssh-direct-generated.json"),
+        serde_json::to_vec(&v).unwrap(),
+    )
+    .unwrap();
+    let (_, original) = call(&f, Some(1), "").await;
+    assert_eq!(original["host"], "ssh.example.com");
+    assert_eq!(original["port"], 2222);
+    for q in [
+        "?host=-oProxyCommand=id&port=22",
+        "?host=host%0AProxyCommand%20id&port=22",
+        "?host=https://host.test&port=22",
+        "?host=host.test:22&port=22",
+        "?host=%5B::1%5D&port=22",
+        "?host=host.test&port=0",
+    ] {
+        assert_eq!(call(&f, Some(1), q).await.0, StatusCode::BAD_REQUEST, "{q}");
+    }
+}
+#[tokio::test]
+async fn no_endpoint_manual_host_and_port_must_be_explicit() {
+    let f = fixture().await;
+    for q in ["?port=2222", "?host=ssh.example.com"] {
+        assert_eq!(call(&f, Some(1), q).await.0, StatusCode::BAD_REQUEST);
+    }
     assert_eq!(
-        json["sftp_command"],
-        "sftp p_bob@vps.example.com:'/home/p_bob'"
+        call(&f, Some(1), "?host=ssh.example.com&port=2222").await.0,
+        StatusCode::OK
+    );
+}
+#[tokio::test]
+async fn folder_validation_enforces_tenant_boundary_and_preserves_spaces() {
+    let f = fixture().await;
+    assert_eq!(
+        call(&f, Some(1), &format!("?path={}", "a".repeat(3990)))
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    for q in [
+        "?path=../p_actor2",
+        "?path=/home/p_actor1/../p_actor2",
+        "?path=x%00y",
+        "?path=x%0Ay",
+        "?path=x%5Cy",
+    ] {
+        assert_eq!(call(&f, Some(1), q).await.0, StatusCode::BAD_REQUEST, "{q}");
+    }
+    for q in ["?path=/home/p_actor2/a", "?path=/home/p_actor1evil/a"] {
+        assert_eq!(call(&f, Some(1), q).await.0, StatusCode::FORBIDDEN);
+    }
+    let (_, v) = call(&f, Some(1), "?path=sites/a%20").await;
+    assert_eq!(v["active_path"], "/home/p_actor1/sites/a ");
+}
+#[tokio::test]
+async fn rbac_active_identity_and_site_isolation() {
+    let f = fixture().await;
+    assert_eq!(call(&f, None, "").await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(call(&f, Some(0), "").await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        call(&f, Some(1), "?tenant=actor2").await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&f, Some(1), &format!("?site_id={}", f.sites[1]))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(call(&f, Some(0), "?tenant=actor2").await.0, StatusCode::OK);
+    assert_eq!(
+        call(
+            &f,
+            Some(0),
+            &format!("?tenant=actor2&site_id={}", f.sites[0])
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("UPDATE users SET status='suspended' WHERE id=?")
+        .bind(f.users[2])
+        .execute(&f.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&f, Some(0), "?tenant=actor2").await.0,
+        StatusCode::FORBIDDEN
     );
 }
 
 #[tokio::test]
-async fn test_ssh_connection_info_none_policy() {
-    let ctx = setup_test_context().await;
-    let user_repo = SqliteUserRepository::new(ctx.pool.clone());
-
-    // Update Bob to "none"
-    user_repo
-        .update_shell_policy(ctx.bob_id, Some("none"))
-        .await
-        .unwrap();
-
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.bob_session),
-        )
-        .body(Body::empty())
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::OK);
-
-    let body = res.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(json["shell_policy"], "none");
-    assert_eq!(json["can_shell"], false);
-    assert_eq!(json["can_sftp"], false);
-    assert!(json["ssh_command"].is_null());
-    assert!(json["sftp_command"].is_null());
-    assert!(json["sftp_url"].is_null());
-}
-
-#[tokio::test]
-async fn test_ssh_connection_info_rbac_and_isolation() {
-    let ctx = setup_test_context().await;
-
-    // 1. Alice tries to inspect Bob's connection info -> 403 Forbidden
-    let req = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info?tenant=bob")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.alice_session),
-        )
-        .body(Body::empty())
-        .unwrap();
-
-    let res = ctx.app.clone().oneshot(req).await.unwrap();
-    assert_eq!(res.status(), StatusCode::FORBIDDEN);
-
-    // 2. Admin inspects Bob's connection info -> 200 OK
-    let req_admin = Request::builder()
-        .method("GET")
-        .uri("/api/v1/ssh/connection-info?tenant=bob")
-        .header(
-            header::COOKIE,
-            format!("{}={}", SESSION_COOKIE_NAME, ctx.admin_session),
-        )
-        .body(Body::empty())
-        .unwrap();
-
-    let res_admin = ctx.app.clone().oneshot(req_admin).await.unwrap();
-    assert_eq!(res_admin.status(), StatusCode::OK);
-
-    let body = res_admin.into_body().collect().await.unwrap().to_bytes();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["username"], "p_bob");
+async fn typed_rpc_identity_is_exposed_only_for_configured_direct_endpoint() {
+    let f = fixture_rpc(true).await;
+    endpoint(
+        &f,
+        EndpointScope::Host,
+        EndpointTransport::Direct,
+        "ssh.example.com",
+        2222,
+    )
+    .await;
+    let (_, v) = call(&f, Some(1), "").await;
+    assert_eq!(v["host_keys_status"], "local_configuration");
+    assert_eq!(
+        v["host_keys"][0]["fingerprint_sha256"],
+        "SHA256:fixturehost"
+    );
+    let (_, v) = call(&f, Some(1), "?host=manual.example.com&port=22").await;
+    assert_eq!(v["host_keys"], json!([]));
+    assert_eq!(v["host_keys_status"], "untrusted_override");
 }

@@ -20,6 +20,7 @@
     "select": "Pilih",
     "dismiss": "Tutup",
     "descriptions": {
+      "connectivity": "Alamat dan jalur koneksi layanan",
       "email": "Kelola akun domain dan kotak masuk",
       "dashboard": "Ringkasan situs dan layanan",
       "sites": "Domain dan aplikasi hosting",
@@ -52,6 +53,7 @@
     }
   },
   "nav": {
+    "connectivity": "Konektivitas",
     "email": "Email",
     "dashboard": "Beranda",
     "sites": "Situs",

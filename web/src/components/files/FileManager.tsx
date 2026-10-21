@@ -51,6 +51,7 @@ import { SshConnectModal } from '../ssh/SshConnectModal';
 
 export interface FileManagerProps {
   tenant?: string;
+  siteId?: number;
   initialPath?: string;
   baseRootPath?: string;
   title?: string;
@@ -68,6 +69,7 @@ interface TreeNode {
 
 export const FileManager: React.FC<FileManagerProps> = ({
   tenant,
+  siteId,
   initialPath = '',
   baseRootPath = '',
   title = 'Pengelola Berkas',
@@ -170,6 +172,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [terminalCwd, setTerminalCwd] = useState(currentPath);
   const [terminalOpenRequest, setTerminalOpenRequest] = useState(0);
   const terminalTrigger = useRef<HTMLButtonElement>(null);
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
@@ -949,6 +952,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
                 if (onNavigateTerminal) {
                   onNavigateTerminal(currentPath);
                 } else {
+                  setTerminalCwd(currentPath);
                   setIsTerminalOpen(true);
                   setTerminalOpenRequest(previous => previous + 1);
                 }
@@ -2201,7 +2205,7 @@ export const FileManager: React.FC<FileManagerProps> = ({
         isOpen={isTerminalOpen}
         openRequest={terminalOpenRequest}
         onClose={() => { setIsTerminalOpen(false); terminalTrigger.current?.focus(); }}
-        initialCwd={currentPath}
+        initialCwd={terminalCwd}
         tenant={tenant}
       />
 
@@ -2210,6 +2214,11 @@ export const FileManager: React.FC<FileManagerProps> = ({
         onClose={() => setIsSshModalOpen(false)}
         path={activeSshPath || currentPath}
         tenantUsername={tenant}
+        siteId={siteId}
+        onOpenTerminal={() => {
+          if (onNavigateTerminal) onNavigateTerminal(activeSshPath || currentPath);
+          else { setTerminalCwd(activeSshPath || currentPath); setIsTerminalOpen(true); setTerminalOpenRequest(previous => previous + 1); }
+        }}
       />
     </div>
   );

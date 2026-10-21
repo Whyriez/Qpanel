@@ -18,6 +18,7 @@ const navigation = [
   { id: 'email', icon: Mail },
   { id: 'files', icon: FolderTree },
   { id: 'terminal', icon: Terminal },
+  { id: 'connectivity', icon: Globe },
   { id: 'analytics', icon: BarChart3 },
   { id: 'jobs', icon: ListTodo },
   { id: 'profile', icon: UserCheck },

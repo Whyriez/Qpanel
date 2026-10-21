@@ -85,13 +85,22 @@ pub struct SshConnectionInfoQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SshConnectionInfoResponse {
-    pub host: String,
-    pub port: u16,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    /// configured | manual_preview | missing | unsupported_transport
+    pub endpoint_state: String,
+    pub endpoint_id: Option<String>,
+    pub endpoint_revision: Option<i64>,
+    pub transport: Option<String>,
+    /// Local configured host identity, never a proof of remote reachability.
+    pub host_keys: Vec<panel_core::ssh::SshHostKeyFingerprint>,
+    pub host_keys_status: String,
     pub username: String,
     pub user_id: i64,
     pub home_dir: String,
     pub active_path: String,
     pub relative_path: String,
+    pub sftp_path: String,
     pub shell_policy: String,
     pub can_shell: bool,
     pub can_sftp: bool,
@@ -99,7 +108,8 @@ pub struct SshConnectionInfoResponse {
     pub ssh_keys_count: usize,
     pub ssh_command: Option<String>,
     pub sftp_command: Option<String>,
+    pub sftp_cd_command: Option<String>,
     pub sftp_url: Option<String>,
-    pub ssh_config_snippet: String,
+    pub ssh_config_snippet: Option<String>,
     pub site_domain: Option<String>,
 }

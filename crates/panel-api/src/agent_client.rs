@@ -98,6 +98,106 @@ pub struct AgentClient {
 }
 
 impl AgentClient {
+    pub async fn dns01(
+        &self,
+        command: panel_proto::Dns01Request,
+    ) -> Result<serde_json::Value, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let req = RpcRequest::new(
+            uuid::Uuid::new_v4().to_string(),
+            RequestPayload::Dns01(command),
+        );
+        rpc.send_request(&req).await?;
+        let res = tokio::time::timeout(std::time::Duration::from_secs(180), rpc.recv_response())
+            .await
+            .map_err(|_| {
+                AgentClientError::AgentError("Batas waktu DNS-01 habis; periksa cleanup.".into())
+            })??;
+        if !res.success {
+            return Err(AgentClientError::AgentError(
+                res.error.unwrap_or_else(|| "Operasi DNS-01 gagal.".into()),
+            ));
+        }
+        match res.payload {
+            ResponsePayload::Dns01(value) => Ok(value),
+            _ => Err(AgentClientError::AgentError(
+                "Respons DNS-01 tidak sesuai.".into(),
+            )),
+        }
+    }
+    pub async fn panel_tls(
+        &self,
+        command: panel_proto::PanelTlsRequest,
+    ) -> Result<panel_proto::PanelTlsStatus, AgentClientError> {
+        let mut rpc = self.connect().await?;
+        let request = RpcRequest::new(
+            uuid::Uuid::new_v4().to_string(),
+            RequestPayload::PanelTls(command),
+        );
+        rpc.send_request(&request).await?;
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(60), rpc.recv_response())
+                .await
+                .map_err(|_| {
+                    AgentClientError::AgentError("Batas waktu operasi TLS panel habis.".into())
+                })??;
+        if !response.success {
+            return Err(AgentClientError::AgentError(
+                "Operasi TLS panel gagal; periksa status kandidat dan Nginx.".into(),
+            ));
+        }
+        match response.payload {
+            ResponsePayload::PanelTls(status) => Ok(status),
+            _ => Err(AgentClientError::AgentError(
+                "Respons TLS panel tidak sesuai.".into(),
+            )),
+        }
+    }
+    pub async fn ssh_host_keys(
+        &self,
+    ) -> Result<Vec<panel_core::ssh::SshHostKeyFingerprint>, AgentClientError> {
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            let response = self
+                .send_rpc("ssh-host-keys", RequestPayload::SshHostKeys)
+                .await?;
+            match response.payload {
+                ResponsePayload::SshHostKeys(keys) if response.success && keys.len() <= 3 => {
+                    Ok(keys)
+                }
+                _ => Err(AgentClientError::AgentError(
+                    "Identitas OpenSSH tidak tersedia.".into(),
+                )),
+            }
+        })
+        .await
+        .map_err(|_| {
+            AgentClientError::AgentError("Pemeriksaan identitas OpenSSH timeout.".into())
+        })?
+    }
+
+    pub async fn connectivity_inspect(
+        &self,
+        target: panel_proto::ConnectivityTarget,
+    ) -> Result<panel_proto::ConnectivityInspection, AgentClientError> {
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            let mut rpc = self.connect().await?;
+            rpc.send_request(&RpcRequest::new(
+                uuid::Uuid::new_v4().to_string(),
+                RequestPayload::ConnectivityInspect(target),
+            ))
+            .await?;
+            let response = rpc.recv_response().await?;
+            match response.payload {
+                ResponsePayload::ConnectivityInspected(result) if response.success => Ok(result),
+                _ => Err(AgentClientError::AgentError(
+                    "Diagnosis lokal tidak tersedia".into(),
+                )),
+            }
+        })
+        .await
+        .map_err(|_| AgentClientError::AgentError("Diagnosis lokal timeout".into()))?
+    }
+
     pub async fn database_web(
         &self,
         request: RequestPayload,

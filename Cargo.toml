@@ -89,7 +89,7 @@ rcgen = "0.14"
 x509-parser = "0.18"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-native-certs = "0.8"
-instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "ring", "rcgen"] }
+instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "ring", "rcgen", "time", "x509-parser"] }
 time = "0.3"
 zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }

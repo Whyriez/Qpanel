@@ -1,6 +1,6 @@
 const adminPages = new Set(['tenants', 'users', 'plans', 'runtime', 'settings', 'audit']);
 // Analytics has tenant site data; its host controls have their own admin checks.
-const panelPages = new Set([...adminPages, 'dashboard', 'sites', 'files', 'terminal', 'email', 'jobs', 'profile', 'analytics']);
+const panelPages = new Set([...adminPages, 'dashboard', 'sites', 'files', 'terminal', 'email', 'jobs', 'profile', 'analytics', 'connectivity']);
 const panelOrigin = 'http://panel.local';
 
 /** Match the top-level page, so site settings remain a tenant route. */

@@ -84,6 +84,16 @@ pub const ALLOWED_BINARIES: &[&str] = &[
 
 /// Trait abstracting underlying operating system commands and filesystem operations.
 pub trait SystemRunner: Send + Sync {
+    fn verify_origin_tls(&self, _hostname: &str, _certificate_pem: &str) -> Result<(), AgentError> {
+        Err(AgentError::Internal(
+            "Verifikasi TLS origin tidak tersedia.".into(),
+        ))
+    }
+    fn verify_panel_tls(&self, _port: u16, _certificate_pem: &str) -> Result<(), AgentError> {
+        Err(AgentError::Internal(
+            "Verifikasi listener TLS tidak tersedia pada runner ini.".into(),
+        ))
+    }
     fn run_command_with_input(
         &self,
         _binary: &str,
@@ -408,6 +418,30 @@ fn open_owned_runtime_file(
 }
 
 impl SystemRunner for RealSystemRunner {
+    fn verify_origin_tls(&self, hostname: &str, certificate_pem: &str) -> Result<(), AgentError> {
+        let name = tokio_rustls::rustls::pki_types::ServerName::try_from(hostname.to_owned())
+            .map_err(|_| AgentError::InvalidInput("SNI origin tidak valid.".into()))?;
+        let mut result = crate::panel_tls::verify_listener_name(443, certificate_pem, name.clone());
+        for _ in 0..3 {
+            if result.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            result = crate::panel_tls::verify_listener_name(443, certificate_pem, name.clone());
+        }
+        result
+    }
+    fn verify_panel_tls(&self, port: u16, certificate_pem: &str) -> Result<(), AgentError> {
+        let mut result = crate::panel_tls::verify_listener(port, certificate_pem);
+        for _ in 0..3 {
+            if result.is_ok() {
+                return result;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            result = crate::panel_tls::verify_listener(port, certificate_pem);
+        }
+        result
+    }
     fn run_command_with_input(
         &self,
         binary: &str,
@@ -888,6 +922,27 @@ impl MockSystemRunner {
 }
 
 impl SystemRunner for MockSystemRunner {
+    fn verify_origin_tls(&self, _hostname: &str, _certificate_pem: &str) -> Result<(), AgentError> {
+        if self.run_command("nginx", &["-t"])?.status.success() {
+            Ok(())
+        } else {
+            Err(AgentError::Internal("Fixture origin TLS failed.".into()))
+        }
+    }
+    fn verify_panel_tls(&self, _port: u16, _certificate_pem: &str) -> Result<(), AgentError> {
+        if self
+            .responses
+            .lock()
+            .ok()
+            .and_then(|responses| responses.get("panel tls verify").cloned())
+            .is_some_and(|(code, _, _)| code != 0)
+        {
+            return Err(AgentError::Internal(
+                "Fixture listener verification failed".into(),
+            ));
+        }
+        Ok(())
+    }
     fn run_command_with_input(
         &self,
         binary: &str,

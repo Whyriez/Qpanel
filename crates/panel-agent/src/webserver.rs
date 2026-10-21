@@ -70,6 +70,16 @@ pub struct NginxManager {
 }
 
 impl NginxManager {
+    pub fn panel_tls(
+        &self,
+        request: panel_proto::PanelTlsRequest,
+    ) -> Result<panel_proto::PanelTlsStatus, AgentError> {
+        let _guard = self
+            .operation_lock
+            .lock()
+            .map_err(|_| AgentError::Internal("Kunci Nginx gagal.".into()))?;
+        crate::panel_tls::execute(self.runner.as_ref(), request)
+    }
     pub fn new(runner: Arc<dyn SystemRunner>) -> Self {
         Self {
             runner,

@@ -59,7 +59,7 @@ export function useRuntimeJobs(onFinished: (job: JobItem) => Promise<boolean>, n
           else {
             if (!notified.current.has(job.id)) {
               notified.current.add(job.id);
-              const label = job.name.startsWith('email.') ? 'Tugas email' : job.name.startsWith('cloudflare.') ? 'Tugas Cloudflare' : job.name === 'database.web.install' ? 'Pemasangan pengelola database' : job.name === 'database.server.install' ? 'Pemasangan database' : job.name === 'python.install' ? 'Pemasangan Python' : job.name === 'node.install' ? 'Pemasangan Node.js' : 'Tugas PHP';
+              const label = job.name === 'ssl.dns01.issue' ? 'Sertifikat DNS-01' : job.name === 'panel.tls.issue' ? 'Sertifikat panel' : job.name.startsWith('email.') ? 'Tugas email' : job.name.startsWith('cloudflare.') ? 'Tugas Cloudflare' : job.name === 'database.web.install' ? 'Pemasangan pengelola database' : job.name === 'database.server.install' ? 'Pemasangan database' : job.name === 'python.install' ? 'Pemasangan Python' : job.name === 'node.install' ? 'Pemasangan Node.js' : 'Tugas PHP';
               if (job.status === 'failed') toast.error(`${label} gagal`, { description: job.error_message || 'Lihat rincian pada halaman Tugas.' });
               if (job.status === 'succeeded') toast.success(`${label} selesai`);
               if (job.status === 'cancelled') toast.info(`${label} dibatalkan`, { description: 'Daftar runtime diperbarui dari hasil pemeriksaan server.' });

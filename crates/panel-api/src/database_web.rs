@@ -23,33 +23,12 @@ const MAX_RESPONSE: usize = 40 * 1024 * 1024;
 
 /// Production binds to loopback; only the directly connected local proxy can
 /// describe upstream TLS. Cookie policy is a minimum, never downgraded by headers.
-fn request_secure(request: &Request, configured_secure: bool) -> bool {
-    if configured_secure {
-        return true;
-    }
-    let local_proxy = request
+fn request_secure(request: &Request, _configured_secure: bool) -> bool {
+    request
         .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .is_some_and(|peer| peer.0.ip().is_loopback());
-    if !local_proxy {
-        return false;
-    }
-    let single_header = |name: &str| {
-        let mut values = request.headers().get_all(name).iter();
-        let value = values.next()?.to_str().ok()?;
-        values.next().is_none().then_some(value)
-    };
-    if single_header("x-forwarded-proto").is_some_and(|proto| proto == "https") {
-        return true;
-    }
-    // Nginx may rewrite X-Forwarded-Proto to its HTTP tunnel hop; Cloudflare's
-    // original visitor scheme still accompanies both navigation and AJAX.
-    single_header("cf-visitor")
-        .filter(|value| value.len() <= 128)
-        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
-        .is_some_and(|value| {
-            value.get("scheme").and_then(|scheme| scheme.as_str()) == Some("https")
-        })
+        .get::<crate::public_url::PublicRequest>()
+        .map(|context| context.origin.secure)
+        .unwrap_or_else(|| crate::public_url::request_https(request))
 }
 
 pub fn router() -> Router<AppState> {
@@ -285,21 +264,9 @@ pub fn valid_asset(asset: &str) -> bool {
 }
 
 fn same_origin(headers: &HeaderMap, secure: bool) -> bool {
-    if headers
-        .get("sec-fetch-site")
-        .is_some_and(|v| v == "cross-site")
-    {
-        return false;
-    }
-    let Some(origin) = headers.get(header::ORIGIN) else {
-        return true;
-    };
-    let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
-        return false;
-    };
-    origin
-        .to_str()
-        .is_ok_and(|origin| origin == format!("{}://{host}", if secure { "https" } else { "http" }))
+    crate::public_url::single(headers, "host")
+        .and_then(|host| crate::public_url::PanelOrigin::from_authority(host, secure).ok())
+        .is_some_and(|origin| origin.matches_origin(headers, false))
 }
 
 /// phpMyAdmin names HTTPS sessions differently, including a prefix in newer releases.
@@ -366,11 +333,15 @@ async fn proxy(
         .unwrap_or("")
         .to_string();
     let host = request
-        .headers()
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("localhost")
-        .to_string();
+        .extensions()
+        .get::<crate::public_url::PublicRequest>()
+        .map(|context| context.origin.authority())
+        .or_else(|| {
+            crate::public_url::single(request.headers(), "host")
+                .and_then(|host| crate::public_url::PanelOrigin::from_authority(host, secure).ok())
+                .map(|origin| origin.authority())
+        })
+        .unwrap_or_else(|| "localhost".into());
     // Never forward the panel authentication cookie to third-party PHP tools.
     let cookie = tool_cookies(
         request
@@ -444,10 +415,17 @@ fn parameters(request: WebRequest<'_>) -> Vec<(String, String)> {
         ("GATEWAY_INTERFACE", "CGI/1.1".into()),
         ("SERVER_PROTOCOL", "HTTP/1.1".into()),
         ("SERVER_SOFTWARE", "Qpanel".into()),
-        ("SERVER_NAME", "localhost".into()),
+        (
+            "SERVER_NAME",
+            crate::public_url::PanelOrigin::from_authority(request.host, request.secure)
+                .map(|origin| origin.host.as_str().to_owned())
+                .unwrap_or_else(|_| "localhost".into()),
+        ),
         (
             "SERVER_PORT",
-            if request.secure { "443" } else { "80" }.into(),
+            crate::public_url::PanelOrigin::from_authority(request.host, request.secure)
+                .map(|origin| origin.port.get().to_string())
+                .unwrap_or_else(|_| if request.secure { "443" } else { "80" }.into()),
         ),
         ("REMOTE_ADDR", "127.0.0.1".into()),
         (
@@ -620,17 +598,39 @@ pub fn parse_response(
                 .map_err(|_| "status")?
             }
             "location" => {
-                let origin = format!("{}://{host}", if secure { "https" } else { "http" });
-                let value = if value.starts_with(&format!("{origin}{prefix}")) {
-                    &value[origin.len()..]
+                let rewritten;
+                let value = if value.starts_with("http://") || value.starts_with("https://") {
+                    let uri: axum::http::Uri = value.parse().map_err(|_| "unsafe redirect")?;
+                    let origin = crate::public_url::PanelOrigin::from_authority(
+                        uri.authority().ok_or("unsafe redirect")?.as_str(),
+                        uri.scheme_str() == Some("https"),
+                    )
+                    .map_err(|_| "unsafe redirect")?;
+                    let expected = crate::public_url::PanelOrigin::from_authority(host, secure)
+                        .map_err(|_| "unsafe redirect")?;
+                    if !expected.same(&origin) {
+                        return Err("unsafe redirect".into());
+                    }
+                    rewritten = uri
+                        .path_and_query()
+                        .ok_or("unsafe redirect")?
+                        .as_str()
+                        .to_owned();
+                    rewritten.as_str()
                 } else {
                     value
                 };
-                if !(value.starts_with(prefix)
-                    || value == "/"
-                    || (!value.starts_with('/')
-                        && !value.contains([':', '\\'])
-                        && !value.split('/').any(|p| p == "..")))
+                let path = value.split(['?', '#']).next().ok_or("unsafe redirect")?;
+                // phpMyAdmin emits ./index.php; the leading current-directory
+                // marker stays inside its scoped gateway, unlike parent traversal.
+                let checked_path = path.strip_prefix("./").unwrap_or(path);
+                if path.contains(['\\', '%'])
+                    || checked_path
+                        .split('/')
+                        .any(|part| matches!(part, "." | ".."))
+                    || !(value == "/"
+                        || path.starts_with(prefix)
+                        || (!path.starts_with('/') && !path.contains(':')))
                 {
                     return Err("unsafe redirect".into());
                 }

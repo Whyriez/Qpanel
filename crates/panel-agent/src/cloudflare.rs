@@ -12,9 +12,9 @@ const CREDENTIALS: &str = "/etc/panel/cloudflare/credentials.enc";
 const MANIFEST: &str = "/etc/panel/cloudflare/managed.json";
 
 #[derive(Serialize, Deserialize)]
-struct Credentials {
-    account_id: String,
-    api_token: String,
+pub(crate) struct Credentials {
+    pub(crate) account_id: String,
+    pub(crate) api_token: String,
 }
 #[derive(Default, Serialize, Deserialize)]
 struct Manifest {
@@ -105,7 +105,7 @@ impl Drop for Exchange<'_> {
         let _ = self.runner.remove_file(Path::new(&self.body));
     }
 }
-fn api(
+pub(crate) fn api(
     runner: &dyn SystemRunner,
     credentials: &Credentials,
     method: &str,
@@ -130,6 +130,7 @@ fn api(
     )?;
     let url = format!("https://api.cloudflare.com/client/v4/{resource}");
     let mut args = vec![
+        "--disable",
         "--silent",
         "--show-error",
         "--proto",
@@ -1594,5 +1595,218 @@ mod tests {
                 .contains_key("app.example.com")
         );
         fixture.pending();
+    }
+    const DNS_ID: &str = "a416cf3a-e13b-45b0-a905-b3312bd12a99";
+    const DNS_REV: &str = "test-revision";
+    fn dns_fixture() -> Fixture {
+        let f = Fixture::new();
+        let c = json!({"zone_id":ZONE,"zone_name":"example.com","token":TOKEN,"revision":DNS_REV});
+        f.inner.set_file_content(
+            "/etc/panel/dns01/credential.enc",
+            crypto::encrypt_value(&[7; 32], &c.to_string())
+                .unwrap()
+                .as_bytes(),
+        );
+        f
+    }
+    fn dns_present() -> panel_proto::Dns01Request {
+        panel_proto::Dns01Request::Present {
+            id: DNS_ID.into(),
+            revision: DNS_REV.into(),
+            hostname: "app.example.com".into(),
+            digest: "A".repeat(43),
+        }
+    }
+    fn dns_record() -> Value {
+        json!({"id":"cccccccccccccccccccccccccccccccc","type":"TXT","name":"_acme-challenge.app.example.com","content":"A".repeat(43),"comment":format!("qpanel-acme:{DNS_ID}")})
+    }
+    fn dns_records() -> String {
+        format!("zones/{ZONE}/dns_records?name.exact=_acme-challenge.app.example.com&per_page=100")
+    }
+    #[test]
+    fn dns01_configuration_is_separate_encrypted_scoped_and_redacted() {
+        let f = Fixture::new();
+        f.reply(
+            "GET",
+            &format!("zones/{ZONE}"),
+            json!({"name":"example.com","status":"active"}),
+        );
+        f.reply(
+            "GET",
+            &format!(
+                "zones/{ZONE}/dns_records?name.exact=_acme-challenge.example.com&per_page=100"
+            ),
+            json!([]),
+        );
+        let request = panel_proto::Dns01Request::Configure {
+            zone_id: ZONE.into(),
+            zone_name: "example.com".into(),
+            api_token: panel_proto::CloudflareSecret(TOKEN.into()),
+        };
+        assert!(!format!("{request:?}").contains(TOKEN));
+        let result = crate::dns01::execute(&f, request).unwrap();
+        assert_eq!(result["configured"], true);
+        let encrypted = String::from_utf8(
+            f.inner
+                .read_file(Path::new("/etc/panel/dns01/credential.enc"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(encrypted.starts_with(crypto::CIPHER_PREFIX));
+        assert!(!encrypted.contains(TOKEN));
+        let status = crate::dns01::execute(&f, panel_proto::Dns01Request::Status).unwrap();
+        assert!(!status.to_string().contains(TOKEN));
+        assert!(f.inner.path_exists(Path::new(CREDENTIALS))); // existing Tunnel credential is untouched
+        crate::dns01::execute(&f, panel_proto::Dns01Request::Revoke).unwrap();
+        assert!(f.inner.path_exists(Path::new(CREDENTIALS)));
+        f.pending();
+    }
+    #[test]
+    fn dns01_lost_post_response_recovers_same_record_and_preserves_other_txt() {
+        let f = dns_fixture();
+        let path = dns_records();
+        f.reply("GET", &path, json!([{"type":"TXT","content":"operator"}]));
+        f.reject("POST", &format!("zones/{ZONE}/dns_records"));
+        assert!(crate::dns01::execute(&f, dns_present()).is_err());
+        let status = crate::dns01::execute(&f, panel_proto::Dns01Request::Status).unwrap();
+        assert_eq!(status["pending"].as_array().unwrap().len(), 1);
+        assert!(crate::dns01::execute(&f, panel_proto::Dns01Request::Revoke).is_err());
+        f.reply("GET",&path,json!([dns_record(),{"id":"dddddddddddddddddddddddddddddddd","type":"TXT","content":"operator"}]));
+        assert_eq!(
+            crate::dns01::execute(&f, dns_present()).unwrap()["present"],
+            true
+        );
+        f.reply(
+            "GET",
+            &path,
+            json!([dns_record(),{"type":"TXT","content":"operator"}]),
+        );
+        f.reply(
+            "DELETE",
+            &format!("zones/{ZONE}/dns_records/cccccccccccccccccccccccccccccccc"),
+            Value::Null,
+        );
+        crate::dns01::execute(&f, panel_proto::Dns01Request::Cleanup { id: DNS_ID.into() })
+            .unwrap();
+        assert_eq!(
+            crate::dns01::execute(&f, panel_proto::Dns01Request::Status).unwrap()["pending"],
+            json!([])
+        );
+        assert_eq!(
+            f.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(m, _, _)| m == "POST")
+                .count(),
+            1
+        );
+        f.pending();
+    }
+    #[test]
+    fn dns01_cname_conflict_never_replaces_dns_and_invalid_scope_never_calls_provider() {
+        let f = dns_fixture();
+        for request in [
+            panel_proto::Dns01Request::Present {
+                id: DNS_ID.into(),
+                revision: "old".into(),
+                hostname: "app.example.com".into(),
+                digest: "A".repeat(43),
+            },
+            panel_proto::Dns01Request::Present {
+                id: DNS_ID.into(),
+                revision: DNS_REV.into(),
+                hostname: "evil-example.com".into(),
+                digest: "A".repeat(43),
+            },
+            panel_proto::Dns01Request::Present {
+                id: DNS_ID.into(),
+                revision: DNS_REV.into(),
+                hostname: "1.1.1.1".into(),
+                digest: "A".repeat(43),
+            },
+        ] {
+            assert!(crate::dns01::execute(&f, request).is_err());
+        }
+        assert!(f.requests.lock().unwrap().is_empty());
+        f.reply(
+            "GET",
+            &dns_records(),
+            json!([{"type":"CNAME","content":"validation.other.test"}]),
+        );
+        assert!(crate::dns01::execute(&f, dns_present()).is_err());
+        assert_eq!(f.requests.lock().unwrap().len(), 1);
+        f.pending();
+    }
+    #[test]
+    fn dns01_create_and_cleanup_refuse_changed_operator_record() {
+        let f = dns_fixture();
+        let path = dns_records();
+        f.reply("GET", &path, json!([]));
+        f.reply("POST", &format!("zones/{ZONE}/dns_records"), dns_record());
+        crate::dns01::execute(&f, dns_present()).unwrap();
+        let mut changed = dns_record();
+        changed["content"] = json!("operator-edited");
+        f.reply("GET", &path, json!([changed]));
+        assert!(
+            crate::dns01::execute(&f, panel_proto::Dns01Request::Cleanup { id: DNS_ID.into() })
+                .is_err()
+        );
+        assert!(
+            !crate::dns01::execute(&f, panel_proto::Dns01Request::Status).unwrap()["pending"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !f.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(m, _, _)| m == "DELETE")
+        );
+        f.pending();
+    }
+    #[test]
+    fn dns01_pending_cleanup_can_recover_with_a_fresh_token_for_the_same_zone() {
+        let f = dns_fixture();
+        f.reply("GET", &dns_records(), json!([]));
+        f.reject("POST", &format!("zones/{ZONE}/dns_records"));
+        assert!(crate::dns01::execute(&f, dns_present()).is_err());
+        assert!(
+            crate::dns01::execute(
+                &f,
+                panel_proto::Dns01Request::Configure {
+                    zone_id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+                    zone_name: "other.test".into(),
+                    api_token: panel_proto::CloudflareSecret(TOKEN.into())
+                }
+            )
+            .is_err()
+        );
+        f.reply(
+            "GET",
+            &format!("zones/{ZONE}"),
+            json!({"name":"example.com","status":"active"}),
+        );
+        f.reply(
+            "GET",
+            &format!(
+                "zones/{ZONE}/dns_records?name.exact=_acme-challenge.example.com&per_page=100"
+            ),
+            json!([]),
+        );
+        let status = crate::dns01::execute(
+            &f,
+            panel_proto::Dns01Request::Configure {
+                zone_id: ZONE.into(),
+                zone_name: "example.com".into(),
+                api_token: panel_proto::CloudflareSecret(TOKEN.into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(status["pending"].as_array().unwrap().len(), 1);
+        assert_ne!(status["revision"], DNS_REV);
+        f.pending();
     }
 }

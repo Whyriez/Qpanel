@@ -5,6 +5,7 @@ use thiserror::Error;
 
 pub mod auth;
 pub mod backup;
+pub mod connectivity;
 pub mod cron;
 pub mod database;
 pub mod doctor;
@@ -13,6 +14,7 @@ pub mod git_deploy;
 pub mod hardening;
 pub mod memory_profile;
 pub mod notification;
+pub mod panel_tls;
 pub mod php;
 pub mod production;
 pub mod rbac;

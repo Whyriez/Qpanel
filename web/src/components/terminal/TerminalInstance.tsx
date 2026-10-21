@@ -1,3 +1,4 @@
+import { panelWebSocketUrl } from '../../lib/panelUrl';
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -124,8 +125,7 @@ export const TerminalInstance: React.FC<TerminalInstanceProps> = ({
     }
 
     // Connect WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${session.session_id}`;
+    const wsUrl = panelWebSocketUrl(`/ws/terminal/${encodeURIComponent(session.session_id)}`);
     updateStatus('connecting');
 
     const ws = new WebSocket(wsUrl);
@@ -241,8 +241,7 @@ export const TerminalInstance: React.FC<TerminalInstanceProps> = ({
   const handleReconnect = () => {
     if (!termRef.current) return;
     updateStatus('reconnecting');
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/terminal/${session.session_id}`;
+    const wsUrl = panelWebSocketUrl(`/ws/terminal/${encodeURIComponent(session.session_id)}`);
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;

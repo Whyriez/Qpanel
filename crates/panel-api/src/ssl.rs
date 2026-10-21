@@ -2,7 +2,7 @@
 //!
 //! Provides automated Let's Encrypt issuance (HTTP-01 challenge),
 //! fallback self-signed certificate generation, custom certificate upload and validation,
-//! strict 0600 private key deployment, and automatic 30-day renewal scheduler.
+//! strict 0600 private key deployment, and lifetime-aware automatic renewal.
 
 use crate::auth::middleware::AuthenticatedUser;
 use crate::routes::AppState;
@@ -192,8 +192,8 @@ pub fn cert_to_detail_response(cert: &Certificate) -> CertificateDetailResponse 
 }
 
 /// Helper to get or create an ACME account with instant-acme.
-async fn get_acme_account(
-    state: &AppState,
+pub(crate) async fn get_acme_account(
+    pool: &panel_db::DbPool,
     cert_repo: &SqliteCertificateRepository,
     email: &str,
     directory_url: &str,
@@ -234,11 +234,12 @@ async fn get_acme_account(
         let creds_json = serde_json::to_string(&creds)
             .map_err(|e| format!("Failed to serialize ACME credentials: {e}"))?;
 
-        let _ = sqlx::query("UPDATE acme_accounts SET private_key_pem = ? WHERE id = ?")
+        sqlx::query("UPDATE acme_accounts SET private_key_pem = ? WHERE id = ?")
             .bind(&creds_json)
             .bind(acme_account.id)
-            .execute(&state.pool)
-            .await;
+            .execute(pool)
+            .await
+            .map_err(|_| "Failed to persist ACME credentials".to_string())?;
 
         Ok(acc)
     }
@@ -259,7 +260,7 @@ pub async fn order_acme_certificate(
     };
 
     let cert_repo = SqliteCertificateRepository::new(state.pool.clone());
-    let account = get_acme_account(state, &cert_repo, email, directory_url).await?;
+    let account = get_acme_account(&state.pool, &cert_repo, email, directory_url).await?;
 
     let mut all_domains = vec![primary_domain.to_string()];
     for d in san_domains {
@@ -526,6 +527,7 @@ pub async fn issue_site_ssl_handler(
     Path(site_id): Path<i64>,
     Json(req): Json<IssueSslRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    crate::dns01::guard_site(&state.pool, site_id).await?;
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
         .await
@@ -700,6 +702,7 @@ pub async fn self_signed_site_ssl_handler(
     auth_user: AuthenticatedUser,
     Path(site_id): Path<i64>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    crate::dns01::guard_site(&state.pool, site_id).await?;
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
         .await
@@ -837,6 +840,7 @@ pub async fn custom_site_ssl_handler(
     Path(site_id): Path<i64>,
     Json(req): Json<CustomCertRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    crate::dns01::guard_site(&state.pool, site_id).await?;
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
         .await
@@ -978,6 +982,14 @@ pub async fn renew_site_ssl_handler(
     auth_user: AuthenticatedUser,
     Path(site_id): Path<i64>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    crate::dns01::guard_site(&state.pool, site_id).await?;
+    let dns_managed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM dns01_bindings b JOIN certificates c ON c.id=b.certificate_id JOIN sites s ON s.id=b.site_id WHERE b.site_id=? AND c.status='active' AND c.id=(SELECT MAX(id) FROM certificates WHERE site_id=b.site_id AND status='active') AND json_extract(s.settings_json,'$.has_ssl')=1 AND json_extract(s.settings_json,'$.ssl_cert')=c.cert_path)").bind(site_id).fetch_one(&state.pool).await.map_err(|_|(StatusCode::INTERNAL_SERVER_ERROR,"Inventaris DNS-01 gagal.".into()))?;
+    if dns_managed {
+        return Err((
+            StatusCode::CONFLICT,
+            "Perbarui sertifikat DNS-01 melalui Pengaturan server > DNS dan Cloudflare.".into(),
+        ));
+    }
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
         .await
@@ -1153,6 +1165,7 @@ pub async fn delete_site_ssl_handler(
     auth_user: AuthenticatedUser,
     Path(site_id): Path<i64>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    crate::dns01::guard_site(&state.pool, site_id).await?;
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let site = fetch_and_authorize_site(&site_repo, &auth_user, site_id)
         .await
@@ -1216,7 +1229,12 @@ fn should_skip_renewal(cert: &Certificate, now: i64) -> bool {
 async fn fetch_expiring_certificates(state: &AppState, now: i64) -> Vec<Certificate> {
     let cert_repo = SqliteCertificateRepository::new(state.pool.clone());
     match cert_repo.find_expiring_certificates(now, 30 * 86400).await {
-        Ok(list) => list,
+        Ok(list) => list
+            .into_iter()
+            .filter(|cert| {
+                now >= panel_core::panel_tls::renewal_at(cert.not_before, cert.not_after, None)
+            })
+            .collect(),
         Err(e) => {
             error!("Failed to fetch expiring certificates: {e}");
             Vec::new()
@@ -1239,7 +1257,19 @@ pub async fn renew_expiring_certificates(state: &AppState) {
     info!("Found {} certificates needing auto-renewal", expiring.len());
 
     for cert in expiring {
-        if should_skip_renewal(&cert, now) {
+        let dns_managed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM dns01_bindings WHERE certificate_id=?)",
+        )
+        .bind(cert.id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(true);
+        if dns_managed
+            || crate::dns01::guard_site(&state.pool, cert.site_id)
+                .await
+                .is_err()
+            || should_skip_renewal(&cert, now)
+        {
             continue;
         }
         if let Err(e) = renew_single_certificate(state, &cert, now).await {
@@ -1341,16 +1371,23 @@ async fn renew_single_certificate(
     }
 }
 
-/// Spawns a background task checking for certificates needing renewal every 12 hours.
+/// Checks panel renewal every five minutes and site renewal every hour.
 pub fn start_ssl_renewal_scheduler(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         // Initial delay on startup
         tokio::time::sleep(Duration::from_secs(10)).await;
 
-        let mut interval = tokio::time::interval(Duration::from_secs(12 * 3600));
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+        let mut last_site_check = 0i64;
         loop {
             interval.tick().await;
-            renew_expiring_certificates(&state).await;
+            crate::panel_tls::schedule(&state).await;
+            crate::dns01::schedule(&state).await;
+            let current = chrono::Utc::now().timestamp();
+            if current - last_site_check >= 3600 {
+                renew_expiring_certificates(&state).await;
+                last_site_check = current;
+            }
         }
     })
 }
