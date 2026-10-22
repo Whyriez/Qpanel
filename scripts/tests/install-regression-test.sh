@@ -31,6 +31,15 @@ config="$(render_panel_site)"
 [[ "$config" == *'listen 17890;'* && "$config" == *'listen [::]:17890;'* ]]
 [[ "$config" == *'proxy_pass http://127.0.0.1:7700;'* && "$config" == *'proxy_set_header Upgrade $http_upgrade;'* ]]
 pass 'IPv4/IPv6 public proxy and WebSocket headers'
+[[ "$config" == *'map $remote_addr $qpanel_connector_visitor {'* ]]
+[[ "$config" == *'default "";'* && "$config" == *'127.0.0.1 $http_cf_visitor;'* && "$config" == *'::1 $http_cf_visitor;'* ]]
+[[ "$config" == *'proxy_set_header Host $qpanel_public_authority;'* ]]
+[[ "$config" == *'proxy_set_header X-Forwarded-Proto $scheme;'* ]]
+[[ "$config" == *'proxy_set_header X-Qpanel-Cf-Visitor $qpanel_connector_visitor;'* ]]
+for header in CF-Visitor X-Forwarded-Host Forwarded; do
+    [[ "$config" == *"proxy_set_header $header \"\";"* ]]
+done
+pass 'proxy preserves public authority and forwards HTTPS offload metadata only from a loopback connector'
 PANEL_PUBLIC_PORT=19090
 [[ "$(render_panel_site)" == *'listen 19090;'* ]]
 pass 'custom port rendering'

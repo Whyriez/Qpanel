@@ -221,6 +221,16 @@ http {{
         format!(
             r#"# Qpanel Management Interface
 # Proxies requests to internal unprivileged panel-api daemon.
+# Only a connector on this server may supply Cloudflare visitor metadata.
+map $remote_addr $qpanel_connector_visitor {{
+    default "";
+    127.0.0.1 $http_cf_visitor;
+    ::1 $http_cf_visitor;
+}}
+map $http_host $qpanel_public_authority {{
+    default $http_host;
+    "" $host;
+}}
 
 server {{
     listen {port};
@@ -235,10 +245,14 @@ server {{
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host $qpanel_public_authority;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Qpanel-Cf-Visitor $qpanel_connector_visitor;
+        proxy_set_header CF-Visitor "";
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header Forwarded "";
         proxy_read_timeout 86400s;
         proxy_send_timeout 86400s;
     }}
@@ -542,6 +556,39 @@ mod tests {
         assert!(vhost.contains("proxy_set_header Upgrade $http_upgrade;"));
         assert!(vhost.contains("proxy_set_header Connection \"upgrade\";"));
         assert!(vhost.contains("include /etc/panel/nginx/snippets/security-headers.conf;"));
+    }
+
+    #[test]
+    fn panel_proxy_origin_contract_matches_installer_for_tunnel_and_custom_ports() {
+        let config = NginxBaselineConfig {
+            panel_listen_port: 19090,
+            ..Default::default()
+        };
+        let generated = config.render_panel_vhost();
+        let installer = include_str!("../../../templates/nginx/nusa-panel.conf")
+            .replace("\r\n", "\n")
+            .replace("@PANEL_PUBLIC_PORT@", "19090");
+        for proxy in [&generated, &installer] {
+            for directive in [
+                "listen 19090;",
+                "listen [::]:19090;",
+                "map $remote_addr $qpanel_connector_visitor {\n    default \"\";\n    127.0.0.1 $http_cf_visitor;\n    ::1 $http_cf_visitor;\n}",
+                "map $http_host $qpanel_public_authority {\n    default $http_host;\n    \"\" $host;\n}",
+                "proxy_set_header Host $qpanel_public_authority;",
+                "proxy_set_header X-Forwarded-Proto $scheme;",
+                "proxy_set_header X-Qpanel-Cf-Visitor $qpanel_connector_visitor;",
+                "proxy_set_header CF-Visitor \"\";",
+                "proxy_set_header X-Forwarded-Host \"\";",
+                "proxy_set_header Forwarded \"\";",
+            ] {
+                assert!(
+                    proxy.contains(directive),
+                    "Missing proxy contract: {directive}"
+                );
+            }
+            assert!(!proxy.contains("proxy_set_header Host $host;"));
+            assert!(!proxy.contains("proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;"));
+        }
     }
 
     #[test]

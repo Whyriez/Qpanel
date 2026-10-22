@@ -39,6 +39,7 @@ jobs:
         run: |
           mkdir -p web/dist
           cp web/index.html web/dist/index.html
+          cp web/public/panel-url-check.css web/dist/panel-url-check.css
 
       - name: Check formatting (rustfmt)
         run: cargo fmt --check

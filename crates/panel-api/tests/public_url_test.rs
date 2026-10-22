@@ -228,6 +228,122 @@ fn only_the_actual_loopback_peer_and_sanitized_proxy_headers_can_assert_tls() {
     }
 }
 #[tokio::test]
+async fn tunnel_browser_asset_requests_require_trusted_https_metadata() {
+    let f = fixture().await;
+    // Browser module/preload requests can carry Origin even on GET/HEAD.
+    // Model HTTP Nginx -> API after Cloudflare terminates public HTTPS.
+    for (peer, visitor, raw_visitor, origin, accepted) in [
+        (
+            "127.0.0.1:49000",
+            Some(r#"{"scheme":"https"}"#),
+            None,
+            "https://panel.test:19443",
+            true,
+        ),
+        (
+            "[::1]:49000",
+            Some(r#"{"scheme":"https"}"#),
+            None,
+            "https://panel.test:19443",
+            true,
+        ),
+        (
+            "127.0.0.1:49000",
+            None,
+            None,
+            "https://panel.test:19443",
+            false,
+        ),
+        (
+            "127.0.0.1:49000",
+            None,
+            Some(r#"{"scheme":"https"}"#),
+            "https://panel.test:19443",
+            false,
+        ),
+        (
+            "203.0.113.3:49000",
+            Some(r#"{"scheme":"https"}"#),
+            None,
+            "https://panel.test:19443",
+            false,
+        ),
+        (
+            "127.0.0.1:49000",
+            Some(r#"{"scheme":"https"}"#),
+            None,
+            "https://panel.test:19444",
+            false,
+        ),
+        (
+            "127.0.0.1:49000",
+            Some(r#"{"scheme":"https"}"#),
+            None,
+            "https://evil.test:19443",
+            false,
+        ),
+    ] {
+        for method in ["GET", "HEAD"] {
+            for (path, status, content_type) in [
+                ("/", StatusCode::OK, "text/html"),
+                ("/panel-url-check.css", StatusCode::OK, "text/css"),
+                (
+                    "/assets/qpanel-origin-missing.css",
+                    StatusCode::NOT_FOUND,
+                    "text/plain",
+                ),
+                (
+                    "/assets/qpanel-origin-missing.js",
+                    StatusCode::NOT_FOUND,
+                    "text/plain",
+                ),
+            ] {
+                let mut request = Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("host", "panel.test:19443")
+                    .header("origin", origin)
+                    .header("sec-fetch-site", "same-origin")
+                    .header("sec-fetch-mode", "cors")
+                    .header("x-forwarded-proto", "http")
+                    .extension(ConnectInfo(peer.parse::<std::net::SocketAddr>().unwrap()));
+                if let Some(visitor) = visitor {
+                    request = request.header("x-qpanel-cf-visitor", visitor);
+                }
+                if let Some(visitor) = raw_visitor {
+                    request = request.header("cf-visitor", visitor);
+                }
+                let response = f
+                    .app
+                    .clone()
+                    .oneshot(request.body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    if accepted {
+                        status
+                    } else {
+                        StatusCode::FORBIDDEN
+                    },
+                    "{method} {path}, peer={peer}, origin={origin}, visitor={visitor:?}"
+                );
+                assert!(
+                    response.headers()["content-type"]
+                        .to_str()
+                        .unwrap()
+                        .starts_with(if accepted {
+                            content_type
+                        } else {
+                            "application/problem+json"
+                        })
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn explicit_activation_keeps_current_access_uses_revisions_and_rejects_unsafe_changes() {
     let f = fixture().await;
     let e = endpoint(&f, "2001:db8::7", "tls", 19443).await;

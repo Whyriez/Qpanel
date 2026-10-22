@@ -68,6 +68,21 @@ install_nginx_proxy_at "$nginx_root" "$fixture/public-port"
 [[ "$checks" == 4 ]]
 pass 'upgrade is idempotent and validates staged plus live configuration'
 
+# A binary-only update leaves this legacy proxy behind. Full upgrade must
+# replace it with the trusted Tunnel metadata contract, retaining a custom port.
+printf 'server { listen 19090; location / { proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; } }\n' > "$nginx_root/sites-available/nusa-panel.conf"
+PANEL_PUBLIC_PORT=19090
+install_nginx_proxy_at "$nginx_root" "$fixture/public-port"
+proxy="$nginx_root/sites-available/nusa-panel.conf"
+[[ "$checks" == 6 && "$(cat "$fixture/public-port")" == 19090 ]]
+grep -Fq 'listen 19090;' "$proxy"
+grep -Fq 'proxy_set_header Host $qpanel_public_authority;' "$proxy"
+grep -Fq 'proxy_set_header X-Qpanel-Cf-Visitor $qpanel_connector_visitor;' "$proxy"
+grep -Fq 'proxy_set_header CF-Visitor "";' "$proxy"
+! grep -Fq 'proxy_set_header Host $host;' "$proxy"
+pass 'upgrade replaces legacy origin proxy metadata while retaining the chosen port'
+PANEL_PUBLIC_PORT=17890
+
 changed_files=(conf.d/default.conf)
 if [[ "$symlinks_supported" == true ]]; then changed_files+=(sites-available/default); fi
 for changed in "${changed_files[@]}"; do
