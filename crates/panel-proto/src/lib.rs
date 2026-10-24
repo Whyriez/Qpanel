@@ -10,9 +10,13 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 mod connectivity;
 mod dns01;
 mod panel_tls;
+mod panel_update;
+mod server_backup;
 pub use connectivity::*;
 pub use dns01::*;
 pub use panel_tls::*;
+pub use panel_update::*;
+pub use server_backup::*;
 mod cloudflare;
 pub use cloudflare::*;
 mod email;
@@ -72,6 +76,8 @@ impl RpcRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "cmd", content = "data")]
 pub enum RequestPayload {
+    PanelUpdate(PanelUpdateRequest),
+    ServerBackup(ServerBackupRequest),
     /// Read-only inspection of the fixed local OpenSSH host identity.
     SshHostKeys,
     ConnectivityInspect(ConnectivityTarget),
@@ -319,6 +325,8 @@ impl RpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
 pub enum ResponsePayload {
+    PanelUpdate(PanelUpdateStatus),
+    ServerBackup(serde_json::Value),
     SshHostKeys(Vec<panel_core::ssh::SshHostKeyFingerprint>),
     ConnectivityInspected(ConnectivityInspection),
     PanelTls(PanelTlsStatus),

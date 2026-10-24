@@ -1,4 +1,9 @@
-# Qpanel
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="web/public/brand/qonpanel-wordmark-dark.svg">
+  <img src="web/public/brand/qonpanel-wordmark-light.svg" alt="QonPanel" width="244" height="48">
+</picture>
+
+# QonPanel
 
 Panel hosting Rust dengan API non-root, agent privileged dan isolasi tenant.
 
@@ -24,7 +29,12 @@ Instalasi menggunakan paket release lengkap. Lihat
 [panduan administrator](docs/admin-guide.md), dan
 [arsitektur](docs/architecture.md).
 
+Installer resmi: [`Whyriez/QonPanel`](https://github.com/Whyriez/QonPanel).
+
 ```bash
+curl -fsSL https://raw.githubusercontent.com/Whyriez/QonPanel/main/scripts/bootstrap-install.sh -o /tmp/qonpanel-install.sh
+sudo bash /tmp/qonpanel-install.sh --unattended
+# Dari paket release:
 sudo bash install.sh --unattended
 # Port publik alternatif:
 sudo bash install.sh --unattended --port 19090
@@ -46,3 +56,8 @@ Lihat [panduan akun administrator](ADMIN_ACCOUNTS.md) untuk instalasi, pemulihan
 
 Development dan integration test sistem mengikuti [AGENTS.md](AGENTS.md).
 Jangan menjalankan `panel-agent` di laptop/host pengembang.
+
+Backup dan pindah server tersedia di **Pengaturan server > Backup dan migrasi**.
+Lihat [panduan backup dan restore](SERVER_BACKUP.md) untuk memulihkan tenant,
+website, database lokal, email dan konfigurasi dari arsip terenkripsi pada
+instalasi baru.

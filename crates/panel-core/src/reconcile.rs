@@ -92,7 +92,9 @@ pub fn format_reconcile_report_cli(report: &ReconcileReport, use_color: bool) ->
     out.push_str(
         "================================================================================\n",
     );
-    out.push_str("                     QPANEL STATE RECONCILER                                \n");
+    out.push_str(
+        "                     QONPANEL STATE RECONCILER                                \n",
+    );
     out.push_str(
         "================================================================================\n\n",
     );

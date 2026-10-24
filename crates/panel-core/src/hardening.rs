@@ -243,7 +243,7 @@ pub fn evaluate_systemd_service_security(
     }
 }
 
-/// Generates standard baseline systemd security evaluations for Vpanel services.
+/// Generates standard baseline systemd security evaluations for QonPanel services.
 pub fn get_default_service_security_evaluations() -> Vec<SystemdServiceSecurityScore> {
     let api_unit = include_str!("../../../templates/systemd/panel-api.service");
     let agent_unit = include_str!("../../../templates/systemd/panel-agent.service");
@@ -254,7 +254,7 @@ pub fn get_default_service_security_evaluations() -> Vec<SystemdServiceSecurityS
     ]
 }
 
-/// Generates the official OWASP ASVS Level 2 audit report for Vpanel.
+/// Generates the official OWASP ASVS Level 2 audit report for QonPanel.
 pub fn generate_asvs_l2_audit() -> OwaspAsvsAuditReport {
     let requirements = vec![
         // V1 Architecture
@@ -423,7 +423,7 @@ pub fn generate_asvs_l2_audit() -> OwaspAsvsAuditReport {
         compliance_percentage: (percentage * 10.0).round() / 10.0,
         requirements,
         executive_summary: format!(
-            "Vpanel v{} adheres to OWASP ASVS 4.0.3 Level 2 requirements across all evaluated domains ({}% compliance). Multi-tenant network isolation is enforced via nftables per-UID loopback filtering, root separation via typed IPC, and cryptographic confidentiality via ChaCha20-Poly1305.",
+            "QonPanel v{} adheres to OWASP ASVS 4.0.3 Level 2 requirements across all evaluated domains ({}% compliance). Multi-tenant network isolation is enforced via nftables per-UID loopback filtering, root separation via typed IPC, and cryptographic confidentiality via ChaCha20-Poly1305.",
             env!("CARGO_PKG_VERSION"),
             (percentage * 10.0).round() / 10.0
         ),
@@ -433,7 +433,7 @@ pub fn generate_asvs_l2_audit() -> OwaspAsvsAuditReport {
 /// Generates a formal Markdown audit report document.
 pub fn generate_asvs_markdown_report(report: &OwaspAsvsAuditReport) -> String {
     let mut out = String::new();
-    out.push_str("# Laporan Audit Formal OWASP ASVS L2 & Hardening Keamanan Vpanel\n\n");
+    out.push_str("# Laporan Audit Formal OWASP ASVS L2 & Hardening Keamanan QonPanel\n\n");
     out.push_str(&format!("- **Versi Panel**: `{}`\n", report.panel_version));
     out.push_str(&format!(
         "- **Standar Audit**: OWASP ASVS v{}\n",

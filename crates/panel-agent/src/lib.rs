@@ -19,6 +19,7 @@ pub mod node;
 pub mod node_site;
 pub mod optimizer;
 pub mod panel_tls;
+pub mod panel_update;
 pub mod php;
 pub mod proxy;
 pub mod pty;
@@ -27,6 +28,7 @@ pub mod quota;
 pub mod reliability;
 pub mod resource;
 mod runtime_install;
+pub mod server_backup;
 pub mod slice;
 pub mod ssh;
 pub mod system;
@@ -585,6 +587,8 @@ impl AgentServer {
             };
 
             let (action, target) = match &req.payload {
+                RequestPayload::ServerBackup(_) => ("server.backup".into(), "host".into()),
+                RequestPayload::PanelUpdate(_) => ("panel.update".into(), "host".into()),
                 RequestPayload::Email(_) => ("email.operation".into(), "email".into()),
                 RequestPayload::Cloudflare(_) => {
                     ("cloudflare.operation".into(), "cloudflare".into())
@@ -1056,6 +1060,39 @@ impl AgentServer {
                     }
                 }
 
+                RequestPayload::ServerBackup(operation) => {
+                    let runner = Arc::clone(&self.runner);
+                    match tokio::task::spawn_blocking(move || {
+                        server_backup::execute(runner.as_ref(), operation)
+                    })
+                    .await
+                    {
+                        Ok(Ok(value)) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::ServerBackup(value))
+                        }
+                        Ok(Err(error)) => RpcResponse::err(&req.request_id, error.to_string()),
+                        Err(_) => {
+                            RpcResponse::err(&req.request_id, "Status backup tidak tersedia.")
+                        }
+                    }
+                }
+                RequestPayload::PanelUpdate(operation) => {
+                    let runner = Arc::clone(&self.runner);
+                    match tokio::task::spawn_blocking(move || {
+                        panel_update::execute(runner.as_ref(), operation)
+                    })
+                    .await
+                    {
+                        Ok(Ok(value)) => {
+                            RpcResponse::ok(&req.request_id, ResponsePayload::PanelUpdate(value))
+                        }
+                        Ok(Err(error)) => RpcResponse::err(&req.request_id, error.to_string()),
+                        Err(_) => RpcResponse::err(
+                            &req.request_id,
+                            "Status updater tidak tersedia; periksa sebelum mencoba kembali.",
+                        ),
+                    }
+                }
                 RequestPayload::Dns01(operation) => {
                     static DNS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
                     let _guard = DNS_LOCK.lock().await;

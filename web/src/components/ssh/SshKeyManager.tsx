@@ -490,7 +490,7 @@ export const SshKeyManager: React.FC<SshKeyManagerProps> = ({
                 <div className="p-3 rounded-[var(--radius-md)] bg-[var(--surface-sunken)] border border-[var(--line)] text-[11px] text-[var(--ink-muted)] flex items-start gap-2">
                   <ShieldCheck className="w-4 h-4 text-[var(--accent)] shrink-0 mt-0.5" />
                   <span>
-                    Sistem Qpanel menyimpan authorized_keys di lokasi root-owned dengan proteksi ketat agar kunci
+                    Sistem QonPanel menyimpan authorized_keys di lokasi root-owned dengan proteksi ketat agar kunci
                     tidak dapat dimanipulasi dari dalam direktori tenant.
                   </span>
                 </div>

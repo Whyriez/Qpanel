@@ -414,7 +414,7 @@ fn parameters(request: WebRequest<'_>) -> Vec<(String, String)> {
     [
         ("GATEWAY_INTERFACE", "CGI/1.1".into()),
         ("SERVER_PROTOCOL", "HTTP/1.1".into()),
-        ("SERVER_SOFTWARE", "Qpanel".into()),
+        ("SERVER_SOFTWARE", "QonPanel".into()),
         (
             "SERVER_NAME",
             crate::public_url::PanelOrigin::from_authority(request.host, request.secure)

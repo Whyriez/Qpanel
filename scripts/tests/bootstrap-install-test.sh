@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Qpanel - Bootstrap Installer Test Suite
+# QonPanel - Bootstrap Installer Test Suite
 # Tests all requirements specified in BOOTSTRAP_INSTALLER.md Section 24
 # ==============================================================================
 
@@ -45,7 +45,7 @@ report_test() {
     fi
 }
 
-echo -e "${C_BOLD}Running Qpanel Bootstrap Installer Tests${C_RESET}"
+echo -e "${C_BOLD}Running QonPanel Bootstrap Installer Tests${C_RESET}"
 echo "================================================="
 
 # Source the bootstrap script in test mode
@@ -120,14 +120,14 @@ done
 echo -e "\n${C_CYAN}Test 3: Artifact Naming${C_RESET}"
 
 t3_name_x86="$(build_asset_name "v0.1.0" "x86_64-unknown-linux-gnu")"
-if [[ "${t3_name_x86}" == "nusa-panel-v0.1.0-x86_64-unknown-linux-gnu.tar.gz" ]]; then
+if [[ "${t3_name_x86}" == "qonpanel-v0.1.0-x86_64-unknown-linux-gnu.tar.gz" ]]; then
     report_test "v0.1.0 + x86_64 artifact name" "PASS"
 else
     report_test "v0.1.0 + x86_64 artifact name" "FAIL" "Got: ${t3_name_x86}"
 fi
 
 t3_name_arm="$(build_asset_name "v1.0.0" "aarch64-unknown-linux-gnu")"
-if [[ "${t3_name_arm}" == "nusa-panel-v1.0.0-aarch64-unknown-linux-gnu.tar.gz" ]]; then
+if [[ "${t3_name_arm}" == "qonpanel-v1.0.0-aarch64-unknown-linux-gnu.tar.gz" ]]; then
     report_test "v1.0.0 + aarch64 artifact name" "PASS"
 else
     report_test "v1.0.0 + aarch64 artifact name" "FAIL" "Got: ${t3_name_arm}"
@@ -294,7 +294,7 @@ fi
 # ------------------------------------------------------------------------------
 echo -e "\n${C_CYAN}Test 9: Live GitHub Release Resolution${C_RESET}"
 
-# Test resolve_latest_version against live Whyriez/Vpanel
+# Test resolve_latest_version against live Whyriez/QonPanel
 if live_ver="$(resolve_latest_version 2>/dev/null)"; then
     if [[ "${live_ver}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
         report_test "live GitHub release resolved successfully: ${live_ver}" "PASS"
@@ -317,14 +317,14 @@ if [[ -n "${PYTHON_BIN}" ]]; then
     MOCK_VERSION="v0.1.0"
     MOCK_ASSET="nusa-panel-${MOCK_VERSION}-${MOCK_TARGET}.tar.gz"
 
-    MOCK_REL_DIR="${MOCK_ROOT}/Whyriez/Vpanel/releases/download/${MOCK_VERSION}"
+    MOCK_REL_DIR="${MOCK_ROOT}/Whyriez/QonPanel/releases/download/${MOCK_VERSION}"
     mkdir -p "${MOCK_REL_DIR}"
 
     MOCK_PKG_DIR="${MOCK_ROOT}/pkg/nusa-panel-${MOCK_VERSION}-${MOCK_TARGET}"
     mkdir -p "${MOCK_PKG_DIR}"
     cat << 'EOF' > "${MOCK_PKG_DIR}/install.sh"
 #!/usr/bin/env bash
-echo "=== Mock Qpanel Installer ==="
+echo "=== Mock QonPanel Installer ==="
 echo "Arguments: $@"
 exit 0
 EOF
@@ -348,7 +348,7 @@ EOF
     kill "${MOCK_PID}" 2>/dev/null || true
     rm -rf "${MOCK_ROOT}"
 
-    if echo "${e2e_output}" | grep -q "Mock Qpanel Installer" && echo "${e2e_output}" | grep -q -- "--port 9090 --unattended"; then
+    if echo "${e2e_output}" | grep -q "Mock QonPanel Installer" && echo "${e2e_output}" | grep -q -- "--port 9090 --unattended"; then
         report_test "end-to-end download, verify, extract, and execution with arguments" "PASS"
     else
         report_test "end-to-end download, verify, extract, and execution with arguments" "FAIL" "Output: ${e2e_output}"

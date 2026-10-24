@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .init();
 
-    info!("Starting Qpanel API daemon...");
+    info!("Starting QonPanel API daemon...");
 
     let config = PanelConfig::load(None)?;
 

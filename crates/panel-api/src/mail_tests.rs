@@ -10,7 +10,7 @@ fn config(port: u16, encryption: &str) -> SmtpConfig {
         username: Some("username".into()),
         password: Some("super-private".into()),
         from_address: "panel@example.test".into(),
-        from_name: "Qpanel".into(),
+        from_name: "QonPanel".into(),
     }
 }
 #[tokio::test]
@@ -219,7 +219,7 @@ async fn test_smtp_mock_server_flow() {
             let (r, mut w) = stream.split();
             let mut reader = BufReader::new(r);
             let _ = w
-                .write_all(b"220 mock.smtp.local Qpanel SMTP Test\r\n")
+                .write_all(b"220 mock.smtp.local QonPanel SMTP Test\r\n")
                 .await;
 
             let mut line = String::new();
@@ -268,7 +268,7 @@ async fn test_smtp_mock_server_flow() {
         password: Some("password".to_string()),
         encryption: "none".to_string(),
         from_address: "panel@example.test".to_string(),
-        from_name: "Qpanel".to_string(),
+        from_name: "QonPanel".to_string(),
     };
 
     // Test connection

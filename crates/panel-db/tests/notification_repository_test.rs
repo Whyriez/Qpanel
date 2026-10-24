@@ -34,7 +34,7 @@ async fn create_test_user(pool: &panel_db::DbPool, username: &str, uid: i64) -> 
 async fn qpanel_brand_migration_updates_legacy_defaults_and_preserves_customer_settings() {
     let pool = setup_test_db().await;
     let repo = SqliteNotificationRepository::new(pool.clone());
-    assert_eq!(repo.get_settings().await.unwrap().from_name, "Qpanel");
+    assert_eq!(repo.get_settings().await.unwrap().from_name, "QonPanel");
     for (before, after) in [
         ("Nusa Panel", "Qpanel"),
         ("Nusa Panel Alerts", "Qpanel Alerts"),
@@ -295,4 +295,135 @@ async fn test_notification_settings() {
     let fetched = notif_repo.get_settings().await.expect("re-fetch settings");
     assert_eq!(fetched.smtp_host, Some("smtp.example.com".to_string()));
     assert_eq!(fetched.admin_email, Some("ops@company.org".to_string()));
+}
+
+#[tokio::test]
+async fn qonpanel_branding_migrates_defaults_idempotently_and_preserves_custom_data() {
+    let pool = setup_test_db().await;
+    let repo = SqliteNotificationRepository::new(pool.clone());
+    for (before, after) in [
+        ("Qpanel", "QonPanel"),
+        ("Nusa Panel", "QonPanel"),
+        ("Vpanel", "QonPanel"),
+        ("Qpanel Alerts", "QonPanel Alerts"),
+        ("Nusa Panel Alerts", "QonPanel Alerts"),
+        ("Vpanel Alerts", "QonPanel Alerts"),
+        ("Customer Hosting", "Customer Hosting"),
+    ] {
+        sqlx::query("UPDATE notification_settings SET from_name = ?, smtp_host = 'smtp.customer.test', smtp_password_enc = 'existing-encrypted-secret', smtp_enabled = 1 WHERE id = 1")
+            .bind(before).execute(&pool).await.unwrap();
+        for _ in 0..2 {
+            sqlx::raw_sql(include_str!(
+                "../migrations/20261024000001_qonpanel_branding.sql"
+            ))
+            .execute(&pool)
+            .await
+            .unwrap();
+            let saved = repo.get_settings().await.unwrap();
+            assert_eq!(saved.from_name, after);
+            assert_eq!(saved.smtp_host.as_deref(), Some("smtp.customer.test"));
+            assert_eq!(
+                saved.smtp_password_enc.as_deref(),
+                Some("existing-encrypted-secret")
+            );
+            assert!(saved.smtp_enabled);
+        }
+    }
+    for (before, after) in [
+        ("Qpanel", "QonPanel"),
+        ("Customer console", "Customer console"),
+    ] {
+        sqlx::query(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('panel.title', ?, 1)",
+        )
+        .bind(before)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('custom.title', 'Qpanel', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../migrations/20261024000001_qonpanel_branding.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let title: String =
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = 'panel.title'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(title, after);
+        let custom: String =
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = 'custom.title'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(custom, "Qpanel");
+    }
+}
+
+#[tokio::test]
+async fn qonpanel_upgrade_from_previous_schema_preserves_existing_tenant_and_authentication() {
+    let pool = init_pool("sqlite::memory:").await.unwrap();
+    let mut legacy = sqlx::migrate!("./migrations");
+    legacy.migrations = std::borrow::Cow::Owned(
+        legacy
+            .iter()
+            .filter(|m| m.version < 20261024000001)
+            .cloned()
+            .collect(),
+    );
+    legacy.run(&pool).await.unwrap();
+    sqlx::raw_sql("INSERT INTO users(id,username,password_hash,role,totp_secret,created_at,updated_at) VALUES (10,'legacy','existing-password-hash','user','existing-totp-secret',1,1);
+        INSERT INTO sites(id,user_id,kind,docroot,settings_json,created_at,updated_at) VALUES (10,10,'static','/home/p_legacy/sites/existing.test/public','{\"customer\":true}',1,1);
+        INSERT INTO domains(site_id,name,unicode_name,is_primary,created_at,updated_at) VALUES (10,'existing.test','existing.test',1,1,1);
+        UPDATE notification_settings SET from_name='Qpanel', smtp_password_enc='existing-smtp-secret' WHERE id=1;").execute(&pool).await.unwrap();
+    for _ in 0..2 {
+        run_migrations(&pool).await.unwrap();
+    }
+    let auth: (String, String, String) =
+        sqlx::query_as("SELECT username, password_hash, totp_secret FROM users WHERE id=10")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        auth,
+        (
+            "legacy".into(),
+            "existing-password-hash".into(),
+            "existing-totp-secret".into()
+        )
+    );
+    let site: (i64, String, String) =
+        sqlx::query_as("SELECT user_id, docroot, settings_json FROM sites WHERE id=10")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        site,
+        (
+            10,
+            "/home/p_legacy/sites/existing.test/public".into(),
+            "{\"customer\":true}".into()
+        )
+    );
+    let domain: String = sqlx::query_scalar("SELECT name FROM domains WHERE site_id=10")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(domain, "existing.test");
+    let settings = SqliteNotificationRepository::new(pool)
+        .get_settings()
+        .await
+        .unwrap();
+    assert_eq!(settings.from_name, "QonPanel");
+    assert_eq!(
+        settings.smtp_password_enc.as_deref(),
+        Some("existing-smtp-secret")
+    );
 }

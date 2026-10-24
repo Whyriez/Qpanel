@@ -18,6 +18,7 @@ pub mod git_deploy;
 pub mod jobs;
 pub mod logs;
 pub mod mail;
+pub mod maintenance;
 pub mod memory_profile;
 pub mod network;
 pub mod node;
@@ -25,6 +26,7 @@ pub mod node_site;
 pub mod notifications;
 pub mod optimizer;
 pub mod panel_tls;
+pub mod panel_update;
 pub mod panel_url_settings;
 pub mod php;
 pub mod plans;
@@ -38,6 +40,7 @@ pub mod runtime_catalog;
 pub mod security_analytics;
 pub mod security_hardening;
 pub mod security_headers;
+pub mod server_backup;
 pub mod setup;
 pub mod site_rules;
 pub mod sites;
@@ -63,6 +66,8 @@ pub fn create_router(state: AppState) -> Router {
     let api_doc = ApiDoc::openapi();
 
     let api_routes = Router::new()
+        .merge(panel_update::router())
+        .merge(server_backup::router())
         .merge(database_web::router())
         .merge(connectivity::router())
         .merge(panel_url_settings::router())
@@ -738,6 +743,7 @@ pub fn create_router(state: AppState) -> Router {
             public_url::middleware,
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(maintenance::middleware))
         .layer(axum::middleware::from_fn(
             security_headers::security_headers_middleware,
         ))

@@ -15,6 +15,7 @@ if [[ "${1:-}" == --scenario ]]; then
     check_port_available() { :; }; install() { :; }
     begin_transaction() { TRANSACTION=true; }
     setup_identity() { :; }; install_binaries_and_units() { :; }
+    acquire_install_lock() { :; }; validate_upgrade() { :; }; record_installed_release() { :; }
     initialize_database() { :; }; install_nginx_proxy() { record proxy:staged; }
     wait_agent_ready() { record agent:ready; }
     configure_firewall() { record firewall; }

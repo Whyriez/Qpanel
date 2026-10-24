@@ -20,7 +20,7 @@ fn main() {
         } else {
             let _ = fs::write(
                 &index_file,
-                "<!DOCTYPE html><html><head><title>Qpanel</title></head><body><div id=\"root\"></div></body></html>",
+                "<!DOCTYPE html><html><head><title>QonPanel</title></head><body><div id=\"root\"></div></body></html>",
             );
         }
     }

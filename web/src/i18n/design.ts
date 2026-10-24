@@ -53,7 +53,7 @@ export const designId = {
   loginSites: "Situs dan domain",
   loginFiles: "File dan akses server",
   loginMonitoring: "Pemantauan dan aktivitas",
-  hostingWorkspace: "Qpanel. Ruang kerja hosting Anda.",
+  hostingWorkspace: "QonPanel. Ruang kerja hosting Anda.",
   loginAccessNote: "Gunakan akun yang diberikan administrator hosting Anda.",
 };
 
@@ -112,6 +112,6 @@ export const designEn: Record<keyof typeof designId, string> = {
   loginSites: "Websites and domains",
   loginFiles: "Files and server access",
   loginMonitoring: "Monitoring and activity",
-  hostingWorkspace: "Qpanel. Your hosting workspace.",
+  hostingWorkspace: "QonPanel. Your hosting workspace.",
   loginAccessNote: "Use the account provided by your hosting administrator.",
 };

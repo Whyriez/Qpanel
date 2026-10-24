@@ -328,7 +328,7 @@ impl SqliteNotificationRepository {
                     smtp_password_enc: None,
                     smtp_encryption: "starttls".to_string(),
                     from_address: "noreply@panel.local".to_string(),
-                    from_name: "Qpanel".to_string(),
+                    from_name: "QonPanel".to_string(),
                     admin_email: None,
                     ssl_warning_days: 30,
                     quota_warning_percent: 90,

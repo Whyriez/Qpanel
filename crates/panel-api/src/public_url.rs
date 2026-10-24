@@ -222,7 +222,7 @@ pub async fn middleware(
                 "Alamat Panel aktif belum terdaftar untuk pemeriksaan ini.",
             );
         }
-        return axum::response::Html("<!doctype html><html lang=\"id\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Pemeriksaan alamat Qpanel</title><link rel=\"stylesheet\" href=\"/panel-url-check.css\"><main><p>Qpanel</p><h1>Alamat panel dapat dibuka</h1><p>Browser Anda berhasil mencapai panel melalui alamat ini. Kembali ke pengaturan Konektivitas untuk mengonfirmasikan aktivasi URL.</p><p>Pemeriksaan ini tidak mengubah layanan atau mengaktifkan alamat. Akses SSH, database dan email memerlukan pemeriksaan masing-masing.</p></main></html>").into_response();
+        return axum::response::Html("<!doctype html><html lang=\"id\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Pemeriksaan alamat QonPanel</title><link rel=\"stylesheet\" href=\"/panel-url-check.css\"><main><p>QonPanel</p><h1>Alamat panel dapat dibuka</h1><p>Browser Anda berhasil mencapai panel melalui alamat ini. Kembali ke pengaturan Konektivitas untuk mengonfirmasikan aktivasi URL.</p><p>Pemeriksaan ini tidak mengubah layanan atau mengaktifkan alamat. Akses SSH, database dan email memerlukan pemeriksaan masing-masing.</p></main></html>").into_response();
     }
     if !matches!(
         request.uri().path(),

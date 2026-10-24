@@ -56,7 +56,7 @@ async fn test_pty_session_lifecycle() {
     let read_res = manager.read_output(read_req).await.expect("read_output");
     assert!(!read_res.data.is_empty());
     let output_text = String::from_utf8_lossy(&read_res.data);
-    assert!(output_text.contains("Welcome to Qpanel Shell"));
+    assert!(output_text.contains("Welcome to QonPanel Shell"));
 
     // 3. Write input command
     let in_req = PtyInputRequest {

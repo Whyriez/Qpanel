@@ -310,7 +310,7 @@ export const Shell: React.FC<ShellProps> = ({
             <Menu size={20} />
           </button>
           <div className="workspace-breadcrumb">
-            <span>Qpanel</span>
+            <span>QonPanel</span>
             <span aria-hidden="true">/</span>
             <strong>{t(`nav.${activeNav}`, { defaultValue: t('notFound.title') })}</strong>
           </div>

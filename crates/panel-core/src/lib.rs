@@ -25,6 +25,7 @@ pub mod ssh;
 pub mod system_backup;
 pub mod tenant;
 pub mod totp;
+pub mod update;
 pub use auth::{hash_password, hash_token, verify_password};
 pub use backup::{
     BackupDatabaseManifestEntry, BackupFormat, BackupManifest, BackupScheduleFrequency,

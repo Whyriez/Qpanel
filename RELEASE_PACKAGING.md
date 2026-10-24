@@ -1,5 +1,12 @@
 # Paket release dan kegagalan installer
 
+P10-T6cs menambahkan updater admin di **Pengaturan server → Pembaruan**.
+Paket wajib menyertakan UPGRADE_FROM, unit panel-update.service, helper worker,
+bootstrap dan panduan docs/updating.md. Upgrade existing satu kali memasang
+fondasi tombol; update berikutnya memakai layanan terpisah dan digest paket
+terpilih. Baca [UPDATING.md](UPDATING.md) untuk migrasi kompatibel, pemulihan
+dan aturan versi stabil tanpa instalasi ulang. Acceptance Ubuntu masih terpisah.
+
 Jika bootstrap berhenti pada `Template systemd/Nginx paket tidak lengkap`,
 arsip release yang diunduh kehilangan file wajib. Checksum yang benar hanya
 membuktikan unduhannya utuh; checksum tidak membuktikan isi paket lengkap.
@@ -16,7 +23,7 @@ Build lokal (`scripts/build-release.sh`) dan workflow Release sekarang memanggil
 `scripts/package-release.sh`. Script bersama ini:
 
 - Memastikan tag sama dengan versi `[workspace.package]` di `Cargo.toml`.
-- Mewajibkan tiga biner, installer/uninstaller, tiga unit systemd, proxy panel,
+- Mewajibkan tiga biner, installer/uninstaller, unit panel/worker dan drop-in runtime, proxy panel,
   guard hostname asing, panduan admin, serta index dan JavaScript web hasil build.
 - Memeriksa daftar file dalam arsip dan membuat checksum setelah pengemasan
   berhasil; staging sementara dibersihkan bila gagal.
@@ -50,9 +57,9 @@ sudah terbit. Untuk mengganti aset development `v0.1.0` dengan build terbaru:
    eksplisit pada server Linux:
 
    ```bash
-   sudo env NUSA_PANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh
+   sudo env QONPANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh
    # Instalasi existing:
-   sudo env NUSA_PANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh --upgrade
+   sudo env QONPANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh --upgrade
    ```
 
 Hanya jalankan salah satu command sesuai kondisi server. Rebuild development
@@ -134,3 +141,12 @@ untuk x86_64 dan ARM64, menggunakan compiler/readelf tiruan. Kasus negatif
 mencakup file wajib hilang/kosong, tag salah, kegagalan tar, serta diagnostik
 preflight tanpa mengeksekusi biner panel asli. Ini tidak membuktikan instalasi
 Ubuntu, Nginx, systemd, atau release publik berhasil.
+
+## Identitas rilis QonPanel
+
+Repository resmi adalah `Whyriez/QonPanel`. Artefak utama memakai nama
+`qonpanel-vVERSION-TARGET.tar.gz` dan direktori akar dengan nama yang sama.
+Workflow menerbitkan paket kompatibilitas `nusa-panel-vVERSION-TARGET.tar.gz`
+dengan akar legacy tersendiri, agar bootstrap yang sudah terpasang tetap dapat
+mengekstrak upgrade. Keduanya diverifikasi dan dicantumkan di `SHA256SUMS`.
+Paket kompatibilitas berisi aplikasi QonPanel yang sama.

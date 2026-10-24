@@ -190,7 +190,7 @@ export const SecurityProfilePage: React.FC = () => {
       const element = document.createElement('a');
       const file = new Blob([recoveryCodes.join('\n')], { type: 'text/plain' });
       element.href = URL.createObjectURL(file);
-      element.download = `qpanel-recovery-codes-${user?.username}.txt`;
+      element.download = `qonpanel-recovery-codes-${user?.username}.txt`;
       document.body.appendChild(element);
       element.click();
       document.body.removeChild(element);

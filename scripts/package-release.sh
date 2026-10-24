@@ -27,30 +27,42 @@ esac
 cd "$REPO"
 BIN_DIR="${CARGO_TARGET_DIR:-$REPO/target/release-native/$TARGET}/$TARGET/release"
 OUTPUT_DIR="$REPO/release"
-STAGE_NAME="nusa-panel-$TAG-$TARGET"
+STAGE_NAME="qonpanel-$TAG-$TARGET"
 ARCHIVE_NAME="$STAGE_NAME.tar.gz"
 
 # One explicit payload list for every release path. Missing files fail the build.
 sources=(
     "$BIN_DIR/panel-api" "$BIN_DIR/panel-agent" "$BIN_DIR/panelctl"
-    install.sh uninstall.sh
+    install.sh uninstall.sh UPGRADE_FROM
+    scripts/bootstrap-install.sh scripts/panel-update-worker.sh
+    scripts/server-backup-worker.py templates/systemd/qonpanel-server-backup.service
+    templates/systemd/panel-update.service
     templates/systemd/panel-api.service
     templates/systemd/panel-agent.service
     templates/systemd/panel-proc-hardening.service
+    templates/systemd/panel-runtime-order.conf
     templates/nginx/nusa-panel.conf
     templates/nginx/nusa-reject-unknown.conf
     ADMIN_ACCOUNTS.md
+    UPDATING.md
+    SERVER_BACKUP.md
     web/dist/index.html
 )
 destinations=(
     bin/panel-api bin/panel-agent bin/panelctl
-    install.sh uninstall.sh
+    install.sh uninstall.sh UPGRADE_FROM
+    scripts/bootstrap-install.sh scripts/panel-update-worker.sh
+    scripts/server-backup-worker.py templates/systemd/qonpanel-server-backup.service
+    templates/systemd/panel-update.service
     templates/systemd/panel-api.service
     templates/systemd/panel-agent.service
     templates/systemd/panel-proc-hardening.service
+    templates/systemd/panel-runtime-order.conf
     templates/nginx/nusa-panel.conf
     templates/nginx/nusa-reject-unknown.conf
     docs/admin-accounts.md
+    docs/updating.md
+    docs/server-backup.md
     web/dist/index.html
 )
 missing=0
@@ -88,6 +100,16 @@ for destination in "${destinations[@]}"; do
     }
 done
 (cd "$temporary" && sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256")
-mv "$temporary/$ARCHIVE_NAME" "$temporary/$ARCHIVE_NAME.sha256" "$OUTPUT_DIR/"
+# A separate legacy root is required by already-installed bootstraps.
+LEGACY_NAME="nusa-panel-$TAG-$TARGET"
+cp -R "$stage" "$temporary/$LEGACY_NAME"
+tar -czf "$temporary/$LEGACY_NAME.tar.gz" -C "$temporary" "$LEGACY_NAME"
+legacy_listing="$(tar -tzf "$temporary/$LEGACY_NAME.tar.gz")"
+for destination in "${destinations[@]}"; do
+    grep -Fxq "$LEGACY_NAME/$destination" <<< "$legacy_listing" || exit 1
+done
+(cd "$temporary" && sha256sum "$LEGACY_NAME.tar.gz" > "$LEGACY_NAME.tar.gz.sha256")
+mv "$temporary/$ARCHIVE_NAME" "$temporary/$ARCHIVE_NAME.sha256" \
+    "$temporary/$LEGACY_NAME.tar.gz" "$temporary/$LEGACY_NAME.tar.gz.sha256" "$OUTPUT_DIR/"
 printf '[SUKSES] Paket rilis: %s/%s\nChecksum: %s/%s.sha256\n' \
     "$OUTPUT_DIR" "$ARCHIVE_NAME" "$OUTPUT_DIR" "$ARCHIVE_NAME"

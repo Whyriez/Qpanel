@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Qpanel - Release Packaging Script
+# QonPanel - Release Packaging Script
 # Targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
 # ==============================================================================
 
@@ -13,7 +13,7 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$SCRIPT_DIR/target/release-native/$
 BIN_DIR="$CARGO_TARGET_DIR/$TARGET/release"
 
 echo "================================================================================"
-echo "          MEMBANGUN PAKET RILIS QPANEL (${TARGET})              "
+echo "          MEMBANGUN PAKET RILIS QONPANEL (${TARGET})              "
 echo "================================================================================"
 
 

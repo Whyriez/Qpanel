@@ -238,7 +238,7 @@ fn configure(r: &dyn SystemRunner, m: &Manifest) -> Result<(), AgentError> {
     write(
         r,
         "/etc/opendkim.conf",
-        "# Managed by Qpanel\nSyslog yes\nUMask 007\nUserID opendkim\nMode sv\nCanonicalization relaxed/simple\nSocket local:/var/spool/postfix/qpanel-dkim/opendkim.sock\nKeyTable refile:/etc/opendkim/KeyTable\nSigningTable refile:/etc/opendkim/SigningTable\nInternalHosts file:/etc/opendkim/TrustedHosts\nMTA csl:QpanelLocal\nOversignHeaders From\nSenderMacro {mail_addr}\n",
+        "# Managed by QonPanel\nSyslog yes\nUMask 007\nUserID opendkim\nMode sv\nCanonicalization relaxed/simple\nSocket local:/var/spool/postfix/qpanel-dkim/opendkim.sock\nKeyTable refile:/etc/opendkim/KeyTable\nSigningTable refile:/etc/opendkim/SigningTable\nInternalHosts file:/etc/opendkim/TrustedHosts\nMTA csl:QpanelLocal\nOversignHeaders From\nSenderMacro {mail_addr}\n",
     )?;
     write(
         r,
@@ -258,14 +258,14 @@ fn configure(r: &dyn SystemRunner, m: &Manifest) -> Result<(), AgentError> {
         r,
         "/etc/postfix/main.cf",
         &format!(
-            "# Managed by Qpanel\ncompatibility_level = 3.6\nmyhostname = {}\nmydestination = localhost\ninet_interfaces = all\ninet_protocols = all\nmynetworks = 127.0.0.0/8 [::1]/128\nsmtpd_relay_restrictions = permit_sasl_authenticated, reject_unauth_destination\nsmtpd_recipient_restrictions = reject_unlisted_recipient, reject_unauth_destination\nvirtual_mailbox_domains = hash:/etc/postfix/virtual_domains\nvirtual_mailbox_maps = hash:/etc/postfix/virtual_mailboxes\nvirtual_transport = lmtp:unix:private/dovecot-lmtp\nsmtpd_tls_cert_file = {cert}/fullchain.pem\nsmtpd_tls_key_file = {cert}/privkey.pem\nsmtpd_tls_security_level = may\nsmtpd_tls_protocols = >=TLSv1.2\nsmtpd_tls_mandatory_protocols = >=TLSv1.2\nsmtp_tls_security_level = may\nsmtpd_sasl_type = dovecot\nsmtpd_sasl_path = private/auth\nsmtpd_sasl_auth_enable = no\nsmtpd_sender_login_maps = hash:/etc/postfix/sender_login\nsmtpd_milters = unix:/var/spool/postfix/qpanel-dkim/opendkim.sock\nnon_smtpd_milters = unix:/var/spool/postfix/qpanel-dkim/opendkim.sock\nmilter_macro_daemon_name = QpanelLocal\nmilter_default_action = tempfail\nmilter_protocol = 6\nmilter_mail_macros = i {{mail_addr}} {{mail_host}} {{mail_mailer}} {{auth_type}} {{auth_authen}}\nauthorized_submit_users = root, panel-api\nmessage_size_limit = 10485760\ndisable_vrfy_command = yes\n",
+            "# Managed by QonPanel\ncompatibility_level = 3.6\nmyhostname = {}\nmydestination = localhost\ninet_interfaces = all\ninet_protocols = all\nmynetworks = 127.0.0.0/8 [::1]/128\nsmtpd_relay_restrictions = permit_sasl_authenticated, reject_unauth_destination\nsmtpd_recipient_restrictions = reject_unlisted_recipient, reject_unauth_destination\nvirtual_mailbox_domains = hash:/etc/postfix/virtual_domains\nvirtual_mailbox_maps = hash:/etc/postfix/virtual_mailboxes\nvirtual_transport = lmtp:unix:private/dovecot-lmtp\nsmtpd_tls_cert_file = {cert}/fullchain.pem\nsmtpd_tls_key_file = {cert}/privkey.pem\nsmtpd_tls_security_level = may\nsmtpd_tls_protocols = >=TLSv1.2\nsmtpd_tls_mandatory_protocols = >=TLSv1.2\nsmtp_tls_security_level = may\nsmtpd_sasl_type = dovecot\nsmtpd_sasl_path = private/auth\nsmtpd_sasl_auth_enable = no\nsmtpd_sender_login_maps = hash:/etc/postfix/sender_login\nsmtpd_milters = unix:/var/spool/postfix/qpanel-dkim/opendkim.sock\nnon_smtpd_milters = unix:/var/spool/postfix/qpanel-dkim/opendkim.sock\nmilter_macro_daemon_name = QpanelLocal\nmilter_default_action = tempfail\nmilter_protocol = 6\nmilter_mail_macros = i {{mail_addr}} {{mail_host}} {{mail_mailer}} {{auth_type}} {{auth_authen}}\nauthorized_submit_users = root, panel-api\nmessage_size_limit = 10485760\ndisable_vrfy_command = yes\n",
             s.hostname
         ),
     )?;
     write(
         r,
         "/etc/postfix/master.cf",
-        "# Managed by Qpanel\nsmtp inet n - n - - smtpd\n  -o milter_macro_daemon_name=QpanelInbound\nsubmission inet n - n - - smtpd\n  -o milter_macro_daemon_name=QpanelSubmission\n  -o smtpd_tls_security_level=encrypt\n  -o smtpd_sasl_auth_enable=yes\n  -o smtpd_sender_restrictions=reject_authenticated_sender_login_mismatch\n  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject\npickup unix n - n 60 1 pickup\ncleanup unix n - n - 0 cleanup\nqmgr unix n - n 300 1 qmgr\ntlsmgr unix - - n 1000? 1 tlsmgr\nrewrite unix - - n - - trivial-rewrite\nbounce unix - - n - 0 bounce\ndefer unix - - n - 0 bounce\ntrace unix - - n - 0 bounce\nverify unix - - n - 1 verify\nflush unix n - n 1000? 0 flush\nproxymap unix - - n - - proxymap\nproxywrite unix - - n - 1 proxymap\nsmtp unix - - n - - smtp\nrelay unix - - n - - smtp\nshowq unix n - n - - showq\nerror unix - - n - - error\nretry unix - - n - - error\ndiscard unix - - n - - discard\nlocal unix - n n - - local\nvirtual unix - n n - - virtual\nlmtp unix - - n - - lmtp\nanvil unix - - n - 1 anvil\nscache unix - - n - 1 scache\n",
+        "# Managed by QonPanel\nsmtp inet n - n - - smtpd\n  -o milter_macro_daemon_name=QpanelInbound\nsubmission inet n - n - - smtpd\n  -o milter_macro_daemon_name=QpanelSubmission\n  -o smtpd_tls_security_level=encrypt\n  -o smtpd_sasl_auth_enable=yes\n  -o smtpd_sender_restrictions=reject_authenticated_sender_login_mismatch\n  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject\npickup unix n - n 60 1 pickup\ncleanup unix n - n - 0 cleanup\nqmgr unix n - n 300 1 qmgr\ntlsmgr unix - - n 1000? 1 tlsmgr\nrewrite unix - - n - - trivial-rewrite\nbounce unix - - n - 0 bounce\ndefer unix - - n - 0 bounce\ntrace unix - - n - 0 bounce\nverify unix - - n - 1 verify\nflush unix n - n 1000? 0 flush\nproxymap unix - - n - - proxymap\nproxywrite unix - - n - 1 proxymap\nsmtp unix - - n - - smtp\nrelay unix - - n - - smtp\nshowq unix n - n - - showq\nerror unix - - n - - error\nretry unix - - n - - error\ndiscard unix - - n - - discard\nlocal unix - n n - - local\nvirtual unix - n n - - virtual\nlmtp unix - - n - - lmtp\nanvil unix - - n - 1 anvil\nscache unix - - n - 1 scache\n",
     )?;
     r.write_file(
         Path::new("/etc/dovecot/qpanel-users"),
@@ -277,7 +277,7 @@ fn configure(r: &dyn SystemRunner, m: &Manifest) -> Result<(), AgentError> {
         r,
         "/etc/dovecot/dovecot.conf",
         &format!(
-            r#"# Managed by Qpanel
+            r#"# Managed by QonPanel
 protocols = imap lmtp
 listen = *, ::
 ssl = required

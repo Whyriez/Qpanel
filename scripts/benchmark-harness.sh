@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/benchmark-harness.sh: Automated Benchmark Harness for Qpanel (P10-T1)
+# scripts/benchmark-harness.sh: Automated Benchmark Harness for QonPanel (P10-T1)
 # Measures HTTP throughput, latency percentiles (p50/p95/p99), tuning comparisons,
 # and verifies PRD Section 9 Non-Functional Targets.
 
@@ -20,7 +20,7 @@ URL_BASE="http://127.0.0.1:8080"
 VALIDATE_TARGETS=false
 
 print_help() {
-    echo "Qpanel Benchmark Harness Runner (P10-T1)"
+    echo "QonPanel Benchmark Harness Runner (P10-T1)"
     echo ""
     echo "Usage: $0 [options]"
     echo ""
@@ -91,7 +91,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "=========================================================="
-echo " Qpanel Performance Benchmark Harness (Phase 10 / P10-T1)"
+echo " QonPanel Performance Benchmark Harness (Phase 10 / P10-T1)"
 echo "=========================================================="
 echo "Repo Dir:     ${REPO_DIR}"
 echo "Scenario:     ${SCENARIO}"

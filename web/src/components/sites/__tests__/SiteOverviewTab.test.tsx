@@ -89,12 +89,53 @@ describe("SiteOverviewTab Component", () => {
     const html = render();
     expect(html).toContain("Situs beroperasi normal");
     expect(html).toContain("Berjalan");
-    expect(html).toContain("Mulai ulang");
+    expect(html).toContain("Muat ulang Nginx");
+    expect(html).not.toContain(">Mulai ulang aplikasi</button>");
     expect(html).not.toContain("Hentikan");
     expect(html).toContain("Belum ada deployment");
     expect(html).toContain("Belum ada cadangan");
     expect(html).toContain('href="https://mysite.test"');
     expect(html).not.toMatch(/bg-slate|text-white|backdrop-blur|shadow-lg/);
+  });
+  it("shows configured access and runtime independently and prevents starting an already running app", () => {
+    const html = render({ ...overview, runtime: { ...overview.runtime, kind: "nodejs" }, quick_actions_available: ["start", "stop", "restart", "reload"] });
+    expect(html).toContain("Akses situs:");
+    expect(html).toContain("Proses aplikasi");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Mulai<\/button>/);
+    expect(html).toContain("Mulai ulang aplikasi");
+    expect(html).toContain("cache aplikasi tidak dihapus");
+  });
+  it("shows a stopped app and disables stop/restart while allowing start", () => {
+    const html = render({ ...overview, status: { ...overview.status, webserver_status: "suspended", runtime_status: "inactive", healthy: false }, runtime: { ...overview.runtime, kind: "python" }, quick_actions_available: ["start", "stop", "restart", "reload"] });
+    expect(html).toContain("Situs dinonaktifkan");
+    expect(html).toContain("Berhenti");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Hentikan<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>.*?Mulai ulang aplikasi<\/button>/);
+    expect(html).toMatch(/<button class="project-button">.*?Mulai<\/button>/);
+  });
+  it("does not call an unavailable agent stopped or invent a process for static sites", () => {
+    const unknown = render({ ...overview, status: { ...overview.status, runtime_status: "unknown", healthy: false } });
+    expect(unknown).toContain("Belum diketahui");
+    expect(unknown).not.toContain(">Berhenti<");
+    const staticSite = render({ ...overview, runtime: { ...overview.runtime, kind: "static" }, status: { ...overview.status, runtime_status: "not_applicable" } });
+    expect(staticSite).toContain("Situs diaktifkan");
+    expect(staticSite).not.toContain("Proses aplikasi:");
+    expect(staticSite).not.toContain("Situs beroperasi normal");
+  });
+  it("keeps the PHP master separate from site access and hides unsupported cache/restart controls", () => {
+    const html = render({ ...overview, quick_actions_available: ["start", "stop", "restart", "reload", "clear_cache"] });
+    expect(html).toContain("PHP-FPM");
+    expect(html).toContain("dipakai situs lain");
+    expect(html).toContain("Nonaktifkan situs");
+    expect(html).not.toContain("Bersihkan cache");
+    expect(html).not.toContain(">Mulai ulang aplikasi</button>");
+  });
+  it("announces the exact pending action and blocks stale controls", () => {
+    const html = renderToString(<SiteOverviewContent site={mockSite} overview={overview} onNavigateTab={vi.fn()} onQuickAction={vi.fn()} onRefresh={vi.fn()} actionInProgress="stop" statusStale />);
+    expect(html).toContain("Menonaktifkan situs...");
+    expect(html).toContain("Menunggu hasil dan pemeriksaan status");
+    expect(html).toContain("Status terakhir belum dapat diperbarui");
+    expect(html).toContain('aria-live="polite"');
   });
   it("keeps zero usage empty and does not invent tenant limits", () => {
     expect(render()).toContain('aria-valuenow="0"');

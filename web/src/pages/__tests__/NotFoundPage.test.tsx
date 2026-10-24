@@ -4,10 +4,10 @@ import '../../i18n';
 import { Brand } from '../../components/ui/Brand';
 import { NotFoundPage } from '../NotFoundPage';
 
-describe('Qpanel branding and missing page', () => {
-  it('renders the Qpanel identity and useful recovery links', () => {
+describe('QonPanel branding and missing page', () => {
+  it('renders the QonPanel identity and useful recovery links', () => {
     const html = renderToString(<><Brand /><NotFoundPage /></>);
-    expect(html).toContain('aria-label="Qpanel"');
+    expect(html).toContain('aria-label="QonPanel"');
     expect(html).toContain('Halaman tidak ditemukan.');
     expect(html).toContain('href="/dashboard"');
     expect(html).toContain('href="/sites"');

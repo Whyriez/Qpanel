@@ -9,8 +9,12 @@ TRACE="$fixture/build.trace"
 export MOCK_REPO TRACE
 mkdir -p "$MOCK_REPO/scripts" "$MOCK_REPO/templates" "$MOCK_REPO/target/release/build"
 cp "$REPO/scripts/compile-release.sh" "$REPO/scripts/build-release.sh" "$REPO/scripts/check-glibc.sh" "$REPO/scripts/package-release.sh" "$MOCK_REPO/scripts/"
+cp "$REPO/scripts/server-backup-worker.py" "$REPO/scripts/bootstrap-install.sh" "$REPO/scripts/panel-update-worker.sh" "$MOCK_REPO/scripts/"
 cp "$REPO/install.sh" "$REPO/uninstall.sh" "$MOCK_REPO/"
 cp "$REPO/ADMIN_ACCOUNTS.md" "$MOCK_REPO/"
+cp "$REPO/UPGRADE_FROM" "$MOCK_REPO/"
+cp "$REPO/SERVER_BACKUP.md" "$MOCK_REPO/"
+cp "$REPO/UPDATING.md" "$MOCK_REPO/"
 cp -r "$REPO/templates/systemd" "$REPO/templates/nginx" "$MOCK_REPO/templates/"
 mkdir -p "$MOCK_REPO/web/dist/assets"
 printf 'fixture index\n' > "$MOCK_REPO/web/dist/index.html"
@@ -83,7 +87,13 @@ for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
     cmp -s "$REPO/ADMIN_ACCOUNTS.md" "$extract/nusa-panel-v0.1.0-$target/docs/admin-accounts.md"
     [[ -f "$extract/nusa-panel-v0.1.0-$target/templates/systemd/panel-api.service" ]]
     cmp -s "$REPO/templates/systemd/panel-proc-hardening.service" "$extract/nusa-panel-v0.1.0-$target/templates/systemd/panel-proc-hardening.service"
+    cmp -s "$REPO/templates/systemd/panel-runtime-order.conf" "$extract/nusa-panel-v0.1.0-$target/templates/systemd/panel-runtime-order.conf"
     [[ "$output" == *'[SUKSES]'* ]]
+    primary="$MOCK_REPO/release/qonpanel-v0.1.0-$target.tar.gz"
+    (cd "$MOCK_REPO/release" && sha256sum -c "$(basename "$primary").sha256" --status)
+    tar -xzf "$primary" -C "$extract"
+    diff -r "$extract/qonpanel-v0.1.0-$target" "$extract/nusa-panel-v0.1.0-$target"
+    pass "canonical QonPanel and legacy $target archives have correct roots and identical payloads"
     pass "native $target GLIBC gate and tarball read freshly compiled artifacts"
 done
 
@@ -176,8 +186,10 @@ archive="$MOCK_REPO/release/nusa-panel-v0.1.0-$FAKE_HOST.tar.gz"
 for missing in \
     "${CARGO_TARGET_DIR#"$MOCK_REPO/"}/$FAKE_HOST/release/panel-agent" \
     templates/systemd/panel-proc-hardening.service \
+    templates/systemd/panel-runtime-order.conf \
+    templates/systemd/panel-update.service scripts/bootstrap-install.sh scripts/panel-update-worker.sh \
     templates/nginx/nusa-panel.conf templates/nginx/nusa-reject-unknown.conf \
-    ADMIN_ACCOUNTS.md install.sh uninstall.sh web/dist/index.html \
+    ADMIN_ACCOUNTS.md UPDATING.md install.sh uninstall.sh UPGRADE_FROM web/dist/index.html \
     web/dist/assets/index-fixture.js; do
     mv "$MOCK_REPO/$missing" "$fixture/withheld"
     rm -f "$archive" "$archive.sha256"
@@ -236,11 +248,14 @@ for binary in panel-api panel-agent panelctl; do
 #!/usr/bin/env bash
 [[ "$*" == --version ]] || exit 99
 printf 'stub version check\n' >> "$INSTALL_PREFLIGHT_TRACE"
+printf 'panel fixture 0.1.0\n'
 STUB
     chmod 0755 "$MOCK_REPO/bin/$binary"
 done
-for missing in templates/systemd/panel-api.service \
+for missing in UPGRADE_FROM templates/systemd/panel-api.service \
     templates/systemd/panel-agent.service templates/systemd/panel-proc-hardening.service \
+    templates/systemd/panel-runtime-order.conf \
+    templates/systemd/panel-update.service scripts/bootstrap-install.sh scripts/panel-update-worker.sh \
     templates/nginx/nusa-panel.conf templates/nginx/nusa-reject-unknown.conf; do
     mv "$MOCK_REPO/$missing" "$fixture/withheld"
     : > "$INSTALL_PREFLIGHT_TRACE"

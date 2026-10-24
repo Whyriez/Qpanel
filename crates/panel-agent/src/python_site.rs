@@ -236,6 +236,8 @@ pub fn generate_python_site_unit(
         "[Unit]\n\
 Description=Site {site_id} (python)\n\
 After=network.target\n\
+Wants=panel-agent.service\n\
+After=panel-agent.service\n\
 \n\
 [Service]\n\
 User={username}\n\
@@ -457,7 +459,7 @@ pub fn apply_python_site(
 
     // 3. Reload systemd and restart/start service
     runner.run_command("systemctl", &["daemon-reload"])?;
-    let _ = runner.run_command("systemctl", &["enable", &service_name]);
+    runner.run_command("systemctl", &["enable", &service_name])?;
     runner.run_command("systemctl", &["restart", &service_name])?;
 
     Ok(PythonSiteApplyResponse {
@@ -1086,6 +1088,7 @@ mod tests {
         )
         .unwrap();
         assert!(unit.contains("RuntimeDirectory=panel/python/site_1"));
+        assert!(unit.contains("Wants=panel-agent.service\nAfter=panel-agent.service"));
         assert!(unit.contains("ExecStartPre=/usr/bin/setfacl -m u:www-data:--x,d:u:www-data:rwX /run/panel/python/site_1"));
         assert!(
             remove_python_site(

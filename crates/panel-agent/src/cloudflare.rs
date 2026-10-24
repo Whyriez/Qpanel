@@ -702,7 +702,7 @@ pub fn execute(runner: &dyn SystemRunner, request: CloudflareRequest) -> Result<
                     }
                     runner.write_file(Path::new(&token_path(&key)), token.as_bytes(), 0o600)?;
                     let contents = format!(
-                        "[Unit]\nDescription=Qpanel Cloudflare Tunnel {key}\nAfter=network-online.target nginx.service\nWants=network-online.target\n\n[Service]\nType=simple\nDynamicUser=yes\nUser=qpanel-cloudflared\nLoadCredential=token:{}\nExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token-file %d/token\nRestart=on-failure\nRestartSec=5s\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nProtectKernelTunables=yes\nProtectControlGroups=yes\nCapabilityBoundingSet=\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX\n\n[Install]\nWantedBy=multi-user.target\n",
+                        "[Unit]\nDescription=QonPanel Cloudflare Tunnel {key}\nAfter=network-online.target nginx.service\nWants=network-online.target\n\n[Service]\nType=simple\nDynamicUser=yes\nUser=qpanel-cloudflared\nLoadCredential=token:{}\nExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token-file %d/token\nRestart=on-failure\nRestartSec=5s\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\nPrivateDevices=yes\nProtectKernelTunables=yes\nProtectControlGroups=yes\nCapabilityBoundingSet=\nRestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX\n\n[Install]\nWantedBy=multi-user.target\n",
                         token_path(&key)
                     );
                     runner.write_file(Path::new(&unit_path(&key)), contents.as_bytes(), 0o644)?;

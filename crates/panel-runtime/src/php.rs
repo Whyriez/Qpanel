@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Whitelisted, supported PHP versions in Qpanel.
+/// Whitelisted, supported PHP versions in QonPanel.
 /// Parallel versions provided via Ondřej Surý PPA / Debian repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum PhpVersion {
@@ -201,7 +201,7 @@ pub fn is_sury_repo_installed(path_checker: impl Fn(&Path) -> bool) -> bool {
     candidates.iter().any(|p| path_checker(p))
 }
 
-/// Represents a curated PHP extension available in Qpanel.
+/// Represents a curated PHP extension available in QonPanel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct PhpExtensionDefinition {
     pub name: &'static str,
@@ -238,7 +238,7 @@ pub struct PhpExtensionInfo {
     pub description: String,
 }
 
-/// Curated list of standard PHP extensions supported by Qpanel.
+/// Curated list of standard PHP extensions supported by QonPanel.
 pub const CURATED_PHP_EXTENSIONS: &[PhpExtensionDefinition] = &[
     PhpExtensionDefinition {
         name: "bcmath",

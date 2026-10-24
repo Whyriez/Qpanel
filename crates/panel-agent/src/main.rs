@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .init();
 
-    info!("Starting Qpanel Agent daemon...");
+    info!("Starting QonPanel Agent daemon...");
 
     let socket_path = std::env::var("PANEL_AGENT_SOCKET")
         .map(PathBuf::from)

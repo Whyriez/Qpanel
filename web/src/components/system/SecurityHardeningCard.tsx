@@ -366,7 +366,7 @@ export const SecurityHardeningCard: React.FC<SecurityHardeningCardProps> = ({
       {activeTab === 'systemd' && (
         <div className="space-y-4">
           <p className="text-xs text-[var(--ink-muted)]">
-            Evaluasi unit file service systemd resmi Vpanel berdasarkan metrik <code>systemd-analyze security</code>.
+            Evaluasi unit file service systemd resmi QonPanel berdasarkan metrik <code>systemd-analyze security</code>.
             Skor paparan di bawah 2.0 dikategorikan sebagai "OK" dan sepenuhnya tersandbox.
           </p>
 

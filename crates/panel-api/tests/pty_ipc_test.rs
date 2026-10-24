@@ -78,7 +78,7 @@ async fn test_pty_ipc_lifecycle_and_security() {
         .expect("pty_read_output");
     assert!(!read_res.data.is_empty());
     let text = String::from_utf8_lossy(&read_res.data);
-    assert!(text.contains("Welcome to Qpanel Shell"));
+    assert!(text.contains("Welcome to QonPanel Shell"));
 
     // 3. Write input
     let in_res = client

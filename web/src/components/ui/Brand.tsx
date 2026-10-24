@@ -3,21 +3,20 @@ import { useTranslation } from "react-i18next";
 export function Brand() {
   const { t } = useTranslation();
   return (
-    <div className="panel-brand" aria-label="Qpanel">
-      <svg
-        className="brand-mark"
-        viewBox="0 0 36 36"
-        fill="none"
-        aria-hidden="true"
-      >
-        <rect width="36" height="36" rx="9" fill="currentColor" />
-        <circle cx="17" cy="17" r="7" stroke="var(--primary-foreground)" strokeWidth="3.5" />
-        <path d="m21 21 6 6" stroke="var(--primary-foreground)" strokeWidth="3.5" strokeLinecap="round" />
-      </svg>
+    <div className="panel-brand" aria-label="QonPanel">
+      <img className="brand-mark" src="/brand/qonpanel-mark.svg" width="40" height="40" alt="" aria-hidden="true" />
       <span className="brand-name">
-        Qpanel
+        QonPanel
         <span className="brand-description">{t("design.hostingPanel")}</span>
       </span>
     </div>
   );
+}
+
+export function BrandLoading({ message, fullScreen = false }: { message: string; fullScreen?: boolean }) {
+  return <div className={`brand-loading${fullScreen ? ' brand-loading--full' : ''}`} role="status" aria-live="polite">
+    <Brand />
+    <div className="brand-loading__line" aria-hidden="true" />
+    <p>{message}</p>
+  </div>;
 }

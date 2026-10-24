@@ -304,7 +304,7 @@ async fn test_frontend_site_rules_json_round_trip_and_invalid_redirect_preserves
         .join(format!("etc/nginx/sites-enabled/site_{}.conf", ctx.site_id));
     let initial_vhost = fs::read_to_string(&vhost_path).unwrap();
     assert!(initial_vhost.contains("location @qpanel_not_found"));
-    assert!(initial_vhost.contains("Qpanel"));
+    assert!(initial_vhost.contains("QonPanel"));
     let mut payload: serde_json::Value = serde_json::from_str(include_str!(
         "../../../web/scripts/fixtures/site-rules.json"
     ))

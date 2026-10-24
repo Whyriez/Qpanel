@@ -1,5 +1,5 @@
 [Unit]
-Description=Qpanel internal database administration (private FastCGI)
+Description=QonPanel internal database administration (private FastCGI)
 After=network.target
 
 [Service]

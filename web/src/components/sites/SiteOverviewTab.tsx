@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -24,6 +24,7 @@ export interface SiteOverviewTabProps {
   site: Site;
   onNavigateTab: (tab: string) => void;
   onOpenTerminal?: () => void;
+  onStatusChange?: (status: string) => void;
 }
 
 const formatBytes = (bytes?: number | null): string => {
@@ -169,6 +170,7 @@ export const SiteOverviewTab = ({
   site,
   onNavigateTab,
   onOpenTerminal,
+  onStatusChange,
 }: SiteOverviewTabProps) => {
   const [overview, setOverview] = useState<SiteOverviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -177,49 +179,85 @@ export const SiteOverviewTab = ({
     type: "success" | "error";
     text: string;
   } | null>(null);
-  const loadOverview = useCallback(async () => {
-    setIsLoading(true);
+  const [statusStale, setStatusStale] = useState(false);
+  const sequence = useRef(0);
+  const currentSite = useRef(site.id);
+  const lifecycle = useRef(0);
+  const busy = useRef(false);
+  const fetching = useRef(false);
+  const loadOverview = useCallback(async (silent = false) => {
+    if (silent && fetching.current) return;
+    const request = ++sequence.current;
+    fetching.current = true;
+    if (!silent) setIsLoading(true);
     try {
-      setOverview(await fetchSiteOverview(site.id));
+      const data = await fetchSiteOverview(site.id);
+      if (request !== sequence.current || site.id !== currentSite.current) return;
+      setOverview(data);
+      if (["active", "suspended"].includes(data.status.webserver_status)) onStatusChange?.(data.status.webserver_status);
+      setStatusStale(false);
     } catch (error: unknown) {
-      setMessage({
-        type: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Gagal memuat ringkasan situs.",
-      });
+      if (request !== sequence.current || site.id !== currentSite.current) return;
+      setStatusStale(true);
+      if (!silent) setMessage({ type: "error", text: error instanceof Error ? error.message : "Gagal memuat ringkasan situs." });
     } finally {
-      setIsLoading(false);
+      if (request === sequence.current) {
+        fetching.current = false;
+        setIsLoading(false);
+      }
     }
-  }, [site.id]);
+  }, [site.id, onStatusChange]);
   useEffect(() => {
+    ++lifecycle.current;
+    currentSite.current = site.id;
+    busy.current = false;
+    setOverview(null);
+    setMessage(null);
+    setActionInProgress(null);
+    setStatusStale(false);
     void loadOverview();
+    return () => { ++sequence.current; ++lifecycle.current; };
+  }, [site.id, loadOverview]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!busy.current && document.visibilityState !== "hidden") void loadOverview(true);
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, [loadOverview]);
   const handleQuickAction = async (action: string) => {
+    if (busy.current) return;
+    const requestedSite = site.id;
+    const generation = lifecycle.current;
+    const isCurrent = () => requestedSite === currentSite.current && generation === lifecycle.current;
+    busy.current = true;
+    ++sequence.current;
+    fetching.current = false;
     setActionInProgress(action);
     setMessage(null);
     try {
-      const response = await executeSiteQuickAction(site.id, action);
+      const response = await executeSiteQuickAction(requestedSite, action);
+      if (!isCurrent()) return;
+      if (!response.success) throw new Error(response.message || "Aksi situs belum berhasil.");
       setMessage({ type: "success", text: response.message });
-      await loadOverview();
     } catch (error: unknown) {
-      setMessage({
-        type: "error",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Gagal menjalankan aksi situs.",
-      });
+      if (!isCurrent()) return;
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "Gagal menjalankan aksi situs." });
     } finally {
-      setActionInProgress(null);
+      if (isCurrent()) {
+        // Always re-read, including failures and ambiguous network responses.
+        await loadOverview();
+        if (isCurrent()) {
+          busy.current = false;
+          setActionInProgress(null);
+        }
+      }
     }
   };
   return (
     <div
       className="project-overview"
       data-testid="site-overview-tab"
-      aria-busy={isLoading}
+      aria-busy={isLoading || !!actionInProgress}
     >
       {message && (
         <div
@@ -266,6 +304,7 @@ export const SiteOverviewTab = ({
           onOpenTerminal={onOpenTerminal}
           onRefresh={() => void loadOverview()}
           isRefreshing={isLoading}
+          statusStale={statusStale}
           actionInProgress={actionInProgress}
           onQuickAction={(action) => void handleQuickAction(action)}
         />
@@ -278,6 +317,7 @@ interface ContentProps extends SiteOverviewTabProps {
   overview: SiteOverviewResponse;
   onRefresh: () => void;
   isRefreshing?: boolean;
+  statusStale?: boolean;
   actionInProgress?: string | null;
   onQuickAction: (action: string) => void;
 }
@@ -289,6 +329,7 @@ export function SiteOverviewContent({
   onOpenTerminal,
   onRefresh,
   isRefreshing,
+  statusStale,
   actionInProgress,
   onQuickAction,
 }: ContentProps) {
@@ -315,13 +356,26 @@ export function SiteOverviewContent({
       : ["php", "python", "proxy"].includes(runtime.kind)
         ? runtime.kind
         : "settings";
+  const hasAppProcess = ["nodejs", "python"].includes(runtime.kind);
+  const hasRuntime = hasAppProcess || runtime.kind === "php";
+  const enabled = status.webserver_status === "active";
+  const stopped = status.webserver_status === "suspended";
+  const running = status.runtime_status === "running";
+  const inactive = status.runtime_status === "inactive";
+  const pendingLabels: Record<string, string> = {
+    start: hasAppProcess ? "Memulai aplikasi..." : "Mengaktifkan situs...",
+    stop: hasAppProcess ? "Menghentikan aplikasi..." : "Menonaktifkan situs...",
+    restart: "Memulai ulang aplikasi...",
+    reload: "Memuat ulang Nginx...",
+  };
   const serviceActions = [
-    { id: "start", label: "Mulai", icon: Play },
-    { id: "stop", label: "Hentikan", icon: Pause },
-    { id: "restart", label: "Mulai ulang", icon: RotateCcw },
-    { id: "reload", label: "Muat ulang Nginx", icon: RefreshCw },
-    { id: "clear_cache", label: "Bersihkan cache", icon: RefreshCw },
-  ].filter((action) => overview.quick_actions_available.includes(action.id));
+    { id: "start", label: hasAppProcess ? "Mulai" : "Aktifkan situs", icon: Play,
+      disabled: enabled && (!hasAppProcess || running) },
+    { id: "stop", label: hasAppProcess ? "Hentikan" : "Nonaktifkan situs", icon: Pause,
+      disabled: stopped && (!hasAppProcess || inactive) },
+    { id: "restart", label: "Mulai ulang aplikasi", icon: RotateCcw, disabled: !enabled || !running },
+    { id: "reload", label: "Muat ulang Nginx", icon: RefreshCw, disabled: false },
+  ].filter((action) => overview.quick_actions_available.includes(action.id) && (action.id !== "restart" || hasAppProcess));
   const linkButton = (tab: string, label: string) => (
     <button className="project-text-button" onClick={() => onNavigateTab(tab)}>
       {label}
@@ -374,9 +428,7 @@ export function SiteOverviewContent({
             <div className="project-eyebrow">Status situs</div>
             <div className="project-service-status">
               <h2>
-                {status.healthy
-                  ? "Situs beroperasi normal"
-                  : "Situs perlu diperiksa"}
+                {stopped ? "Situs dinonaktifkan" : !hasRuntime && enabled ? "Situs diaktifkan" : status.healthy ? "Situs beroperasi normal" : "Situs perlu diperiksa"}
               </h2>
               <StatusPill
                 variant={
@@ -384,9 +436,9 @@ export function SiteOverviewContent({
                 }
                 label={
                   status.webserver_status === "active"
-                    ? "Aktif"
+                    ? "Akses diaktifkan"
                     : status.webserver_status === "suspended"
-                      ? "Nonaktif"
+                      ? "Akses dinonaktifkan"
                       : "Belum diketahui"
                 }
               />
@@ -422,14 +474,20 @@ export function SiteOverviewContent({
           </div>
         </div>
         <div className="project-service-actions">
-          <span className="project-action-label">Kontrol layanan</span>
+          <div className="project-control-status" role="status" aria-live="polite">
+            <span className="project-action-label">Kontrol layanan</span>
+            <p>Akses situs: <strong>{enabled ? "Diaktifkan" : stopped ? "Dinonaktifkan" : "Belum diketahui"}</strong></p>
+            {hasRuntime && <p>{hasAppProcess ? "Proses aplikasi" : "PHP-FPM"}: <strong>{stateNames[status.runtime_status] || "Belum diketahui"}</strong></p>}
+            {actionInProgress && <p>{pendingLabels[actionInProgress] || "Memproses..."} Menunggu hasil dan pemeriksaan status.</p>}
+            {statusStale && <p>Status terakhir belum dapat diperbarui. Segarkan untuk memeriksa kembali.</p>}
+          </div>
           <div>
             {serviceActions.length ? (
               serviceActions.map((action) => (
                 <button
                   key={action.id}
                   className="project-button"
-                  disabled={!!actionInProgress || isRefreshing}
+                  disabled={!!actionInProgress || isRefreshing || statusStale || action.disabled}
                   onClick={() => onQuickAction(action.id)}
                 >
                   <action.icon
@@ -439,7 +497,7 @@ export function SiteOverviewContent({
                     }
                   />
                   {actionInProgress === action.id
-                    ? "Memproses..."
+                    ? pendingLabels[action.id]
                     : action.label}
                 </button>
               ))
@@ -449,6 +507,11 @@ export function SiteOverviewContent({
               </span>
             )}
           </div>
+        </div>
+        <div className="project-control-help">
+          {hasAppProcess ? <p><strong>Mulai ulang aplikasi</strong> menghentikan lalu menjalankan kembali proses {runtimeName}; aplikasi dapat terputus sebentar.</p> : <p>Aktifkan atau nonaktifkan akses situs melalui Nginx. {runtime.kind === "php" ? "PHP-FPM dapat dipakai situs lain dalam tenant yang sama, sehingga tidak dihentikan dari sini." : "Situs ini tidak memiliki proses aplikasi lokal yang dikontrol dari sini."}</p>}
+          <p><strong>Muat ulang Nginx</strong> menerapkan konfigurasi webserver sambil menyelesaikan koneksi lama. Proses aplikasi tidak dimulai ulang dan cache aplikasi tidak dihapus.</p>
+          <p>Status akses mengikuti konfigurasi tersimpan. Status proses diperiksa melalui agent setiap 5 detik; ini bukan pemeriksaan akses dari internet.</p>
         </div>
         <nav className="project-shortcuts" aria-label="Akses cepat project">
           <button onClick={() => onNavigateTab("files")}>

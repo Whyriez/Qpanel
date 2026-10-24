@@ -98,6 +98,10 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
   const route = useBrowserRoute();
   const segment = route.pathname.split('/')[3] || 'overview';
   const [site, setSite] = useState<Site | null>(null);
+  const handleServiceStatusChange = useCallback((status: string) => {
+    if (status !== 'active' && status !== 'suspended') return;
+    setSite(current => current && current.id === siteId && current.status !== status ? { ...current, status } : current);
+  }, [siteId]);
   const setActiveTab = (tab: TabType) => {
     if (site) navigate(sitePath(site, tab));
   };
@@ -935,6 +939,7 @@ export const SiteDetailPage: React.FC<SiteDetailPageProps> = ({ siteId, onBack }
       {/* ===================================================================== */}
       {activeTab === 'overview' && (
         <SiteOverviewTab
+          onStatusChange={handleServiceStatusChange}
           site={site}
           onNavigateTab={(tab) => setActiveTab(tab as TabType)}
           onOpenTerminal={() => setIsSshModalOpen(true)}

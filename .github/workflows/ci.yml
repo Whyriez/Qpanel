@@ -47,6 +47,12 @@ jobs:
       - name: Installer regression checks (mocks, no host services)
         run: bash scripts/tests/install-regression-test.sh
 
+      - name: Full server backup fixtures and real GnuPG encryption (temporary files)
+        run: |
+          command -v gpg >/dev/null || sudo apt-get install -y gpg
+          python3 scripts/tests/server-backup-test.py
+          python3 scripts/tests/server-backup-crypto-test.py
+
       - name: SQLite partition SQL contracts (temporary databases)
         run: python3 scripts/tests/sqlite-partition-regression.py
 

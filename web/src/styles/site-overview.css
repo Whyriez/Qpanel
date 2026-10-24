@@ -126,6 +126,21 @@
   color: var(--ink-muted);
   font-size: 12px;
 }
+.project-service-actions > .project-control-status {
+  display: grid;
+  gap: 5px;
+  flex: 1 1 210px;
+  font-size: 12px;
+}
+.project-control-status strong { font-weight: 600; }
+.project-control-help {
+  padding: 0 22px 20px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  display: grid;
+  gap: 5px;
+}
 .project-shortcuts {
   display: flex;
   flex-wrap: wrap;

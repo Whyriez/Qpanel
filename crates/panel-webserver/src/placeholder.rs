@@ -3,6 +3,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::sync::LazyLock;
 
+const BRAND_MARK: &str = include_str!("../../../web/public/brand/qonpanel-mark.svg");
 const TEMPLATE: &str = include_str!("placeholder.html");
 const FONT_LICENSE: &str = include_str!("../../../web/public/fonts/plusjakartasans-OFL.txt");
 static FONT: LazyLock<String> = LazyLock::new(|| {
@@ -29,6 +30,10 @@ pub fn render_welcome_html(domain: &str, runtime: &str, instruction: &str) -> St
             Some(("domain", rest)) => format!("{}{rest}", escape_html(domain)),
             Some(("runtime", rest)) => format!("{}{rest}", escape_html(runtime)),
             Some(("instruction", rest)) => format!("{}{rest}", escape_html(instruction)),
+            Some(("brand_mark", rest)) => format!(
+                "{}{rest}",
+                BRAND_MARK.replacen("<svg ", "<svg class=\"mark\" aria-hidden=\"true\" ", 1)
+            ),
             Some(("font", rest)) => format!("{}{rest}", FONT.as_str()),
             Some(("font_license", rest)) => format!("{FONT_LICENSE}{rest}"),
             _ => part.to_string(),

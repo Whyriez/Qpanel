@@ -208,7 +208,7 @@ async fn test_archive_compress_and_extract_zip_api() {
     // 1. Prepare files in alice home
     let src_dir = ctx.alice_home.join("mysite");
     fs::create_dir_all(&src_dir).expect("create mysite");
-    fs::write(src_dir.join("index.html"), "<h1>Vpanel Site</h1>").expect("write index");
+    fs::write(src_dir.join("index.html"), "<h1>QonPanel Site</h1>").expect("write index");
     fs::write(src_dir.join("style.css"), "h1 { color: red; }").expect("write css");
 
     // 2. Compress via API POST /api/v1/files/archive/compress
@@ -295,7 +295,7 @@ async fn test_archive_compress_and_extract_zip_api() {
     assert!(extracted_index.exists());
     assert_eq!(
         fs::read_to_string(extracted_index).expect("read"),
-        "<h1>Vpanel Site</h1>"
+        "<h1>QonPanel Site</h1>"
     );
 }
 

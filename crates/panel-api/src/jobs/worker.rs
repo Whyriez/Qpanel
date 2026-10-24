@@ -170,6 +170,9 @@ async fn handle_failure(runner: &Arc<JobRunner>, job: &Job, err: &str) -> Result
 /// Processes a single queued job if available.
 /// Returns `Ok(true)` if a job was claimed and executed, or `Ok(false)` if the queue was empty.
 pub async fn process_one_job(runner: &Arc<JobRunner>) -> Result<bool, DbError> {
+    if std::path::Path::new(crate::maintenance::FLAG).exists() {
+        return Ok(false);
+    }
     let job = match runner.job_repo.claim_next_queued().await? {
         Some(j) => j,
         None => return Ok(false),

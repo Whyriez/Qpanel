@@ -108,7 +108,7 @@ pub fn run_memory_profile(
 /// Print formatted table to terminal stdout.
 fn print_terminal_report(report: &PanelMemoryProfileReport) {
     println!("================================================================================");
-    println!("            VPANEL MEMORY PROFILE & PRD BAB 9 COMPLIANCE CHECK                  ");
+    println!("            QONPANEL MEMORY PROFILE & PRD BAB 9 COMPLIANCE CHECK                  ");
     println!("================================================================================");
     println!("Global Allocator : {}", report.allocator);
     println!(

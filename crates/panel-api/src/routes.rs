@@ -18,6 +18,14 @@ use panel_db::pool::DbPool;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        crate::server_backup::status,
+        crate::server_backup::start,
+        crate::server_backup::upload,
+        crate::server_backup::download,
+        crate::panel_update::overview,
+        crate::panel_update::check,
+        crate::panel_update::logs,
+        crate::panel_update::apply,
         crate::connectivity::overview,
         crate::connectivity::find,
         crate::connectivity::create,
@@ -185,6 +193,11 @@ use panel_db::pool::DbPool;
     ),
     components(
         schemas(
+            crate::panel_update::ApplyUpdate,
+            panel_proto::PanelUpdateStatus,
+            panel_proto::PanelUpdateRun,
+            panel_proto::PanelRelease,
+            panel_proto::UpdatePhase,
             crate::setup::SetupRequest,
             crate::setup::SetupResponse,
             crate::setup::SetupTokenRequest,
@@ -384,7 +397,7 @@ use panel_db::pool::DbPool;
         (name = "analytics", description = "Deep traffic analytics, runtime metrics, and timeseries endpoints")
     ),
     info(
-        title = "Qpanel API",
+        title = "QonPanel API",
         version = "0.1.0",
         description = "Lightweight, secure, tenant-isolated web hosting control panel API"
     )
@@ -542,6 +555,10 @@ pub async fn healthz_handler() -> impl IntoResponse {
 
     (
         StatusCode::OK,
+        [(
+            "x-qonpanel-active-writes",
+            crate::maintenance::active().to_string(),
+        )],
         Json(HealthResponse {
             status: "ok".to_string(),
             timestamp: now,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/dogfood.sh: Real-World VPS Dogfooding Harness for Qpanel (P10-T8)
+# scripts/dogfood.sh: Real-World VPS Dogfooding Harness for QonPanel (P10-T8)
 # Performs automated end-to-end installation, multi-tenant provisioning,
 # cross-tenant isolation validation, load checks, and release verification.
 
@@ -13,13 +13,13 @@ SKIP_INSTALL=false
 PORT=17890
 
 print_help() {
-    echo "Qpanel VPS Dogfooding Harness (P10-T8)"
+    echo "QonPanel VPS Dogfooding Harness (P10-T8)"
     echo ""
     echo "Usage: $0 [options]"
     echo ""
     echo "Options:"
     echo "  --dry-run             Simulate dogfooding sequence without executing root commands"
-    echo "  --skip-install        Skip running install.sh if Qpanel is already running"
+    echo "  --skip-install        Skip running install.sh if QonPanel is already running"
     echo "  --port <PORT>         Panel API port to test against (default: 17890)"
     echo "  --output-file <FILE>  Destination path for markdown report (default: docs/benchmarks/dogfood-soak-report.md)"
     echo "  --help                Display this help message"
@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "======================================================================"
-echo "    Qpanel VPS Dogfooding & Release Verification Harness (P10-T8) "
+echo "    QonPanel VPS Dogfooding & Release Verification Harness (P10-T8) "
 echo "======================================================================"
 echo "Timestamp    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "Dry Run      : ${DRY_RUN}"
@@ -164,11 +164,11 @@ echo ""
 echo "[6/6] Writing Dogfooding & Release Readiness Report to ${REPORT_FILE}..."
 
 cat <<EOF > "${REPORT_FILE}"
-# Laporan Hasil Dogfooding & Soak Testing VPS Qpanel (P10-T8)
+# Laporan Hasil Dogfooding & Soak Testing VPS QonPanel (P10-T8)
 
 > **Tanggal Pelaksanaan**: $(date -u '+%Y-%m-%d') · **Versi**: v1.0.0-rc1 · **Status**: PASSED / READY FOR RELEASE
 
-Dokumen ini mencatat hasil evaluasi pengujian nyata (*dogfooding*) dan simulasi ketahanan (*soak test*) Qpanel di lingkungan server VPS berbasis Linux Ubuntu 24.04 LTS sesuai kriteria **PRD Bab 9 & Bab 11 (Task P10-T8)**.
+Dokumen ini mencatat hasil evaluasi pengujian nyata (*dogfooding*) dan simulasi ketahanan (*soak test*) QonPanel di lingkungan server VPS berbasis Linux Ubuntu 24.04 LTS sesuai kriteria **PRD Bab 9 & Bab 11 (Task P10-T8)**.
 
 ---
 
@@ -252,7 +252,7 @@ Dalam sesi dogfooding, 5 aplikasi web nyata berhasil disiapkan dan dijalankan se
 
 ## 7. Kesimpulan & Rekomendasi Rilis
 
-Seluruh skenario pengujian dogfooding VPS dan verifikasi target performa non-fungsional PRD Bab 9 telah dipenuhi 100%. Sistem Qpanel dinyatakan **Stabil, Aman, dan Siap untuk Rilis Produksi v1.0**.
+Seluruh skenario pengujian dogfooding VPS dan verifikasi target performa non-fungsional PRD Bab 9 telah dipenuhi 100%. Sistem QonPanel dinyatakan **Stabil, Aman, dan Siap untuk Rilis Produksi v1.0**.
 EOF
 
 echo "Dogfooding harness completed successfully. Report saved to ${REPORT_FILE}."

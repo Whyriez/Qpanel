@@ -24,8 +24,8 @@ utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui" }
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-authors = ["Qpanel Contributors"]
-repository = "https://github.com/Whyriez/Vpanel"
+authors = ["QonPanel Contributors"]
+repository = "https://github.com/Whyriez/QonPanel"
 
 [workspace.dependencies]
 # Internal workspace crates

@@ -165,7 +165,7 @@ fn purge_data_and_users(purge: bool) -> bool {
         return false;
     }
 
-    info!("Membersihkan seluruh direktori data dan konfigurasi Qpanel (--purge)...");
+    info!("Membersihkan seluruh direktori data dan konfigurasi QonPanel (--purge)...");
     let mut purged = false;
     for dir_path in &[
         "/var/lib/panel",
@@ -189,11 +189,11 @@ fn purge_data_and_users(purge: bool) -> bool {
     purged
 }
 
-/// Executes clean uninstallation of Qpanel.
+/// Executes clean uninstallation of QonPanel.
 pub async fn run_uninstall(
     options: &UninstallCliOptions,
 ) -> Result<UninstallResult, Box<dyn Error>> {
-    info!("Memulai proses pencopotan pemasangan (uninstall) Qpanel...");
+    info!("Memulai proses pencopotan pemasangan (uninstall) QonPanel...");
 
     remove_panel_proxy(options.purge)?;
     let (services_stopped, unit_files_removed) = stop_and_remove_systemd_services();
@@ -207,9 +207,9 @@ pub async fn run_uninstall(
         binaries_removed,
         data_purged,
         message: if options.purge {
-            "Qpanel berhasil dicopot sepenuhnya beserta seluruh data dan konfigurasi.".to_string()
+            "QonPanel berhasil dicopot sepenuhnya beserta seluruh data dan konfigurasi.".to_string()
         } else {
-            "Qpanel berhasil dicopot. Berkas basis data dan cadangan dipertahankan.".to_string()
+            "QonPanel berhasil dicopot. Berkas basis data dan cadangan dipertahankan.".to_string()
         },
     };
 
@@ -220,7 +220,7 @@ pub async fn run_uninstall(
         println!(
             "================================================================================"
         );
-        println!("                     HASIL PENCAPUTAN QPANEL                                ");
+        println!("                     HASIL PENCAPUTAN QONPANEL                                ");
         println!(
             "================================================================================"
         );

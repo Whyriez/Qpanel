@@ -112,7 +112,7 @@ pub struct EmailTemplate {
 impl Default for EmailTemplate {
     fn default() -> Self {
         Self {
-            panel_name: "Qpanel".into(),
+            panel_name: "QonPanel".into(),
             subject: "[{panel_name}] {title}".into(),
             body: "{message}\n\nBuka panel: {action_url}\n\n{panel_name}".into(),
         }

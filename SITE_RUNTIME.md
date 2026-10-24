@@ -15,6 +15,13 @@ Mengganti biner saja belum meregenerasi unit systemd dan vhost yang sudah ada.
 
 ## Perubahan perilaku
 
+- Revisi P10-T6cr memulihkan ACL parent socket pada setiap startup agent, serta
+  mengurutkan PHP/Node/Python setelah hook persiapan tersebut. Socket aplikasi
+  dipertahankan ketika agent dihentikan. Full upgrade memasang drop-in untuk unit
+  website lama; tidak perlu menghapus atau membuat ulang website. Kegagalan
+  autostart Node/Python kini menghentikan provisioning, dan master PHP aktif pun
+  dipastikan enabled sebelum reload. Detail dan batas validasi ada di ADR-0135.
+
 - PHP-FPM memiliki `[Install]` agar service tenant dapat di-enable. PID/socket
   berada dalam direktori runtime milik tenant, dan log dapat ditulis oleh tenant.
   Validasi konfigurasi dijalankan sebagai tenant, sehingga tidak membuat log baru
@@ -75,8 +82,8 @@ Python menjalankan modul WSGI/ASGI. File lama bukan penentu runtime website.
    lalu jalankan upgrade:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/Whyriez/Vpanel/main/scripts/bootstrap-install.sh -o /tmp/bootstrap-install.sh
-   sudo env NUSA_PANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh --upgrade
+   curl -fsSL https://raw.githubusercontent.com/Whyriez/QonPanel/main/scripts/bootstrap-install.sh -o /tmp/bootstrap-install.sh
+   sudo env QONPANEL_VERSION=v0.1.0 bash /tmp/bootstrap-install.sh --upgrade
    ```
 
 3. Buat ulang situs percobaan yang sebelumnya gagal. Untuk aplikasi existing,
@@ -91,6 +98,18 @@ Jangan memakai Re-run jobs dari run lama karena commit sumbernya tetap lama.
 Lihat [panduan pengemasan](RELEASE_PACKAGING.md) untuk pembaruan aset v0.1.0.
 
 ## Pemeriksaan di server
+
+Untuk patch autostart P10-T6cr, bangun/publikasikan paket release terbaru lalu
+lakukan full upgrade menggunakan bootstrap seperti panduan di atas. Mengganti
+binary saja tidak memasang unit/drop-in baru. Server lama dapat membutuhkan
+restart runtime satu kali sesudah upgrade pertama, karena unit agent lama masih
+dapat menghapus socket saat dihentikan oleh installer.
+
+Installer mempertahankan keputusan disabled/masked existing. Jika website aktif
+pernah gagal di-enable oleh build lama, simpan ulang konfigurasi runtime sesudah
+upgrade, lalu periksa `systemctl is-enabled` untuk nama service website tersebut.
+Jangan memakai enable wildcard yang turut menghidupkan website nonaktif.
+Verifikasi reboot Ubuntu dan HTTP nyata belum dijalankan pada sesi patch lokal ini.
 
 Gunakan nama tenant, versi dan ID website yang terlihat di panel. Contoh read-only:
 

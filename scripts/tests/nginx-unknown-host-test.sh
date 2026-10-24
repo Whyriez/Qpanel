@@ -67,6 +67,14 @@ pass 'install guard before first website, quarantine verified defaults, preserve
 install_nginx_proxy_at "$nginx_root" "$fixture/public-port"
 [[ "$checks" == 4 ]]
 pass 'upgrade is idempotent and validates staged plus live configuration'
+for brand in Qpanel 'Nusa Panel'; do
+    sed "1s/QonPanel/$brand/" "$REPO/templates/nginx/nusa-reject-unknown.conf" > "$nginx_root/conf.d/00-qpanel-reject-unknown.conf"
+    install_nginx_proxy_at "$nginx_root" "$fixture/public-port"
+    cmp -s "$REPO/templates/nginx/nusa-reject-unknown.conf" "$nginx_root/conf.d/00-qpanel-reject-unknown.conf"
+    pass "legacy $brand guard upgrades to QonPanel without losing ownership"
+done
+checks=4
+
 
 # A binary-only update leaves this legacy proxy behind. Full upgrade must
 # replace it with the trusted Tunnel metadata contract, retaining a custom port.

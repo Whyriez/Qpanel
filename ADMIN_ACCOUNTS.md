@@ -1,4 +1,4 @@
-# Akun administrator Qpanel
+# Akun administrator QonPanel
 
 ## Instalasi baru
 
@@ -16,7 +16,7 @@ secara otomatis. Tidak ada token setup atau pendaftaran admin melalui browser.
 Kredensial baru hanya dicetak setelah seluruh pemeriksaan kesehatan berhasil:
 
 ```text
-  Qpanel | Instalasi berhasil
+  QonPanel | Instalasi berhasil
   ----------------------------------------
   Panel     : http://203.0.113.10:17890
   Status    : API, agent, Nginx, dan SQLite siap

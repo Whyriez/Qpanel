@@ -2201,6 +2201,14 @@ pub async fn get_site_overview_handler(
         .unwrap_or(1024 * 1024 * 1024);
     let plan_pids_limit = plan.as_ref().map(|p| p.tasks_max as u64).unwrap_or(100);
 
+    let (tenant_linux_name, tenant_linux_uid) =
+        match crate::tenant_context::execution_identity(&user) {
+            Ok(identity) => identity,
+            Err((status, message)) => {
+                return (status, Json(serde_json::json!({"error": message}))).into_response();
+            }
+        };
+
     // 1. Live Runtime Status
     let (runtime_status, healthy, uptime_secs, pid) = match site.kind.as_str() {
         "nodejs" => {
@@ -2223,11 +2231,11 @@ pub async fn get_site_overview_handler(
                     } else {
                         "inactive".to_string()
                     },
-                    st.healthy,
+                    st.active && st.healthy,
                     st.uptime_secs,
                     st.pid,
                 ),
-                Err(_) => ("inactive".to_string(), false, None, None),
+                Err(_) => ("unknown".to_string(), false, None, None),
             }
         }
         "python" => {
@@ -2242,26 +2250,41 @@ pub async fn get_site_overview_handler(
                     } else {
                         "inactive".to_string()
                     },
-                    st.healthy,
+                    st.active && st.healthy,
                     st.uptime_secs,
                     st.pid,
                 ),
-                Err(_) => ("inactive".to_string(), false, None, None),
+                Err(_) => ("unknown".to_string(), false, None, None),
             }
         }
-        _ => {
-            let is_active = site.status == "active";
-            (
-                if is_active {
-                    "running".to_string()
-                } else {
-                    "inactive".to_string()
-                },
-                is_active,
-                None,
-                None,
+        "php" => match state
+            .agent_client
+            .get_php_fpm_pool_status(
+                &tenant_linux_name,
+                site.version.as_deref().unwrap_or("8.3"),
+                format!("site_{}", site.id),
             )
-        }
+            .await
+        {
+            Ok(status) => (
+                if status.is_active {
+                    "running"
+                } else {
+                    "inactive"
+                }
+                .to_string(),
+                status.is_active && status.socket_exists && site.status == "active",
+                None,
+                None,
+            ),
+            Err(_) => ("unknown".to_string(), false, None, None),
+        },
+        _ => (
+            "not_applicable".to_string(),
+            site.status == "active",
+            None,
+            None,
+        ),
     };
 
     let live_status = SiteLiveStatus {
@@ -2271,14 +2294,6 @@ pub async fn get_site_overview_handler(
         uptime_secs,
         pid,
     };
-
-    let (tenant_linux_name, tenant_linux_uid) =
-        match crate::tenant_context::execution_identity(&user) {
-            Ok(identity) => identity,
-            Err((status, message)) => {
-                return (status, Json(serde_json::json!({"error": message}))).into_response();
-            }
-        };
 
     // 2. Resource Metrics
     let (cpu_usage_usec, memory_bytes, pids_current) = if let Some(uid) = user.linux_uid {
@@ -2568,13 +2583,14 @@ pub async fn get_site_overview_handler(
         });
     }
 
-    let quick_actions_available = vec![
+    let mut quick_actions_available = vec![
         "start".to_string(),
         "stop".to_string(),
-        "restart".to_string(),
         "reload".to_string(),
-        "clear_cache".to_string(),
     ];
+    if matches!(site.kind.as_str(), "nodejs" | "python") {
+        quick_actions_available.push("restart".to_string());
+    }
 
     (
         StatusCode::OK,
@@ -2595,8 +2611,107 @@ pub async fn get_site_overview_handler(
         .into_response()
 }
 
-/// Executes a quick action on a site (start, stop, restart, reload, clear_cache).
-#[allow(clippy::cognitive_complexity)]
+// A control action must not acknowledge a failed agent response as success.
+async fn control_site_process(
+    state: &AppState,
+    site: &Site,
+    action: &str,
+) -> Result<(), (StatusCode, String)> {
+    let site_id = format!("site_{}", site.id);
+    let result = if site.kind == "nodejs" {
+        let action = match action {
+            "start" => panel_proto::NodeSiteActionType::Start,
+            "stop" => panel_proto::NodeSiteActionType::Stop,
+            _ => panel_proto::NodeSiteActionType::Restart,
+        };
+        state
+            .agent_client
+            .action_node_site(panel_proto::NodeSiteActionRequest { site_id, action })
+            .await
+            .map(|r| r.success)
+    } else if site.kind == "python" {
+        let action = match action {
+            "start" => panel_proto::PythonSiteActionType::Start,
+            "stop" => panel_proto::PythonSiteActionType::Stop,
+            _ => panel_proto::PythonSiteActionType::Restart,
+        };
+        state
+            .agent_client
+            .action_python_site(panel_proto::PythonSiteActionRequest { site_id, action })
+            .await
+            .map(|r| r.success)
+    } else {
+        return Ok(());
+    };
+    match result {
+        Ok(true) => Ok(()),
+        Ok(false) => Err((
+            StatusCode::BAD_GATEWAY,
+            "Agent belum berhasil menjalankan aksi aplikasi. Periksa status dan log situs.".into(),
+        )),
+        Err(error) => Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Aksi aplikasi gagal: {error}. Periksa ulang status situs."),
+        )),
+    }
+}
+
+// Reload only the vhost. The general reconciliation helper also applies app
+// services, which must not be a side effect of the Nginx-only control.
+async fn control_site_vhost(
+    state: &AppState,
+    site: &Site,
+    enable: bool,
+    render: bool,
+) -> Result<(), (StatusCode, String)> {
+    let config_content = if render {
+        let user = SqliteUserRepository::new(state.pool.clone())
+            .find_by_id(site.user_id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    "Pemilik situs tidak ditemukan".into(),
+                )
+            })?;
+        let domains = SqliteDomainRepository::new(state.pool.clone())
+            .find_by_site_id(site.id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        render_site_vhost(site, &user, &domains)?
+    } else {
+        String::new()
+    };
+    let result = state
+        .agent_client
+        .apply_site(SiteApplyRequest {
+            site_id: format!("site_{}", site.id),
+            config_content,
+            enable,
+            nginx_base_dir: None,
+            log_context: None,
+            test_config: true,
+            reload: true,
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Perubahan Nginx gagal: {e}. Periksa ulang status situs."),
+            )
+        })?;
+    if result.enabled != enable || !result.reloaded {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            "Nginx belum mengonfirmasi perubahan dan reload. Periksa log sebelum mencoba lagi."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Executes a typed site control and commits its configured state only after acknowledgement.
 pub async fn site_quick_action_handler(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -2605,257 +2720,84 @@ pub async fn site_quick_action_handler(
 ) -> impl IntoResponse {
     let site_repo = SqliteSiteRepository::new(state.pool.clone());
     let site = match fetch_and_authorize_site(&site_repo, &auth_user, site_id).await {
-        Ok(s) => s,
-        Err((code, msg)) => {
-            return (code, Json(serde_json::json!({ "error": msg }))).into_response();
+        Ok(site) => site,
+        Err((code, message)) => {
+            return (code, Json(serde_json::json!({"error": message}))).into_response();
         }
     };
-
     let action = payload.action.trim().to_lowercase();
-    match action.as_str() {
-        "start" => {
-            if site.status != "active" {
-                let update_res = site_repo
-                    .update(
-                        site.id,
-                        &UpdateSite {
-                            kind: None,
-                            docroot: None,
-                            runtime: None,
-                            version: None,
-                            status: Some("active".to_string()),
-                            settings_json: None,
-                        },
-                    )
-                    .await;
-                if let Err(e) = update_res {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({ "error": e.to_string() })),
-                    )
-                        .into_response();
-                }
+    let result = match action.as_str() {
+        "start" | "stop" => {
+            match control_site_process(&state, &site, &action).await {
+                Err(error) => Err(error),
+                Ok(()) => control_site_vhost(&state, &site, action == "start", false).await,
             }
-
-            let apply_req = SiteApplyRequest {
-                site_id: format!("site_{}", site.id),
-                config_content: String::new(),
-                enable: true,
-                nginx_base_dir: None,
-                log_context: None,
-                test_config: false,
-                reload: true,
-            };
-            let _ = state.agent_client.apply_site(apply_req).await;
-
-            if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
-                let _ = state
-                    .agent_client
-                    .action_node_site(panel_proto::NodeSiteActionRequest {
-                        site_id: format!("site_{}", site.id),
-                        action: panel_proto::NodeSiteActionType::Start,
-                    })
-                    .await;
-            } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
-                let _ = state
-                    .agent_client
-                    .action_python_site(panel_proto::PythonSiteActionRequest {
-                        site_id: format!("site_{}", site.id),
-                        action: panel_proto::PythonSiteActionType::Start,
-                    })
-                    .await;
-            }
-
-            state.audit_writer.log_async(
-                Some(auth_user.id),
-                &auth_user.username,
-                "site.start",
-                format!("site:{}", site.id),
-                "success",
-                None,
-                None,
-            );
-
-            (
-                StatusCode::OK,
-                Json(SiteQuickActionResponse {
-                    success: true,
-                    action: "start".to_string(),
-                    message: "Situs berhasil dimulai dan diaktifkan".to_string(),
-                }),
-            )
-                .into_response()
         }
-        "stop" => {
-            if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
-                let _ = state
-                    .agent_client
-                    .action_node_site(panel_proto::NodeSiteActionRequest {
-                        site_id: format!("site_{}", site.id),
-                        action: panel_proto::NodeSiteActionType::Stop,
-                    })
-                    .await;
-            } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
-                let _ = state
-                    .agent_client
-                    .action_python_site(panel_proto::PythonSiteActionRequest {
-                        site_id: format!("site_{}", site.id),
-                        action: panel_proto::PythonSiteActionType::Stop,
-                    })
-                    .await;
-            }
-
-            if let Err(e) = site_repo
-                .update(
-                    site.id,
-                    &UpdateSite {
-                        kind: None,
-                        docroot: None,
-                        runtime: None,
-                        version: None,
-                        status: Some("suspended".to_string()),
-                        settings_json: None,
-                    },
-                )
-                .await
-            {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-                    .into_response();
-            }
-
-            let apply_req = SiteApplyRequest {
-                site_id: format!("site_{}", site.id),
-                config_content: String::new(),
-                enable: false,
-                nginx_base_dir: None,
-                log_context: None,
-                test_config: false,
-                reload: true,
-            };
-            let _ = state.agent_client.apply_site(apply_req).await;
-
-            state.audit_writer.log_async(
-                Some(auth_user.id),
-                &auth_user.username,
-                "site.stop",
-                format!("site:{}", site.id),
-                "success",
-                None,
-                None,
-            );
-
-            (
-                StatusCode::OK,
-                Json(SiteQuickActionResponse {
-                    success: true,
-                    action: "stop".to_string(),
-                    message: "Situs berhasil dihentikan".to_string(),
-                }),
-            )
-                .into_response()
-        }
-        "restart" => {
-            if site.kind == "nodejs" || site.runtime.as_deref() == Some("nodejs") {
-                let _ = state
-                    .agent_client
-                    .action_node_site(panel_proto::NodeSiteActionRequest {
-                        site_id: format!("site_{}", site.id),
-                        action: panel_proto::NodeSiteActionType::Restart,
-                    })
-                    .await;
-            } else if site.kind == "python" || site.runtime.as_deref() == Some("python") {
-                let _ = state
-                    .agent_client
-                    .action_python_site(panel_proto::PythonSiteActionRequest {
-                        site_id: format!("site_{}", site.id),
-                        action: panel_proto::PythonSiteActionType::Restart,
-                    })
-                    .await;
-            } else {
-                let _ = apply_site_config(&state, &site).await;
-            }
-
-            state.audit_writer.log_async(
-                Some(auth_user.id),
-                &auth_user.username,
-                "site.restart",
-                format!("site:{}", site.id),
-                "success",
-                None,
-                None,
-            );
-
-            (
-                StatusCode::OK,
-                Json(SiteQuickActionResponse {
-                    success: true,
-                    action: "restart".to_string(),
-                    message: "Layanan situs berhasil dimuat ulang (restarted)".to_string(),
-                }),
-            )
-                .into_response()
-        }
-        "reload" => {
-            if let Err((code, msg)) = apply_site_config(&state, &site).await {
-                return (code, Json(serde_json::json!({ "error": msg }))).into_response();
-            }
-
-            state.audit_writer.log_async(
-                Some(auth_user.id),
-                &auth_user.username,
-                "site.reload",
-                format!("site:{}", site.id),
-                "success",
-                None,
-                None,
-            );
-
-            (
-                StatusCode::OK,
-                Json(SiteQuickActionResponse {
-                    success: true,
-                    action: "reload".to_string(),
-                    message: "Konfigurasi webserver Nginx berhasil dimuat ulang (reloaded)".to_string(),
-                }),
-            )
-                .into_response()
-        }
-        "clear_cache" => {
-            if let Err((code, msg)) = apply_site_config(&state, &site).await {
-                return (code, Json(serde_json::json!({ "error": msg }))).into_response();
-            }
-
-            state.audit_writer.log_async(
-                Some(auth_user.id),
-                &auth_user.username,
-                "site.clear_cache",
-                format!("site:{}", site.id),
-                "success",
-                None,
-                None,
-            );
-
-            (
-                StatusCode::OK,
-                Json(SiteQuickActionResponse {
-                    success: true,
-                    action: "clear_cache".to_string(),
-                    message: "Cache Nginx dan FastCGI situs berhasil dibersihkan".to_string(),
-                }),
-            )
-                .into_response()
-        }
-        other => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("Aksi '{}' tidak dikenal. Pilihan: start, stop, restart, reload, clear_cache", other)
-            })),
-        )
-            .into_response(),
+        "restart" if matches!(site.kind.as_str(), "nodejs" | "python") => control_site_process(&state, &site, "restart").await,
+        // Retain the legacy endpoint for existing clients; the UI no longer
+        // advertises an app restart for PHP/static/proxy sites.
+        "restart" | "reload" => control_site_vhost(&state, &site, site.status == "active", true).await,
+        "clear_cache" => Err((StatusCode::BAD_REQUEST, "Pembersihan cache aplikasi tidak tersedia dari kontrol layanan. Reload Nginx tidak menghapus cache.".into())),
+        _ => Err((StatusCode::BAD_REQUEST, "Aksi situs tidak dikenal.".into())),
+    };
+    if let Err((code, message)) = result {
+        state.audit_writer.log_async(
+            Some(auth_user.id),
+            &auth_user.username,
+            "site.control_failed",
+            format!("site:{}", site.id),
+            "failed",
+            None,
+            None,
+        );
+        return (code, Json(serde_json::json!({"error": message}))).into_response();
     }
+    if matches!(action.as_str(), "start" | "stop") {
+        let update = UpdateSite {
+            kind: None,
+            docroot: None,
+            runtime: None,
+            version: None,
+            status: Some(
+                if action == "start" {
+                    "active"
+                } else {
+                    "suspended"
+                }
+                .into(),
+            ),
+            settings_json: None,
+        };
+        if let Err(error) = site_repo.update(site.id, &update).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("Layanan sudah diubah, tetapi status tersimpan belum diperbarui: {error}. Segarkan dan periksa situs.")}))).into_response();
+        }
+    }
+    let message = match action.as_str() {
+        "start" => "Situs berhasil diaktifkan. Status aplikasi diperiksa kembali.",
+        "stop" => "Akses situs berhasil dinonaktifkan. Status aplikasi diperiksa kembali.",
+        "restart" if matches!(site.kind.as_str(), "nodejs" | "python") => {
+            "Proses aplikasi berhasil dimulai ulang. Status diperiksa kembali."
+        }
+        _ => "Konfigurasi Nginx berhasil dimuat ulang. Proses aplikasi tidak dimulai ulang.",
+    };
+    state.audit_writer.log_async(
+        Some(auth_user.id),
+        &auth_user.username,
+        format!("site.{action}"),
+        format!("site:{}", site.id),
+        "success",
+        None,
+        None,
+    );
+    (
+        StatusCode::OK,
+        Json(SiteQuickActionResponse {
+            success: true,
+            action,
+            message: message.into(),
+        }),
+    )
+        .into_response()
 }
 
 /// Deletes a website and its associated virtual host configurations.

@@ -1,4 +1,4 @@
-# Nusa Panel Justfile
+# QonPanel Justfile
 set shell := ["bash", "-uc"]
 
 default:
@@ -6,7 +6,7 @@ default:
 
 # Run both panel-agent and panel-api for development
 dev:
-    @echo "==> Starting Nusa Panel in development mode..."
+    @echo "==> Starting QonPanel in development mode..."
     @echo "Note: panel-agent requires root on Linux. Run in dev VM for full functionality."
     cargo run -p panel-api
 

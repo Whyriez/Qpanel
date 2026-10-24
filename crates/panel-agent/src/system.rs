@@ -105,6 +105,16 @@ pub trait SystemRunner: Send + Sync {
         ))
     }
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError>;
+    /// Backup streams use private, agent-generated files rather than shell pipes or RAM buffers.
+    fn backup_file_stream(
+        &self,
+        binary: &str,
+        args: &[&str],
+        _file: &Path,
+        _file_is_input: bool,
+    ) -> Result<std::process::Output, AgentError> {
+        self.run_command(binary, args)
+    }
     /// Streaming remains opt-in, with a default implementation for deterministic mocks.
     fn run_command_streamed(
         &self,
@@ -300,7 +310,7 @@ fn wait_for_download(
 #[cfg(unix)]
 // Descriptor-relative no-follow operations require libc; each FFI call is documented below.
 #[allow(unsafe_code)]
-fn open_owned_runtime_file(
+pub(crate) fn open_owned_runtime_file(
     path: &Path,
     mode: u32,
     uid: u32,
@@ -539,6 +549,51 @@ impl SystemRunner for RealSystemRunner {
         let mut command = panel_core::production::system_command(crate::uv::UV_BIN);
         command.args(args);
         run_cancellable_installer(command, crate::uv::UV_BIN, cancel)
+    }
+    fn backup_file_stream(
+        &self,
+        binary: &str,
+        args: &[&str],
+        file: &Path,
+        file_is_input: bool,
+    ) -> Result<std::process::Output, AgentError> {
+        use std::fs::OpenOptions;
+        use std::process::Stdio;
+        if !["runuser", "mariadb", "mariadb-dump", "mysqldump"].contains(&binary)
+            || !file.starts_with("/var/lib/qonpanel-migration/legacy-dumps")
+            || file
+                .components()
+                .any(|p| matches!(p, std::path::Component::ParentDir))
+        {
+            return Err(AgentError::SecurityViolation(
+                "Stream cadangan tidak valid".into(),
+            ));
+        }
+        let mut command = panel_core::production::system_command(binary);
+        command.args(args);
+        if file_is_input {
+            command
+                .stdin(std::fs::File::open(file)?)
+                .stdout(Stdio::null());
+        } else {
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            command.stdin(Stdio::null()).stdout(options.open(file)?);
+        }
+        let output = command.output()?;
+        if !output.status.success() {
+            return Err(AgentError::CommandFailed {
+                binary: binary.into(),
+                code: output.status.code(),
+                stderr: "Operasi stream cadangan gagal".into(),
+            });
+        }
+        Ok(output)
     }
     fn run_command(&self, binary: &str, args: &[&str]) -> Result<std::process::Output, AgentError> {
         if !ALLOWED_BINARIES.contains(&binary) {

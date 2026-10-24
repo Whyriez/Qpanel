@@ -144,7 +144,7 @@ async fn test_api_healthz_and_system_info_endpoints() {
         .expect("read body")
         .to_bytes();
     let body_str = String::from_utf8_lossy(&body_bytes);
-    assert!(body_str.contains("Qpanel"));
+    assert!(body_str.contains("QonPanel"));
 
     // 4. Test client-side route fallback to index.html
     let req = Request::builder()
@@ -160,7 +160,7 @@ async fn test_api_healthz_and_system_info_endpoints() {
         .expect("read body")
         .to_bytes();
     let body_str = String::from_utf8_lossy(&body_bytes);
-    assert!(body_str.contains("Qpanel"));
+    assert!(body_str.contains("QonPanel"));
 
     // Clean up
     let _ = shutdown_tx.send(());

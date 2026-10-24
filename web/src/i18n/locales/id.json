@@ -37,7 +37,7 @@
     }
   },
   "common": {
-    "appName": "Qpanel",
+    "appName": "QonPanel",
     "loading": "Memuat...",
     "search": "Cari atau jalankan perintah...",
     "refresh": "Segarkan",
@@ -165,7 +165,7 @@
     "viewAll": "Buka antrean tugas"
   },
   "wizard": {
-    "title": "Setup Awal Qpanel",
+    "title": "Setup Awal QonPanel",
     "step1Title": "Verifikasi Token Setup",
     "step1Desc": "Masukkan token setup sekali pakai dari server",
     "tokenLabel": "Token Setup",

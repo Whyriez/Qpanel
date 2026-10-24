@@ -10,6 +10,8 @@ import { navigate, pagePath, useBrowserRoute } from './lib/router';
 import { isAdminOnlyRoute, postLoginDestination } from './lib/routeAccess';
 import { parseSiteRoute, sitePath } from './lib/siteRoutes';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { BrandLoading } from './components/ui/Brand';
+import { useTranslation } from 'react-i18next';
 
 const FirstRunWizardPage = lazy(() =>
   import('./pages/FirstRunWizardPage').then((m) => ({ default: m.FirstRunWizardPage }))
@@ -56,14 +58,13 @@ const SettingsPage = lazy(() =>
 );
 const ConnectivityPage = lazy(() => import('./pages/ConnectivityPage').then(m => ({ default: m.ConnectivityPage })));
 
-const PageFallback: React.FC = () => (
-  <div className="p-8 flex flex-col items-center justify-center space-y-2 text-xs text-[var(--ink-muted)]">
-    <div className="w-5 h-5 rounded-full border-2 border-[var(--primary)] border-t-transparent animate-spin" />
-    <span>Memuat modul halaman...</span>
-  </div>
-);
+const PageFallback: React.FC = () => {
+  const { i18n } = useTranslation();
+  return <BrandLoading message={i18n.language.startsWith('en') ? 'Loading page…' : 'Memuat halaman…'} />;
+};
 
 const MainApp: React.FC = () => {
+  const { i18n } = useTranslation();
   const { isAuthenticated, isLoading, user } = useAuth();
   const [theme, setTheme] = useState<ThemeMode>(() => {
     return (localStorage.getItem('nusa_theme') as ThemeMode) || 'system';
@@ -113,16 +114,7 @@ const MainApp: React.FC = () => {
 
   // Loading skeleton while verifying session
   if (isLoading) {
-    return (
-      <div className="min-h-screen w-screen flex flex-col items-center justify-center p-4 bg-[var(--bg)] text-[var(--ink)]">
-        <div className="w-10 h-10 rounded-[var(--radius-md)] bg-[var(--primary)] text-white font-bold flex items-center justify-center animate-pulse text-lg mb-4">
-          N
-        </div>
-        <div className="text-xs text-[var(--ink-muted)]">
-          Memeriksa sesi pengguna...
-        </div>
-      </div>
-    );
+    return <BrandLoading fullScreen message={i18n.language.startsWith('en') ? 'Checking your session…' : 'Memeriksa sesi Anda…'} />;
   }
 
   // First-run wizard view

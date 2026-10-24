@@ -205,14 +205,19 @@ impl NginxManager {
 
         let http_conf = config.base_dir.join("http.conf");
         let bridge_content = format!(
-            "# Managed by Qpanel: tenant websites.\ninclude {};\n",
+            "# Managed by QonPanel: tenant websites.\ninclude {};\n",
             http_conf.to_string_lossy().replace('\\', "/")
         );
         let legacy_bridge =
-            bridge_content.replacen("Managed by Qpanel", "Managed by Nusa Panel", 1);
+            bridge_content.replacen("Managed by QonPanel", "Managed by Nusa Panel", 1);
         if self.runner.path_exists(bridge) && {
             let existing = self.runner.read_file(bridge)?;
-            existing != bridge_content.as_bytes() && existing != legacy_bridge.as_bytes()
+            existing != bridge_content.as_bytes()
+                && existing != legacy_bridge.as_bytes()
+                && existing
+                    != bridge_content
+                        .replacen("Managed by QonPanel", "Managed by Qpanel", 1)
+                        .as_bytes()
         } {
             return Err(AgentError::InvalidInput(format!(
                 "{} sudah ada dengan isi berbeda; periksa integrasi Nginx panel. Berkas tidak ditimpa.",
@@ -226,9 +231,9 @@ impl NginxManager {
             return Err(AgentError::InvalidInput("Guard hostname berupa symlink custom; berkas dipertahankan. Gunakan konfigurasi root-owned reguler.".into()));
         }
         if self.runner.path_exists(reject_path)
-            && self.runner.read_file(reject_path)? != reject_content.as_bytes()
+            && !managed_brand_equivalent(&self.runner.read_file(reject_path)?, &reject_content)
         {
-            return Err(AgentError::InvalidInput("Konfigurasi penolak hostname Qpanel berisi perubahan operator; periksa berkas 00-qpanel-reject-unknown.conf. Berkas tidak ditimpa.".into()));
+            return Err(AgentError::InvalidInput("Konfigurasi penolak hostname QonPanel berisi perubahan operator; periksa berkas 00-qpanel-reject-unknown.conf. Berkas tidak ditimpa.".into()));
         }
         let defaults = self.packaged_default_paths()?;
 
@@ -1144,6 +1149,21 @@ fn find_php_log_file(runner: &dyn SystemRunner, tenant_dir: &Path, kind: &str) -
     None
 }
 
+// Only the controlled first-line brand may differ; operator edits stay protected.
+fn managed_brand_equivalent(existing: &[u8], expected: &str) -> bool {
+    existing == expected.as_bytes()
+        || ["Qpanel", "Nusa Panel"].iter().any(|brand| {
+            existing
+                == expected
+                    .replacen(
+                        "# Managed by QonPanel:",
+                        &format!("# Managed by {brand}:"),
+                        1,
+                    )
+                    .as_bytes()
+        })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::clone_on_ref_ptr)]
 mod tests {
@@ -1161,6 +1181,19 @@ mod tests {
             web_user: Some("www-data".into()),
             index_content: Some("website placeholder".into()),
             starter: panel_proto::SiteStarter::Html,
+        }
+    }
+
+    #[test]
+    fn brand_marker_accepts_only_exact_legacy_guard_content() {
+        let current = "# Managed by QonPanel: guard.\nserver { return 404; }\n";
+        for brand in ["Qpanel", "Nusa Panel", "QonPanel"] {
+            let old = current.replace("QonPanel", brand);
+            assert!(managed_brand_equivalent(old.as_bytes(), current));
+            assert!(!managed_brand_equivalent(
+                format!("{old}# custom\n").as_bytes(),
+                current
+            ));
         }
     }
 
@@ -1658,14 +1691,27 @@ mod tests {
 
     #[test]
     fn host_baseline_accepts_legacy_brand_bridge_without_rewriting_it() {
-        let (runner, manager) = host_fixture();
-        let legacy =
-            b"# Managed by Nusa Panel: tenant websites.\ninclude /etc/panel/nginx/http.conf;\n";
-        runner.set_file_content(Path::new(HOST_BRIDGE), legacy);
-        prepare_host(&manager).unwrap();
-        assert_eq!(runner.read_file(Path::new(HOST_BRIDGE)).unwrap(), legacy);
-        prepare_host(&manager).unwrap();
-        assert_eq!(runner.read_file(Path::new(HOST_BRIDGE)).unwrap(), legacy);
+        for brand in ["Nusa Panel", "Qpanel"] {
+            let (runner, manager) = host_fixture();
+            let legacy = format!(
+                "# Managed by {brand}: tenant websites.\ninclude /etc/panel/nginx/http.conf;\n"
+            );
+            runner.set_file_content(Path::new(HOST_BRIDGE), legacy.as_bytes());
+            let guard = NginxBaselineConfig::default()
+                .render_default_catchall()
+                .replacen("Managed by QonPanel", &format!("Managed by {brand}"), 1);
+            runner.set_file_content(
+                Path::new("/etc/nginx/conf.d/00-qpanel-reject-unknown.conf"),
+                guard.as_bytes(),
+            );
+            for _ in 0..2 {
+                prepare_host(&manager).unwrap();
+                assert_eq!(
+                    runner.read_file(Path::new(HOST_BRIDGE)).unwrap(),
+                    legacy.as_bytes()
+                );
+            }
+        }
     }
 
     #[test]

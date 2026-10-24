@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Qpanel - Clean Uninstallation Script
+# QonPanel - Clean Uninstallation Script
 # https://github.com/nusa-panel/panel
 # ==============================================================================
 
@@ -59,7 +59,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 if [[ "$ASSUME_YES" == "false" ]]; then
-    echo -e "${YELLOW}PERINGATAN: Skrip ini akan menghentikan dan mencopot layanan Qpanel.${NC}"
+    echo -e "${YELLOW}PERINGATAN: Skrip ini akan menghentikan dan mencopot layanan QonPanel.${NC}"
     if [[ "$PURGE" == "true" ]]; then
         echo -e "${RED}Mode --purge aktif: SEMUA basis data (/var/lib/panel), cadangan, dan konfigurasi AKAN DIHAPUS.${NC}"
     else
@@ -90,15 +90,20 @@ if ! nginx -t || { systemctl is-active --quiet nginx && ! systemctl reload nginx
     exit 1
 fi
 systemctl stop panel-api.service panel-agent.service panel-proc-hardening.service panel-db-web.service >/dev/null 2>&1 || true
+systemctl stop qonpanel-server-backup.service >/dev/null 2>&1 || true
+systemctl stop panel-update.service >/dev/null 2>&1 || true
 systemctl disable panel-api.service panel-agent.service panel-proc-hardening.service panel-db-web.service >/dev/null 2>&1 || true
 
 echo -e "${BLUE}[2/4] Menghapus unit file systemd...${NC}"
 rm -f /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service /etc/systemd/system/panel-proc-hardening.service
+rm -f /etc/systemd/system/qonpanel-server-backup.service /usr/local/libexec/qonpanel-server-backup
+rm -f /etc/systemd/system/panel-update.service /usr/local/libexec/panel-update-worker /usr/local/libexec/panel-bootstrap
+rm -f /etc/systemd/system/panel-fpm@.service.d/10-panel-runtime-order.conf /etc/systemd/system/site-.service.d/10-panel-runtime-order.conf
 rm -f /etc/systemd/system/panel-db-web.service /etc/phpmyadmin/conf.d/zz-panel.php /usr/lib/tmpfiles.d/panel-db-web.conf
 rm -rf /usr/share/panel/db-web /run/panel-db-web /var/lib/panel-db-web
 systemctl daemon-reload
 
-echo -e "${BLUE}[3/4] Menghapus biner Qpanel dari /usr/local/bin...${NC}"
+echo -e "${BLUE}[3/4] Menghapus biner QonPanel dari /usr/local/bin...${NC}"
 rm -f /usr/local/bin/panel-api /usr/local/bin/panel-agent /usr/local/bin/panelctl
 rm -rf /run/panel
 
@@ -116,5 +121,5 @@ fi
 
 echo ""
 echo "================================================================================"
-echo -e "         ${GREEN}[SUKSES] Pencopotan pemasangan Qpanel telah selesai.${NC}       "
+echo -e "         ${GREEN}[SUKSES] Pencopotan pemasangan QonPanel telah selesai.${NC}       "
 echo "================================================================================"

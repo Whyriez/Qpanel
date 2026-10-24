@@ -72,7 +72,7 @@ impl ReliabilityManager {
             remediation_hint: if is_linux {
                 None
             } else {
-                Some("Jalankan Qpanel pada VM Linux Ubuntu 24.04 LTS".to_string())
+                Some("Jalankan QonPanel pada VM Linux Ubuntu 24.04 LTS".to_string())
             },
             fixable: false,
         });
@@ -840,6 +840,27 @@ impl ReliabilityManager {
             .as_deref()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(panel_core::production::DEFAULT_DATABASE_PATH));
+        // RPC callers cannot select arbitrary root destinations. Custom roots are
+        // constructed only by the local test harness, never supplied by the API.
+        let allowed_target = if self.base_dir == Path::new("/etc/panel") {
+            PathBuf::from(panel_core::production::DEFAULT_DATABASE_PATH)
+        } else {
+            self.base_dir.join("panel.db")
+        };
+        if target != allowed_target
+            || archive_path.parent() != Some(self.base_dir.join("backups").as_path())
+            || archive_path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_none_or(|name| !validate_system_backup_filename(name))
+            || std::fs::symlink_metadata(&target).is_ok_and(|m| m.is_symlink())
+            || std::fs::symlink_metadata(&archive_path)
+                .is_ok_and(|m| !m.is_file() || m.is_symlink())
+        {
+            return Err(AgentError::SecurityViolation(
+                "Target pemulihan sistem harus database panel pada direktori tetap".into(),
+            ));
+        }
         if panel_db::operations::sidecar_path(&target).exists() {
             return Err(AgentError::InvalidInput(
                 "Pemulihan multi-database memerlukan panel-api dihentikan dan panelctl backup restore dijalankan offline".to_owned()
@@ -854,7 +875,13 @@ impl ReliabilityManager {
             db_path: req.target_db_path.clone(),
             analytics_db_path: None,
         };
-        let _ = self.backup_create(&pre_restore_req);
+        self.backup_create(&SystemBackupCreateRequest {
+            output_filename: Some(format!(
+                "panel-backup-safety-{}.tar.gz",
+                uuid::Uuid::new_v4()
+            )),
+            ..pre_restore_req
+        })?;
 
         // Open and extract archive
         let tar_file = File::open(&archive_path).map_err(AgentError::Io)?;
@@ -864,7 +891,7 @@ impl ReliabilityManager {
         let restore_staging = self
             .base_dir
             .join("backups")
-            .join(format!("restore_{}", timestamp));
+            .join(format!("restore_{}", uuid::Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&restore_staging);
         let _ = self.runner.create_dir_all(&restore_staging, 0o700, 0, 0);
 
@@ -873,18 +900,48 @@ impl ReliabilityManager {
         for entry in entries {
             let mut file = entry.map_err(AgentError::Io)?;
             let path = file.path().map_err(AgentError::Io)?.to_path_buf();
+            if path.components().any(|part| {
+                !matches!(
+                    part,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            }) || (!file.header().entry_type().is_file() && !file.header().entry_type().is_dir())
+                || path.to_string_lossy().contains('\\')
+            {
+                return Err(AgentError::SecurityViolation(
+                    "Entri arsip sistem tidak aman".into(),
+                ));
+            }
             let dest = restore_staging.join(&path);
             if let Some(parent) = dest.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if file.unpack(&dest).is_ok() {
-                restored_files += 1;
-            }
+            file.unpack(&dest)?;
+            restored_files += 1;
         }
 
         // Legacy single-file restore; partitioned installations use offline CLI.
         let restored_db = restore_staging.join("panel.db");
         if restored_db.exists() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                // Descriptor-relative no-follow opening closes the check/copy
+                // race in the API-owned data directory. Hardlinks are rejected.
+                let meta = target.symlink_metadata()?;
+                let mut output = crate::system::open_owned_runtime_file(
+                    &target,
+                    0o600,
+                    meta.uid(),
+                    meta.gid(),
+                    false,
+                )?
+                .ok_or_else(|| AgentError::Internal("Database tujuan tidak dapat dibuka".into()))?;
+                output.set_len(0)?;
+                std::io::copy(&mut File::open(&restored_db)?, &mut output)?;
+                output.sync_all()?;
+            }
+            #[cfg(not(unix))]
             std::fs::copy(&restored_db, &target)?;
         }
 
@@ -1024,6 +1081,34 @@ mod tests {
     }
 
     #[test]
+    fn legacy_system_backup_restore_rejects_arbitrary_root_destination() {
+        let runner = Arc::new(MockSystemRunner::new());
+        let temp = tempdir().unwrap();
+        let nft = Arc::new(NftablesManager::new(
+            Arc::clone(&runner) as Arc<dyn SystemRunner>
+        ));
+        let mgr = ReliabilityManager::new(
+            Arc::clone(&runner) as Arc<dyn SystemRunner>,
+            temp.path(),
+            nft,
+        );
+        let backups = temp.path().join("backups");
+        std::fs::create_dir(&backups).unwrap();
+        let archive = backups.join("panel-backup-test.tar.gz");
+        std::fs::write(&archive, b"unused").unwrap();
+        let error = mgr
+            .backup_restore(&SystemBackupRestoreRequest {
+                backup_filepath: archive.to_string_lossy().into_owned(),
+                target_db_path: Some("/var/lib/qonpanel-migration/approval.json".into()),
+                force: true,
+            })
+            .unwrap_err();
+        assert!(matches!(error, AgentError::SecurityViolation(_)));
+        assert!(runner.recorded_actions().is_empty());
+        assert_eq!(std::fs::read_dir(backups).unwrap().count(), 1);
+    }
+
+    #[test]
     fn test_reliability_system_backup_lifecycle() {
         let runner = Arc::new(MockSystemRunner::new());
         let temp = tempdir().unwrap();
@@ -1075,12 +1160,7 @@ mod tests {
         let restore_res = mgr
             .backup_restore(&SystemBackupRestoreRequest {
                 backup_filepath: create_res.filepath,
-                target_db_path: Some(
-                    temp.path()
-                        .join("restored_panel.db")
-                        .to_string_lossy()
-                        .to_string(),
-                ),
+                target_db_path: Some(db_path.to_string_lossy().to_string()),
                 force: true,
             })
             .unwrap();

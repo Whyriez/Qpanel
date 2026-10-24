@@ -104,7 +104,7 @@ export const PanelMemoryProfileCard: React.FC<PanelMemoryProfileCardProps> = ({
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             Validasi kepatuhan batas konsumsi RAM, cold start, dan ukuran bundel
-            antarmuka sesuai standar arsitektur Qpanel.
+            antarmuka sesuai standar arsitektur QonPanel.
           </p>
         </div>
 

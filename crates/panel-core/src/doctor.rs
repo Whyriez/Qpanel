@@ -151,7 +151,9 @@ pub fn format_doctor_report_cli(report: &DoctorReport, use_color: bool) -> Strin
     out.push_str(
         "================================================================================\n",
     );
-    out.push_str("                        QPANEL SYSTEM DOCTOR                                \n");
+    out.push_str(
+        "                        QONPANEL SYSTEM DOCTOR                                \n",
+    );
     out.push_str(
         "================================================================================\n\n",
     );
@@ -270,7 +272,7 @@ mod tests {
         assert_eq!(fixable[0].id, "stuck_jobs");
 
         let cli_output = format_doctor_report_cli(&report, false);
-        assert!(cli_output.contains("QPANEL SYSTEM DOCTOR"));
+        assert!(cli_output.contains("QONPANEL SYSTEM DOCTOR"));
         assert!(cli_output.contains("[FAIL]"));
         assert!(cli_output.contains("[WARN]"));
         assert!(cli_output.contains("[PASS]"));

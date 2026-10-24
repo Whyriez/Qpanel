@@ -50,7 +50,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
   const [hasExistingPassword, setHasExistingPassword] = useState(false);
   const [smtpEncryption, setSmtpEncryption] = useState('starttls');
   const [fromAddress, setFromAddress] = useState('');
-  const [fromName, setFromName] = useState('Qpanel Alerts');
+  const [fromName, setFromName] = useState('QonPanel Alerts');
   const [adminEmail, setAdminEmail] = useState('');
 
   const [sslWarningDays, setSslWarningDays] = useState(14);
@@ -81,7 +81,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
       setSmtpPassword(data.smtp_has_password ? '********' : '');
       setSmtpEncryption(data.smtp_encryption || 'starttls');
       setFromAddress(data.from_address || '');
-      setFromName(data.from_name || 'Qpanel Alerts');
+      setFromName(data.from_name || 'QonPanel Alerts');
       setAdminEmail(data.admin_email || '');
       setTestEmailAddress(data.admin_email || '');
 
@@ -397,7 +397,7 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
                         type="text"
                         value={fromName}
                         onChange={(e) => setFromName(e.target.value)}
-                        placeholder="Qpanel Alerts"
+                        placeholder="QonPanel Alerts"
                         className="w-full px-3 py-1.5 text-xs bg-[var(--raised)] border border-[var(--line)] rounded-[var(--radius-sm)] text-[var(--ink)] focus:border-[var(--primary)] focus:outline-none"
                       />
                     </div>

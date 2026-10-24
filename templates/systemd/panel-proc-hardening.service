@@ -1,5 +1,5 @@
 [Unit]
-Description=Vpanel host procfs process isolation
+Description=QonPanel host procfs process isolation
 After=local-fs.target
 Before=panel-agent.service panel-api.service
 

@@ -1,4 +1,4 @@
-name: Release
+name: QonPanel release
 
 on:
   push:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   build-release:
-    name: Build Release (${{ matrix.target }})
+    name: Build QonPanel (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     env:
       CARGO_TARGET_DIR: target/release-native/${{ matrix.target }}
@@ -87,13 +87,13 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: nusa-panel-${{ matrix.target }}
+          name: qonpanel-${{ matrix.target }}
           path: |
             release/*.tar.gz
             release/*.sha256
 
   publish-release:
-    name: Publish GitHub Release
+    name: Publish QonPanel release
     needs: build-release
     runs-on: ubuntu-24.04
     steps:
@@ -117,6 +117,7 @@ jobs:
         with:
           files: |
             dist/*
+          name: QonPanel ${{ inputs.tag || github.ref_name }}
           tag_name: ${{ inputs.tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           overwrite_files: true

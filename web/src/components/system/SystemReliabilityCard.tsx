@@ -552,6 +552,7 @@ export const SystemReliabilityCard: React.FC<SystemReliabilityCardProps> = ({
       {activeTab === 'backup' && (
         <div className="p-6 space-y-6">
           {/* Create Backup Form */}
+          <p className="text-sm text-[var(--ink-muted)]">Snapshot ini hanya untuk database/config panel. Untuk pindah server beserta website dan database aplikasi, gunakan <a className="underline" href="/settings?section=server_backup">Backup dan migrasi</a>.</p>
           <form onSubmit={handleCreateBackup} className="p-4 rounded-lg bg-[var(--raised)] border border-[var(--line)] flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
             <div className="flex-1">
               <input

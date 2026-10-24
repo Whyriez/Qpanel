@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
-/// Extracts `site_id` from standard Vpanel Nginx log paths.
+/// Extracts `site_id` from standard QonPanel Nginx log paths.
 ///
 /// Supported conventions:
 /// - `/var/log/panel/sites/site-123/access.log` -> `123`

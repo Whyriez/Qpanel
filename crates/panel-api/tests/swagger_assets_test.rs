@@ -19,7 +19,7 @@ async fn swagger_assets_and_panel_schema_are_served_after_zip_security_backport(
         ("/swagger-ui/swagger-ui.css", ".swagger-ui"),
         ("/swagger-ui/swagger-ui-bundle.js", "SwaggerUIBundle"),
         ("/swagger-ui/swagger-initializer.js", "/api/v1/openapi.json"),
-        ("/api/v1/openapi.json", "Qpanel API"),
+        ("/api/v1/openapi.json", "QonPanel API"),
     ] {
         let request = Request::builder()
             .uri(path)

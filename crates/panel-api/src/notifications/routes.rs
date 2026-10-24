@@ -614,8 +614,8 @@ async fn test_smtp_connection(
 
     let test_msg = EmailMessage {
         to: to_address.clone(),
-        subject: "[Qpanel] Uji Coba Pengiriman Notifikasi Email".to_string(),
-        body: "Halo!\n\nIni adalah email uji coba dari Qpanel untuk memverifikasi pengaturan SMTP Anda.\nJika Anda menerima pesan ini, konfigurasi pengiriman email telah berfungsi dengan baik.\n\nSalam,\nTim Qpanel".to_string(),
+        subject: "[QonPanel] Uji Coba Pengiriman Notifikasi Email".to_string(),
+        body: "Halo!\n\nIni adalah email uji coba dari QonPanel untuk memverifikasi pengaturan SMTP Anda.\nJika Anda menerima pesan ini, konfigurasi pengiriman email telah berfungsi dengan baik.\n\nSalam,\nTim QonPanel".to_string(),
     };
 
     match SmtpClient::send_mail(&smtp_config, &test_msg).await {

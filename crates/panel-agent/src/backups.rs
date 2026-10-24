@@ -1,457 +1,402 @@
-//! Host agent execution for site backups, snapshots, and archive restores.
-
-use crate::AgentError;
-use crate::system::SystemRunner;
+//! Tenant-scoped site archives. All tenant filesystem commands drop privileges first.
+use crate::{AgentError, system::SystemRunner};
 use panel_core::backup::{
     BackupDatabaseManifestEntry, BackupFormat, BackupManifest, validate_backup_filename,
 };
 use panel_proto::{
-    BackupCreateRequest, BackupCreateResponse, BackupDeleteRequest, BackupDeleteResponse,
-    BackupRestoreRequest, BackupRestoreResponse,
+    BackupCreateRequest, BackupCreateResponse, BackupDatabaseInfo, BackupDeleteRequest,
+    BackupDeleteResponse, BackupRestoreRequest, BackupRestoreResponse,
 };
 use sha2::{Digest, Sha256};
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-/// Computes SHA256 hex digest of a file.
-fn compute_file_sha256(path: &Path) -> Result<String, AgentError> {
-    let mut file = File::open(path).map_err(AgentError::Io)?;
+fn invalid() -> AgentError {
+    AgentError::InvalidInput("Identitas atau direktori cadangan tenant tidak valid".into())
+}
+fn identity(runner: &dyn SystemRunner, name: &str, uid: Option<u32>) -> Result<u32, AgentError> {
+    panel_core::Username::parse(name).map_err(|_| invalid())?;
+    let out = runner.run_command("getent", &["passwd", name])?;
+    let record = String::from_utf8_lossy(&out.stdout);
+    let fields: Vec<_> = record.trim_end().split(':').collect();
+    if !out.status.success()
+        || fields.len() != 7
+        || fields[0] != name
+        || fields[5] != format!("/home/{name}")
+    {
+        return Err(invalid());
+    }
+    let actual: u32 = fields[2].parse().map_err(|_| invalid())?;
+    panel_core::tenant::TenantUid::parse(actual).map_err(|_| invalid())?;
+    if fields[3] != fields[2] || uid.is_some_and(|v| v != actual) {
+        return Err(invalid());
+    }
+    Ok(actual)
+}
+fn tenant_path(name: &str, uid: u32, path: &str) -> Result<(), AgentError> {
+    crate::node_site::validate_app_directory(name, uid, path)
+}
+fn tenant(runner: &dyn SystemRunner, name: &str, args: &[&str]) -> Result<(), AgentError> {
+    let mut command = vec!["-u", name, "--"];
+    command.extend_from_slice(args);
+    let out = runner.run_command("runuser", &command)?;
+    if !out.status.success() {
+        return Err(AgentError::Internal("Operasi cadangan tenant gagal".into()));
+    }
+    Ok(())
+}
+fn database(db: &BackupDatabaseInfo) -> Result<(), AgentError> {
+    if db.name.is_empty()
+        || db.name.len() > 64
+        || !db
+            .name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        || db.name.starts_with(|c: char| !c.is_ascii_alphabetic())
+        || !["mysql", "mariadb", "postgres", "postgresql"].contains(&db.engine.as_str())
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+fn pg(db: &BackupDatabaseInfo) -> bool {
+    ["postgres", "postgresql"].contains(&db.engine.as_str())
+}
+fn string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+fn private_dump(runner: &dyn SystemRunner) -> Result<PathBuf, AgentError> {
+    let dir = PathBuf::from("/var/lib/qonpanel-migration/legacy-dumps")
+        .join(uuid::Uuid::new_v4().to_string());
+    runner.create_dir_all(&dir, 0o700, 0, 0)?;
+    Ok(dir.join("database.sql"))
+}
+fn cleanup_dump(runner: &dyn SystemRunner, path: &Path) {
+    if let Some(parent) = path.parent() {
+        let _ = runner.remove_dir_all(parent);
+    }
+}
+fn digest(path: &Path) -> Result<(u64, String), AgentError> {
+    // Tenant-owned output is only read here, never chmod/chown or written as root.
+    let mut file = std::fs::File::open(path)?;
+    let size = file.metadata()?.len();
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 65536];
+    let mut buffer = [0; 65536];
     loop {
-        let count = file.read(&mut buffer).map_err(AgentError::Io)?;
+        let count = file.read(&mut buffer)?;
         if count == 0 {
             break;
         }
         hasher.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok((size, format!("{:x}", hasher.finalize())))
 }
-
-/// Recursively counts files and total uncompressed bytes in a directory.
 fn scan_dir_stats(path: &Path) -> (u64, u64) {
-    let mut count = 0u64;
-    let mut bytes = 0u64;
-
+    let mut total = (0, 0);
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() {
-                count += 1;
-                if let Ok(meta) = p.metadata() {
-                    bytes += meta.len();
+            if let Ok(meta) = entry.path().symlink_metadata() {
+                if meta.is_symlink() {
+                    continue;
                 }
-            } else if p.is_dir() {
-                let (sub_count, sub_bytes) = scan_dir_stats(&p);
-                count += sub_count;
-                bytes += sub_bytes;
+                if meta.is_file() {
+                    total.0 += 1;
+                    total.1 += meta.len();
+                } else if meta.is_dir() {
+                    let sub = scan_dir_stats(&entry.path());
+                    total.0 += sub.0;
+                    total.1 += sub.1;
+                }
             }
         }
     }
-
-    (count, bytes)
+    total
 }
 
-/// Recursively copies a directory tree.
-fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !dst.exists() {
-        std::fs::create_dir_all(dst)?;
-    }
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else if src_path.is_file() {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
-    }
-    Ok(())
-}
-
-/// Creates a complete site backup archive containing files and database dumps.
-#[allow(clippy::cognitive_complexity)]
 pub fn create_backup(
     runner: &dyn SystemRunner,
     req: &BackupCreateRequest,
 ) -> Result<BackupCreateResponse, AgentError> {
-    if let Err(e) = validate_backup_filename(&req.filename) {
-        return Ok(BackupCreateResponse {
-            success: false,
-            size_bytes: 0,
-            checksum_sha256: String::new(),
-            filepath: String::new(),
-            error: Some(e.to_string()),
-        });
+    let uid = identity(runner, &req.tenant_username, Some(req.tenant_uid))?;
+    tenant_path(&req.tenant_username, uid, &req.site_dir)?;
+    tenant_path(&req.tenant_username, uid, &req.backup_dir)?;
+    validate_backup_filename(&req.filename).map_err(|_| invalid())?;
+    for db in &req.databases {
+        database(db)?;
     }
-
+    let name = &req.tenant_username;
     let backup_dir = Path::new(&req.backup_dir);
-    if !runner.path_exists(backup_dir) {
-        runner.create_dir_all(backup_dir, 0o750, req.tenant_uid, req.tenant_uid)?;
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-
-    let staging_dir = backup_dir.join(format!(".staging_{}_{}", req.site_id, now));
-    if runner.path_exists(&staging_dir) {
-        let _ = runner.remove_dir_all(&staging_dir);
-    }
-    runner.create_dir_all(&staging_dir, 0o700, req.tenant_uid, req.tenant_uid)?;
-
-    let mut manifest = BackupManifest {
-        site_id: req.site_id,
-        created_at: now,
-        includes_files: req.include_files,
-        includes_databases: req.include_databases,
-        archive_format: req.format.clone(),
-        ..Default::default()
-    };
-
-    // 1. Pack site files if requested
-    if req.include_files {
-        let site_dir = Path::new(&req.site_dir);
-        let staging_files = staging_dir.join("files");
-        runner.create_dir_all(&staging_files, 0o755, req.tenant_uid, req.tenant_uid)?;
-
-        if site_dir.exists() {
-            if let Err(e) = copy_dir_all(site_dir, &staging_files) {
-                let _ = runner.remove_dir_all(&staging_dir);
-                return Ok(BackupCreateResponse {
-                    success: false,
-                    size_bytes: 0,
-                    checksum_sha256: String::new(),
-                    filepath: String::new(),
-                    error: Some(format!("Gagal menyalin berkas situs: {}", e)),
+    let staging = backup_dir.join(format!(".staging_{}", uuid::Uuid::new_v4()));
+    let stage = string(&staging);
+    tenant(runner, name, &["mkdir", "-p", "-m", "0700", "--", &stage])?;
+    let result = (|| {
+        let mut manifest = BackupManifest {
+            site_id: req.site_id,
+            created_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+            includes_files: req.include_files,
+            includes_databases: req.include_databases,
+            archive_format: req.format.clone(),
+            ..Default::default()
+        };
+        if req.include_files {
+            let dest = string(&staging.join("files"));
+            tenant(runner, name, &["mkdir", "-p", "-m", "0700", "--", &dest])?;
+            tenant(
+                runner,
+                name,
+                &[
+                    "cp",
+                    "-a",
+                    "--no-dereference",
+                    "--",
+                    &format!("{}/.", req.site_dir),
+                    &dest,
+                ],
+            )?;
+            let (count, bytes) = scan_dir_stats(&staging.join("files"));
+            manifest.files_count = count;
+            manifest.uncompressed_bytes = bytes;
+        }
+        if req.include_databases {
+            let dest = string(&staging.join("databases"));
+            tenant(runner, name, &["mkdir", "-p", "-m", "0700", "--", &dest])?;
+            for db in &req.databases {
+                let private = private_dump(runner)?;
+                let rel = format!("databases/{}.sql", db.name);
+                let target = string(&staging.join(&rel));
+                let export = (|| {
+                    if pg(db) {
+                        runner.backup_file_stream(
+                            "runuser",
+                            &[
+                                "-u",
+                                "postgres",
+                                "--",
+                                "pg_dump",
+                                "--no-owner",
+                                "--no-acl",
+                                "--dbname",
+                                &db.name,
+                            ],
+                            &private,
+                            false,
+                        )?;
+                    } else {
+                        // Root can write only an agent-generated private file, never a tenant symlink.
+                        runner.backup_file_stream(
+                            "mariadb-dump",
+                            &[
+                                "--single-transaction",
+                                "--quick",
+                                "--routines",
+                                "--triggers",
+                                "--no-tablespaces",
+                                &db.name,
+                            ],
+                            &private,
+                            false,
+                        )?;
+                    }
+                    runner.backup_file_stream(
+                        "runuser",
+                        &["-u", name, "--", "tee", "--", &target],
+                        &private,
+                        true,
+                    )?;
+                    Ok::<(), AgentError>(())
+                })();
+                cleanup_dump(runner, &private);
+                export?;
+                manifest.databases.push(BackupDatabaseManifestEntry {
+                    engine: db.engine.clone(),
+                    name: db.name.clone(),
+                    username: db.username.clone(),
+                    dump_file: rel,
+                    size_bytes: std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
                 });
             }
-            let (file_count, file_bytes) = scan_dir_stats(&staging_files);
-            manifest.files_count = file_count;
-            manifest.uncompressed_bytes = file_bytes;
         }
-    }
-
-    // 2. Dump databases if requested
-    if req.include_databases && !req.databases.is_empty() {
-        let staging_dbs = staging_dir.join("databases");
-        runner.create_dir_all(&staging_dbs, 0o700, req.tenant_uid, req.tenant_uid)?;
-
-        for db in &req.databases {
-            let dump_file_rel = format!("databases/{}.sql", db.name);
-            let dump_file_path = staging_dir.join(&dump_file_rel);
-            let dump_str = dump_file_path.to_string_lossy().to_string();
-
-            if db.engine == "mariadb" || db.engine == "mysql" {
-                let out = runner.run_command(
-                    "mariadb-dump",
-                    &[
-                        "--single-transaction",
-                        "--quick",
-                        "--routines",
-                        "--triggers",
-                        "--no-tablespaces",
-                        &format!("--result-file={}", dump_str),
-                        &db.name,
-                    ],
-                );
-
-                let res = match out {
-                    Ok(o) if o.status.success() => Ok(()),
-                    _ => {
-                        // Fallback to mysqldump
-                        runner
-                            .run_command(
-                                "mysqldump",
-                                &[
-                                    "--single-transaction",
-                                    "--quick",
-                                    "--routines",
-                                    "--triggers",
-                                    "--no-tablespaces",
-                                    &format!("--result-file={}", dump_str),
-                                    &db.name,
-                                ],
-                            )
-                            .map(|_| ())
-                    }
-                };
-
-                if let Err(e) = res {
-                    warn!("Database dump warning for {}: {:?}", db.name, e);
-                }
-            } else if db.engine == "postgres" || db.engine == "postgresql" {
-                let out =
-                    runner.run_command("pg_dump", &["-d", &db.name, "-F", "p", "-f", &dump_str]);
-                if let Err(e) = out {
-                    warn!("PostgreSQL dump warning for {}: {:?}", db.name, e);
-                }
-            }
-
-            let db_size = if dump_file_path.exists() {
-                dump_file_path.metadata().map(|m| m.len()).unwrap_or(0)
-            } else {
-                0
-            };
-
-            manifest.databases.push(BackupDatabaseManifestEntry {
-                engine: db.engine.clone(),
-                name: db.name.clone(),
-                username: db.username.clone(),
-                dump_file: dump_file_rel,
-                size_bytes: db_size,
-            });
+        // The manifest also crosses into the tenant tree with a dropped UID.
+        let private = private_dump(runner)?;
+        let manifest_result = (|| {
+            runner.write_file(
+                &private,
+                &serde_json::to_vec_pretty(&manifest)
+                    .map_err(|e| AgentError::Internal(e.to_string()))?,
+                0o600,
+            )?;
+            runner.backup_file_stream(
+                "runuser",
+                &[
+                    "-u",
+                    name,
+                    "--",
+                    "tee",
+                    "--",
+                    &string(&staging.join("manifest.json")),
+                ],
+                &private,
+                true,
+            )?;
+            Ok::<(), AgentError>(())
+        })();
+        cleanup_dump(runner, &private);
+        manifest_result?;
+        let archive = backup_dir.join(&req.filename);
+        let archive_str = string(&archive);
+        if matches!(
+            BackupFormat::from_str_loose(&req.format),
+            BackupFormat::TarGz
+        ) {
+            tenant(
+                runner,
+                name,
+                &["tar", "-czf", &archive_str, "-C", &stage, "."],
+            )?;
+        } else {
+            tenant(
+                runner,
+                name,
+                &["tar", "--zstd", "-cf", &archive_str, "-C", &stage, "."],
+            )?;
         }
-    }
-
-    // 3. Write manifest.json inside staging
-    let manifest_path = staging_dir.join("manifest.json");
-    let manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
-    let _ = runner.write_file(&manifest_path, &manifest_bytes, 0o600);
-
-    // 4. Create compressed archive
-    let final_archive_path = backup_dir.join(&req.filename);
-    let final_archive_str = final_archive_path.to_string_lossy().to_string();
-    let staging_str = staging_dir.to_string_lossy().to_string();
-
-    let format = BackupFormat::from_str_loose(&req.format);
-    let pack_res = match format {
-        BackupFormat::TarGz => runner.run_command(
-            "tar",
-            &["-czf", &final_archive_str, "-C", &staging_str, "."],
-        ),
-        BackupFormat::TarZst => {
-            // Try zstd compression with tar
-            let zstd_res = runner.run_command(
-                "tar",
-                &["--zstd", "-cf", &final_archive_str, "-C", &staging_str, "."],
-            );
-            match zstd_res {
-                Ok(o) if o.status.success() => Ok(o),
-                _ => {
-                    // Fallback to tar with -I zstd or tar.gz
-                    let alt_zstd = runner.run_command(
-                        "tar",
-                        &[
-                            "-I",
-                            "zstd",
-                            "-cf",
-                            &final_archive_str,
-                            "-C",
-                            &staging_str,
-                            ".",
-                        ],
-                    );
-                    match alt_zstd {
-                        Ok(o) if o.status.success() => Ok(o),
-                        _ => runner.run_command(
-                            "tar",
-                            &["-czf", &final_archive_str, "-C", &staging_str, "."],
-                        ),
-                    }
-                }
-            }
-        }
-    };
-
-    // Clean up staging directory
-    let _ = runner.remove_dir_all(&staging_dir);
-
-    match pack_res {
-        Ok(out) if out.status.success() => {
-            let _ = runner.set_permissions(&final_archive_path, 0o600);
-            let _ = runner.set_ownership(&final_archive_path, req.tenant_uid, req.tenant_uid);
-
-            let (size_bytes, checksum) = if final_archive_path.exists() {
-                let sz = final_archive_path.metadata().map(|m| m.len()).unwrap_or(0);
-                let chk = compute_file_sha256(&final_archive_path).unwrap_or_default();
-                (sz, chk)
-            } else {
-                (0, String::new())
-            };
-
-            info!(
-                site_id = req.site_id,
-                size = size_bytes,
-                "Backup archive created successfully at {}",
-                final_archive_str
-            );
-
-            Ok(BackupCreateResponse {
-                success: true,
-                size_bytes,
-                checksum_sha256: checksum,
-                filepath: final_archive_str,
-                error: None,
-            })
-        }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            Ok(BackupCreateResponse {
-                success: false,
-                size_bytes: 0,
-                checksum_sha256: String::new(),
-                filepath: String::new(),
-                error: Some(format!("Gagal membuat arsip kompresi tar: {}", stderr)),
-            })
-        }
-        Err(e) => Ok(BackupCreateResponse {
-            success: false,
-            size_bytes: 0,
-            checksum_sha256: String::new(),
-            filepath: String::new(),
-            error: Some(format!("Eksekusi pembuatan arsip gagal: {}", e)),
-        }),
-    }
+        let (size_bytes, checksum_sha256) = digest(&archive)?;
+        Ok(BackupCreateResponse {
+            success: true,
+            size_bytes,
+            checksum_sha256,
+            filepath: archive_str,
+            error: None,
+        })
+    })();
+    let _ = tenant(runner, name, &["rm", "-rf", "--", &stage]);
+    result
 }
 
-/// Restores site files and database dumps from a backup archive.
 pub fn restore_backup(
     runner: &dyn SystemRunner,
     req: &BackupRestoreRequest,
 ) -> Result<BackupRestoreResponse, AgentError> {
-    let backup_path = Path::new(&req.backup_filepath);
-    if !backup_path.exists() {
-        return Ok(BackupRestoreResponse {
-            success: false,
-            restored_files_count: 0,
-            restored_databases_count: 0,
-            error: Some("Berkas cadangan tidak ditemukan di server".to_string()),
-        });
+    let uid = identity(runner, &req.tenant_username, Some(req.tenant_uid))?;
+    tenant_path(&req.tenant_username, uid, &req.backup_filepath)?;
+    tenant_path(&req.tenant_username, uid, &req.target_site_dir)?;
+    for db in &req.databases {
+        database(db)?;
     }
-
-    let target_dir = Path::new(&req.target_site_dir);
-    if !target_dir.exists() {
-        runner.create_dir_all(target_dir, 0o755, req.tenant_uid, req.tenant_uid)?;
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64;
-
-    let staging_dir = target_dir.join(format!(".restore_staging_{}", now));
-    if runner.path_exists(&staging_dir) {
-        let _ = runner.remove_dir_all(&staging_dir);
-    }
-    runner.create_dir_all(&staging_dir, 0o700, req.tenant_uid, req.tenant_uid)?;
-
-    let backup_str = backup_path.to_string_lossy().to_string();
-    let staging_str = staging_dir.to_string_lossy().to_string();
-
-    // Extract archive
-    let extract_res = if backup_str.ends_with(".tar.gz") {
-        runner.run_command("tar", &["-xzf", &backup_str, "-C", &staging_str])
-    } else {
-        let zstd_res =
-            runner.run_command("tar", &["--zstd", "-xf", &backup_str, "-C", &staging_str]);
-        match zstd_res {
-            Ok(o) if o.status.success() => Ok(o),
-            _ => runner.run_command(
-                "tar",
-                &["-I", "zstd", "-xf", &backup_str, "-C", &staging_str],
-            ),
+    let name = &req.tenant_username;
+    let staging = PathBuf::from(format!("/home/{name}/.restore_{}", uuid::Uuid::new_v4()));
+    let stage = string(&staging);
+    tenant(runner, name, &["mkdir", "-p", "-m", "0700", "--", &stage])?;
+    let result = (|| {
+        let compression = if req.backup_filepath.ends_with(".tar.gz") {
+            "-xzf"
+        } else {
+            "-xf"
+        };
+        let mut args = vec!["tar", "--no-same-owner", "--no-same-permissions"];
+        if compression == "-xf" {
+            args.push("--zstd");
         }
-    };
-
-    if let Err(e) = extract_res {
-        let _ = runner.remove_dir_all(&staging_dir);
-        return Ok(BackupRestoreResponse {
-            success: false,
-            restored_files_count: 0,
-            restored_databases_count: 0,
-            error: Some(format!("Gagal mengekstrak berkas arsip cadangan: {}", e)),
-        });
-    }
-
-    let mut restored_files = 0u64;
-    let mut restored_dbs = 0u32;
-
-    // 1. Restore files if requested
-    if req.restore_files {
-        let staging_files = staging_dir.join("files");
-        if staging_files.exists() {
-            if let Err(e) = copy_dir_all(&staging_files, target_dir) {
-                let _ = runner.remove_dir_all(&staging_dir);
-                return Ok(BackupRestoreResponse {
-                    success: false,
-                    restored_files_count: 0,
-                    restored_databases_count: 0,
-                    error: Some(format!("Gagal memulihkan berkas ke direktori situs: {}", e)),
-                });
-            }
-            let (f_count, _) = scan_dir_stats(target_dir);
-            restored_files = f_count;
+        args.extend([compression, &req.backup_filepath, "-C", &stage]);
+        // GNU tar rejects traversal; even a malicious link only has the tenant's privileges.
+        tenant(runner, name, &args)?;
+        let mut count = 0;
+        if req.restore_files {
+            tenant(runner, name, &["mkdir", "-p", "--", &req.target_site_dir])?;
+            tenant(
+                runner,
+                name,
+                &[
+                    "cp",
+                    "-a",
+                    "--no-dereference",
+                    "--",
+                    &format!("{stage}/files/."),
+                    &req.target_site_dir,
+                ],
+            )?;
+            count = scan_dir_stats(Path::new(&req.target_site_dir)).0;
         }
-    }
-
-    // 2. Restore databases if requested
-    if req.restore_databases {
-        let staging_dbs = staging_dir.join("databases");
-        if let Ok(entries) = std::fs::read_dir(&staging_dbs) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_file() && p.extension().map(|e| e == "sql").unwrap_or(false) {
-                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                    let p_str = p.to_string_lossy().to_string();
-
-                    // Match engine from requested databases or default to mariadb
-                    let db_info = req.databases.iter().find(|d| d.name == stem);
-                    let is_pg = db_info
-                        .map(|d| d.engine == "postgres" || d.engine == "postgresql")
-                        .unwrap_or(false);
-
-                    if is_pg {
-                        let _ = runner.run_command("psql", &["-d", stem, "-f", &p_str]);
+        let mut databases = 0;
+        if req.restore_databases {
+            for db in &req.databases {
+                // Import only the explicitly registered database names, never archive-supplied names.
+                let input = string(&staging.join(format!("databases/{}.sql", db.name)));
+                let private = private_dump(runner)?;
+                let import = (|| {
+                    runner.backup_file_stream(
+                        "runuser",
+                        &["-u", name, "--", "cat", "--", &input],
+                        &private,
+                        false,
+                    )?;
+                    if pg(db) {
+                        runner.backup_file_stream(
+                            "runuser",
+                            &[
+                                "-u",
+                                "postgres",
+                                "--",
+                                "psql",
+                                "--no-psqlrc",
+                                "--set",
+                                "ON_ERROR_STOP=1",
+                                "--dbname",
+                                &db.name,
+                            ],
+                            &private,
+                            true,
+                        )?;
                     } else {
-                        // MariaDB: safe execution without shell piping
-                        // Read dump file and pass via client command or execute
-                        let _ = runner
-                            .run_command("mariadb", &["-e", &format!("source {}", p_str), stem]);
+                        // Disable client commands such as system/source and local file loading.
+                        runner.backup_file_stream(
+                            "mariadb",
+                            &[
+                                "--binary-mode",
+                                "--batch",
+                                "--local-infile=0",
+                                "--database",
+                                &db.name,
+                            ],
+                            &private,
+                            true,
+                        )?;
                     }
-                    restored_dbs += 1;
-                }
+                    Ok::<(), AgentError>(())
+                })();
+                cleanup_dump(runner, &private);
+                import?;
+                databases += 1;
             }
         }
-    }
-
-    // Clean up staging directory
-    let _ = runner.remove_dir_all(&staging_dir);
-
-    // Ensure permissions
-    let _ = runner.set_permissions(target_dir, 0o755);
-    let _ = runner.set_ownership(target_dir, req.tenant_uid, req.tenant_uid);
-
-    info!(
-        site_id = req.site_id,
-        files = restored_files,
-        databases = restored_dbs,
-        "Site backup restored successfully"
-    );
-
-    Ok(BackupRestoreResponse {
-        success: true,
-        restored_files_count: restored_files,
-        restored_databases_count: restored_dbs,
-        error: None,
-    })
+        Ok(BackupRestoreResponse {
+            success: true,
+            restored_files_count: count,
+            restored_databases_count: databases,
+            error: None,
+        })
+    })();
+    let _ = tenant(runner, name, &["rm", "-rf", "--", &stage]);
+    result
 }
 
-/// Deletes a backup archive file from the host.
 pub fn delete_backup(
     runner: &dyn SystemRunner,
     req: &BackupDeleteRequest,
 ) -> Result<BackupDeleteResponse, AgentError> {
-    let p = Path::new(&req.filepath);
-    if runner.path_exists(p) {
-        runner.remove_file(p)?;
-    }
+    let uid = identity(runner, &req.tenant_username, None)?;
+    tenant_path(&req.tenant_username, uid, &req.filepath)?;
+    tenant(
+        runner,
+        &req.tenant_username,
+        &["rm", "-f", "--", &req.filepath],
+    )?;
     Ok(BackupDeleteResponse {
         success: true,
         error: None,
@@ -462,26 +407,117 @@ pub fn delete_backup(
 mod tests {
     use super::*;
     use crate::system::MockSystemRunner;
-
+    fn runner() -> MockSystemRunner {
+        let runner = MockSystemRunner::new();
+        runner.set_response(
+            "getent passwd p_alice",
+            0,
+            b"p_alice:x:10000:10000::/home/p_alice:/usr/sbin/nologin\n",
+            b"",
+        );
+        runner
+    }
     #[test]
     fn test_delete_backup_mock() {
-        let runner = MockSystemRunner::new();
-        let file_path = Path::new("/home/p_alice/backups/backup_test.tar.zst");
-        runner
-            .write_file(file_path, b"test backup data", 0o600)
-            .unwrap();
-        assert!(runner.path_exists(file_path));
-
-        let res = delete_backup(
+        let runner = runner();
+        assert!(
+            delete_backup(
+                &runner,
+                &BackupDeleteRequest {
+                    filepath: "/home/p_alice/backups/test.tar.gz".into(),
+                    tenant_username: "p_alice".into()
+                }
+            )
+            .unwrap()
+            .success
+        );
+        assert!(
+            runner
+                .get_commands()
+                .iter()
+                .any(|c| c == "runuser -u p_alice -- rm -f -- /home/p_alice/backups/test.tar.gz")
+        );
+    }
+    #[test]
+    fn backup_cannot_write_root_approval_or_escape_tenant() {
+        for target in [
+            "/var/lib/qonpanel-migration/approval.json",
+            "/home/p_alice/../../etc/systemd/system/evil.service",
+        ] {
+            let runner = runner();
+            assert!(
+                restore_backup(
+                    &runner,
+                    &BackupRestoreRequest {
+                        site_id: 1,
+                        tenant_username: "p_alice".into(),
+                        tenant_uid: 10000,
+                        backup_filepath: "/home/p_alice/backups/test.tar.gz".into(),
+                        target_site_dir: target.into(),
+                        restore_files: true,
+                        restore_databases: false,
+                        databases: vec![]
+                    }
+                )
+                .is_err()
+            );
+            assert!(
+                runner
+                    .get_commands()
+                    .iter()
+                    .all(|c| c.starts_with("getent "))
+            );
+        }
+        let runner = runner();
+        assert!(
+            delete_backup(
+                &runner,
+                &BackupDeleteRequest {
+                    filepath: "/var/lib/qonpanel-migration/approval.json".into(),
+                    tenant_username: "p_alice".into()
+                }
+            )
+            .is_err()
+        );
+        assert!(identity(&runner, "p_alice", Some(0)).is_err());
+        assert!(identity(&runner, "root", Some(0)).is_err());
+    }
+    #[test]
+    fn restore_drops_uid_and_disables_database_client_shell_commands() {
+        let runner = runner();
+        let result = restore_backup(
             &runner,
-            &BackupDeleteRequest {
-                filepath: "/home/p_alice/backups/backup_test.tar.zst".to_string(),
-                tenant_username: "p_alice".to_string(),
+            &BackupRestoreRequest {
+                site_id: 1,
+                tenant_username: "p_alice".into(),
+                tenant_uid: 10000,
+                backup_filepath: "/home/p_alice/backups/test.tar.gz".into(),
+                target_site_dir: "/home/p_alice/sites/test".into(),
+                restore_files: true,
+                restore_databases: true,
+                databases: vec![BackupDatabaseInfo {
+                    name: "alice_db".into(),
+                    engine: "mariadb".into(),
+                    username: "alice".into(),
+                    password: None,
+                }],
             },
         )
         .unwrap();
-
-        assert!(res.success);
-        assert!(!runner.path_exists(file_path));
+        assert_eq!(result.restored_databases_count, 1);
+        let commands = runner.get_commands();
+        assert!(commands.iter().any(|c| {
+            c.contains("mariadb --binary-mode --batch --local-infile=0 --database alice_db")
+        }));
+        assert!(
+            !commands.iter().any(|c| c.starts_with("tar ")
+                || c.starts_with("psql ")
+                || c.contains(" -e source"))
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.starts_with("runuser -u p_alice -- tar "))
+        );
     }
 }

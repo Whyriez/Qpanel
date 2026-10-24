@@ -1,4 +1,4 @@
-//! Site logs retrieval and WebSocket live tail streaming for Qpanel.
+//! Site logs retrieval and WebSocket live tail streaming for QonPanel.
 //!
 //! Provides:
 //! - REST API endpoint `GET /api/v1/sites/{id}/logs` with pagination/tail limit and search filters.

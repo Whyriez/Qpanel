@@ -26,11 +26,21 @@ if parse_args --port >/dev/null 2>&1; then exit 1; fi
 pass 'missing port value rejected'
 if parse_args --unknown >/dev/null 2>&1; then exit 1; fi
 pass 'unknown option rejected'
+restore_digest="$(printf 'a%.0s' {1..64})"
+parse_args --restore-digest "$restore_digest"
+[[ "$RESTORE_DIGEST" == "$restore_digest" ]]
+RESTORE_DIGEST=""
+pass 'installer accepts a canonical root-approved migration digest'
+if parse_args --restore-digest bad >/dev/null 2>&1; then exit 1; fi
+pass 'installer rejects an invalid migration approval digest'
+if parse_args --restore-digest >/dev/null 2>&1; then exit 1; fi
+pass 'installer rejects a missing migration approval digest'
 PANEL_PUBLIC_PORT=17890
 config="$(render_panel_site)"
 [[ "$config" == *'listen 17890;'* && "$config" == *'listen [::]:17890;'* ]]
 [[ "$config" == *'proxy_pass http://127.0.0.1:7700;'* && "$config" == *'proxy_set_header Upgrade $http_upgrade;'* ]]
-pass 'IPv4/IPv6 public proxy and WebSocket headers'
+[[ "$config" == *'client_max_body_size 100m;'* ]]
+pass 'IPv4/IPv6 public proxy, bounded upload chunks and WebSocket headers'
 [[ "$config" == *'map $remote_addr $qpanel_connector_visitor {'* ]]
 [[ "$config" == *'default "";'* && "$config" == *'127.0.0.1 $http_cf_visitor;'* && "$config" == *'::1 $http_cf_visitor;'* ]]
 [[ "$config" == *'proxy_set_header Host $qpanel_public_authority;'* ]]
@@ -91,7 +101,8 @@ grep -qx 'User=root' "$agent"
 grep -qx 'Group=panel' "$agent"
 grep -qx 'RuntimeDirectory=panel' "$agent"
 grep -qx 'RuntimeDirectoryMode=0750' "$agent"
-grep -qx 'RuntimeDirectoryPreserve=restart' "$agent"
+grep -qx 'RuntimeDirectoryPreserve=yes' "$agent"
+grep -qx 'ExecStartPre=/usr/bin/setfacl -m g:panel-tenants:--x,u:www-data:--x -- /run/panel' "$agent"
 pass 'agent alone owns boot-time runtime directory'
 
 # Root inside the service is still restricted by its capability bounding set.
@@ -150,6 +161,7 @@ for failing in validate_health install_nginx_proxy; do
         check_port_available() { :; }; install() { :; }
         begin_transaction() { TRANSACTION=true; }
         setup_identity() { :; }; install_binaries_and_units() { :; }
+        acquire_install_lock() { :; }; validate_upgrade() { :; }; record_installed_release() { :; }
         initialize_database() { ADMIN_USERNAME=fixture_admin; ADMIN_PASSWORD=fixture_secret_never_print; }; install_nginx_proxy() { :; }
         systemctl() { :; }; wait_agent_ready() { :; }; validate_health() { :; }; configure_firewall() { :; }
         wait_health() { :; }; validate_api_binding() { :; }; activate_nginx_proxy() { :; }
@@ -203,3 +215,7 @@ bash "$REPO/scripts/tests/install-snapshot-test.sh"
 bash "$REPO/scripts/tests/release-build-test.sh"
 bash "$REPO/scripts/tests/nginx-unknown-host-test.sh"
 bash "$REPO/scripts/tests/admin-bootstrap-installer-test.sh"
+bash "$REPO/scripts/tests/runtime-autostart-test.sh"
+bash "$REPO/scripts/tests/panel-update-test.sh"
+
+bash "$REPO/scripts/tests/qonpanel-brand-test.sh"

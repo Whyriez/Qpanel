@@ -43,7 +43,7 @@ export const TerminalInstance: React.FC<TerminalInstanceProps> = ({
     // Detect dark mode
     const isDark = document.documentElement.classList.contains('dark');
 
-    // Qpanel design tokens for terminal
+    // QonPanel design tokens for terminal
     const termTheme = isDark
       ? {
           background: '#09191F',

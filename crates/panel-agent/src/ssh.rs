@@ -29,7 +29,7 @@ pub const DEFAULT_SSHD_DROPIN_PATH: &str = "/etc/ssh/sshd_config.d/50-panel.conf
 /// Only matches `panel-tenants` and `panel-sftp`.
 /// Non-tenant users (e.g. admin, root) are never matched and retain unrestricted access.
 pub const DEFAULT_SSHD_DROPIN_CONTENT: &str = r#"# ==============================================================================
-# Qpanel OpenSSH Drop-in Configuration
+# QonPanel OpenSSH Drop-in Configuration
 # File: /etc/ssh/sshd_config.d/50-panel.conf
 # Managed by panel-agent. DO NOT EDIT DIRECTLY.
 # ==============================================================================

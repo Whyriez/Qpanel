@@ -1,6 +1,6 @@
 [Unit]
-Description=Vpanel Management API Service
-Documentation=https://github.com/Whyriez/Vpanel
+Description=QonPanel Management API Service
+Documentation=https://github.com/Whyriez/QonPanel
 After=network.target panel-agent.service
 Wants=panel-agent.service
 

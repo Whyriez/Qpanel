@@ -778,6 +778,8 @@ fn activate_master_service(
     runner: &dyn SystemRunner,
     master: &PhpFpmMasterConfig,
 ) -> Result<(), AgentError> {
+    // An already running instance may still be disabled (e.g. an older install).
+    runner.run_command("systemctl", &["enable", &master.service_name()])?;
     let is_active = runner
         .run_command(
             "systemctl",
@@ -1372,6 +1374,55 @@ mod tests {
     use crate::system::{MockAction, MockSystemRunner};
     use std::path::PathBuf;
 
+    #[test]
+    fn active_fpm_is_enabled_before_reload_and_enable_failure_is_returned() {
+        let master = PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::Php83).unwrap();
+        let runner = MockSystemRunner::new();
+        activate_master_service(&runner, &master).unwrap();
+        assert_eq!(
+            runner.get_commands(),
+            [
+                "systemctl enable panel-fpm@p_alice-8.3.service",
+                "systemctl is-active --quiet panel-fpm@p_alice-8.3.service",
+                "systemctl reload panel-fpm@p_alice-8.3.service",
+            ]
+        );
+
+        let runner = MockSystemRunner::new();
+        runner.set_response(
+            "systemctl enable panel-fpm@p_alice-8.3.service",
+            1,
+            b"",
+            b"enable denied",
+        );
+        let error = activate_master_service(&runner, &master).unwrap_err();
+        assert!(error.to_string().contains("enable denied"));
+        assert_eq!(
+            runner.get_commands(),
+            ["systemctl enable panel-fpm@p_alice-8.3.service"]
+        );
+    }
+
+    #[test]
+    fn inactive_fpm_is_enabled_and_started() {
+        let master = PhpFpmMasterConfig::new("p_alice", 10001, PhpVersion::Php83).unwrap();
+        let runner = MockSystemRunner::new();
+        runner.set_response(
+            "systemctl is-active --quiet panel-fpm@p_alice-8.3.service",
+            3,
+            b"",
+            b"inactive",
+        );
+        activate_master_service(&runner, &master).unwrap();
+        assert_eq!(
+            runner.get_commands(),
+            [
+                "systemctl enable panel-fpm@p_alice-8.3.service",
+                "systemctl is-active --quiet panel-fpm@p_alice-8.3.service",
+                "systemctl enable --now panel-fpm@p_alice-8.3.service",
+            ]
+        );
+    }
     fn ubuntu_php_runner() -> MockSystemRunner {
         let runner = MockSystemRunner::new();
         runner.set_file_content("/etc/os-release", b"ID=ubuntu\nVERSION_ID=\"24.04\"\n");

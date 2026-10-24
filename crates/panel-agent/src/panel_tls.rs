@@ -14,7 +14,7 @@ fn challenge_config(ip: std::net::IpAddr) -> String {
         std::net::IpAddr::V4(ip) => ip.to_string(),
     };
     format!(
-        "# Managed by Qpanel: panel IP HTTP-01 only.\nserver {{\n listen 80;\n listen [::]:80;\n server_name {name};\n location ^~ /.well-known/acme-challenge/ {{\n root /var/www/acme-challenge;\n default_type text/plain;\n try_files $uri =404;\n }}\n location / {{ return 444; }}\n}}\n"
+        "# Managed by QonPanel: panel IP HTTP-01 only.\nserver {{\n listen 80;\n listen [::]:80;\n server_name {name};\n location ^~ /.well-known/acme-challenge/ {{\n root /var/www/acme-challenge;\n default_type text/plain;\n try_files $uri =404;\n }}\n location / {{ return 444; }}\n}}\n"
     )
 }
 #[derive(Serialize, Deserialize)]
@@ -450,7 +450,7 @@ pub fn execute(
                 atomic(r, &path, bytes, mode)?;
             }
             let config = format!(
-                "# Managed by Qpanel: dedicated panel TLS, never tenant websites.\nserver {{\n listen {port} ssl;\n listen [::]:{port} ssl;\n server_name _;\n ssl_certificate {dir}/fullchain.pem;\n ssl_certificate_key {dir}/privkey.pem;\n ssl_protocols TLSv1.2 TLSv1.3;\n location / {{\n proxy_pass http://127.0.0.1:7700;\n proxy_http_version 1.1;\n proxy_set_header Host $http_host;\n proxy_set_header X-Forwarded-Proto $scheme;\n proxy_set_header X-Real-IP $remote_addr;\n proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n proxy_set_header Forwarded \"\";\n proxy_set_header X-Forwarded-Host \"\";\n proxy_set_header CF-Visitor \"\";\n proxy_set_header X-Qpanel-Cf-Visitor \"\";\n proxy_set_header Upgrade $http_upgrade;\n proxy_set_header Connection \"upgrade\";\n }}\n}}\n"
+                "# Managed by QonPanel: dedicated panel TLS, never tenant websites.\nserver {{\n listen {port} ssl;\n listen [::]:{port} ssl;\n server_name _;\n ssl_certificate {dir}/fullchain.pem;\n ssl_certificate_key {dir}/privkey.pem;\n ssl_protocols TLSv1.2 TLSv1.3;\n location / {{\n proxy_pass http://127.0.0.1:7700;\n proxy_http_version 1.1;\n proxy_set_header Host $http_host;\n proxy_set_header X-Forwarded-Proto $scheme;\n proxy_set_header X-Real-IP $remote_addr;\n proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n proxy_set_header Forwarded \"\";\n proxy_set_header X-Forwarded-Host \"\";\n proxy_set_header CF-Visitor \"\";\n proxy_set_header X-Qpanel-Cf-Visitor \"\";\n proxy_set_header Upgrade $http_upgrade;\n proxy_set_header Connection \"upgrade\";\n }}\n}}\n"
             );
             let old = if r.path_exists(Path::new(CONFIG)) {
                 Some(r.read_file(Path::new(CONFIG))?)

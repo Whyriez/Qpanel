@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Qpanel production install/upgrade. Never run on a development host.
+# QonPanel production install/upgrade. Never run on a development host.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -Eeuo pipefail
 # Never trace generated credentials, including when invoked with bash -x.
@@ -26,14 +26,22 @@ AGENT_WAS_ENABLED=false
 NGINX_WAS_ENABLED=false
 ADMIN_USERNAME=""
 ADMIN_PASSWORD=""
+RELEASE_VERSION=""
+RESTORE_DIGEST=""
 MANAGED_FILES=(
     /usr/local/bin/panel-api /usr/local/bin/panel-agent /usr/local/bin/panelctl
     /etc/systemd/system/panel-api.service /etc/systemd/system/panel-agent.service
     /etc/systemd/system/panel-proc-hardening.service
+    /etc/systemd/system/panel-fpm@.service.d/10-panel-runtime-order.conf
+    /etc/systemd/system/site-.service.d/10-panel-runtime-order.conf
     /etc/nginx/sites-available/nusa-panel.conf /etc/nginx/sites-enabled/nusa-panel.conf
     /etc/nginx/conf.d/00-qpanel-reject-unknown.conf
     /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default
     /etc/panel/public-port
+    /etc/panel/installed-release
+    /etc/systemd/system/panel-update.service
+    /etc/systemd/system/qonpanel-server-backup.service /usr/local/libexec/qonpanel-server-backup
+    /usr/local/libexec/panel-update-worker /usr/local/libexec/panel-bootstrap
 )
 
 fail() { echo "[ERROR] $*" >&2; return 1; }
@@ -43,6 +51,7 @@ Penggunaan: ./install.sh [opsi]
   --port <PORT>    Port publik 1024..65535, selain 7700 (default: 17890)
   --unattended     Instalasi otomatis
   --upgrade        Upgrade transaksional dengan snapshot dan rollback
+  --restore-digest <SHA256>  Sahkan satu arsip migrasi sumber untuk restore
   --force-os       Lewati pemeriksaan versi distro
   --skip-firewall  Jangan menambahkan aturan firewall
   -h, --help       Tampilkan bantuan
@@ -58,6 +67,9 @@ parse_args() {
             --port)
                 [[ $# -ge 2 ]] || { fail '--port membutuhkan nilai'; return 1; }
                 PANEL_PUBLIC_PORT="$2"; PORT_EXPLICIT=true; shift 2 ;;
+            --restore-digest)
+                [[ $# -ge 2 && "$2" =~ ^[a-f0-9]{64}$ ]] || { fail '--restore-digest memerlukan SHA-256 lowercase 64 digit'; return 1; }
+                RESTORE_DIGEST="$2"; shift 2 ;;
             --unattended) UNATTENDED=true; shift ;;
             --force-os) FORCE_OS=true; shift ;;
             --skip-firewall) SKIP_FIREWALL=true; shift ;;
@@ -104,19 +116,30 @@ check_platform() {
 }
 
 install_packages() {
+    # Application upgrades do not upgrade/restart host packages or tenant runtimes.
+    if [[ "$UPGRADE" == true ]]; then
+        local dependency
+        for dependency in nginx nft curl tar sqlite3 systemctl setfacl flock ss runuser usermod; do
+            command -v "$dependency" >/dev/null || { fail "Prasyarat upgrade tidak tersedia: $dependency"; return 1; }
+        done
+        return 0
+    fi
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y --no-install-recommends nginx nftables curl tar ca-certificates \
-        sqlite3 systemd acl util-linux iproute2 passwd
+        sqlite3 systemd acl util-linux iproute2 passwd python3 gpg dpkg-repack
 }
 
 find_release() {
     BIN_SOURCE="${SCRIPT_DIR}/bin"
     [[ -d "$BIN_SOURCE" ]] || BIN_SOURCE="${SCRIPT_DIR}/target/release"
     local binary path missing=0
-    for path in templates/systemd/panel-api.service \
+    for path in UPGRADE_FROM templates/systemd/panel-api.service \
         templates/systemd/panel-agent.service \
         templates/systemd/panel-proc-hardening.service \
+        templates/systemd/panel-runtime-order.conf \
+        templates/systemd/panel-update.service scripts/bootstrap-install.sh scripts/panel-update-worker.sh \
+        templates/systemd/qonpanel-server-backup.service scripts/server-backup-worker.py \
         templates/nginx/nusa-panel.conf \
         templates/nginx/nusa-reject-unknown.conf; do
         if [[ ! -f "$SCRIPT_DIR/$path" || ! -r "$SCRIPT_DIR/$path" || ! -s "$SCRIPT_DIR/$path" ]]; then
@@ -135,9 +158,50 @@ find_release() {
         return 1
     }
     # Check package completeness before executing even the version commands.
+    local output version
     for binary in panel-api panel-agent panelctl; do
-        "$BIN_SOURCE/$binary" --version
+        output="$("$BIN_SOURCE/$binary" --version)"
+        printf '%s\n' "$output"
+        version="${output##* }"
+        [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { fail 'Versi biner paket tidak valid'; return 1; }
+        [[ -z "$RELEASE_VERSION" || "$RELEASE_VERSION" == "v$version" ]] || { fail 'Versi API, agent dan CLI dalam paket tidak sama'; return 1; }
+        RELEASE_VERSION="v$version"
     done
+    [[ -z "${NUSA_PANEL_VERSION:-}" || "$NUSA_PANEL_VERSION" == "$RELEASE_VERSION" ]] || { fail 'Versi biner berbeda dengan tag release'; return 1; }
+}
+
+acquire_install_lock() {
+    exec 9>/run/lock/panel-install.lock
+    flock -n 9 || { fail 'Instalasi atau upgrade lain masih berjalan'; return 1; }
+}
+record_installed_release() {
+    local release_digest="${NUSA_PANEL_RELEASE_SHA256:--}"
+    [[ "$release_digest" == - || "$release_digest" =~ ^[a-f0-9]{64}$ ]] || { fail 'Digest release tidak valid'; return 1; }
+    printf '%s %s\n' "$RELEASE_VERSION" "$release_digest" > /etc/panel/.installed-release.new
+    chmod 0644 /etc/panel/.installed-release.new
+    mv -f /etc/panel/.installed-release.new /etc/panel/installed-release
+}
+validate_upgrade() {
+    local minimum installed=v0.1.0 ignored
+    read -r minimum < "$SCRIPT_DIR/UPGRADE_FROM"
+    [[ "$minimum" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { fail 'Batas kompatibilitas paket tidak valid'; return 1; }
+    [[ "$(printf '%s\n' "$minimum" "$RELEASE_VERSION" | sort -V | head -n 1)" == "$minimum" ]] || { fail 'Batas kompatibilitas melebihi versi paket'; return 1; }
+    if [[ -f /var/lib/panel/panel.db ]]; then UPGRADE=true; fi
+    if [[ "$UPGRADE" == true ]]; then
+        [[ -f /var/lib/panel/panel.db ]] || { fail 'Upgrade memerlukan instalasi existing'; return 1; }
+        local admin
+        admin="$(runuser -u panel-api -- sqlite3 /var/lib/panel/panel.db "SELECT EXISTS(SELECT 1 FROM users WHERE role='admin');")"
+        [[ "$admin" == 1 ]] || { fail 'Upgrade dihentikan: akun admin existing tidak ditemukan'; return 1; }
+    fi
+    if [[ -r /etc/panel/installed-release ]]; then
+        read -r installed ignored < /etc/panel/installed-release
+        [[ "$installed" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { fail 'Catatan versi terpasang tidak valid'; return 1; }
+        [[ "$(printf '%s\n' "$installed" "$RELEASE_VERSION" | sort -V | head -n 1)" == "$installed" ]] || { fail 'Downgrade ditolak; gunakan snapshot pemulihan untuk kembali ke versi lama'; return 1; }
+    fi
+    if [[ "$UPGRADE" == true && "$(printf '%s\n' "$minimum" "$installed" | sort -V | head -n 1)" != "$minimum" ]]; then
+        fail "Paket ini memerlukan panel minimal $minimum. Terapkan versi perantara yang didukung terlebih dahulu."
+        return 1
+    fi
 }
 
 begin_transaction() {
@@ -224,8 +288,9 @@ on_error() {
 
 setup_identity() {
     getent group panel >/dev/null || groupadd -r panel
+    getent group panel-tenants >/dev/null || groupadd -r panel-tenants
     if ! id panel-api >/dev/null 2>&1; then
-        useradd -r -g panel -d /var/lib/panel -s /usr/sbin/nologin -c 'Qpanel API' panel-api
+        useradd -r -g panel -d /var/lib/panel -s /usr/sbin/nologin -c 'QonPanel API' panel-api
     else
         [[ "$(id -u panel-api)" != 0 ]] || { fail 'panel-api tidak boleh memiliki UID 0'; return 1; }
         usermod -g panel panel-api
@@ -250,6 +315,19 @@ install_binaries_and_units() {
     install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-api.service" /etc/systemd/system/panel-api.service
     install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-agent.service" /etc/systemd/system/panel-agent.service
     install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-proc-hardening.service" /etc/systemd/system/panel-proc-hardening.service
+    # Template and dash-prefix drop-ins also cover units generated by old builds.
+    install -d -o root -g root -m 0755 /etc/systemd/system/panel-fpm@.service.d /etc/systemd/system/site-.service.d
+    install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-runtime-order.conf" /etc/systemd/system/panel-fpm@.service.d/10-panel-runtime-order.conf
+    install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-runtime-order.conf" /etc/systemd/system/site-.service.d/10-panel-runtime-order.conf
+    install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/panel-update.service" /etc/systemd/system/panel-update.service
+    install -o root -g root -m 0644 "$SCRIPT_DIR/templates/systemd/qonpanel-server-backup.service" /etc/systemd/system/qonpanel-server-backup.service
+    install -d -o root -g root -m 0755 /usr/local/libexec
+    install -o root -g root -m 0755 "$SCRIPT_DIR/scripts/server-backup-worker.py" /usr/local/libexec/qonpanel-server-backup
+    # Atomic replacement keeps a running updater's script inode intact.
+    install -o root -g root -m 0755 "$SCRIPT_DIR/scripts/panel-update-worker.sh" /usr/local/libexec/.panel-update-worker.new
+    mv -f /usr/local/libexec/.panel-update-worker.new /usr/local/libexec/panel-update-worker
+    install -o root -g root -m 0755 "$SCRIPT_DIR/scripts/bootstrap-install.sh" /usr/local/libexec/.panel-bootstrap.new
+    mv -f /usr/local/libexec/.panel-bootstrap.new /usr/local/libexec/panel-bootstrap
     systemctl daemon-reload
 }
 
@@ -261,6 +339,7 @@ initialize_database() {
         return 1
     fi
     read_bootstrap_result "$result"
+    if [[ "$UPGRADE" == true && -n "$ADMIN_USERNAME" ]]; then fail 'Upgrade tidak boleh membuat akun admin baru'; return 1; fi
     unset result
     chown -R panel-api:panel /var/lib/panel
     local file
@@ -284,7 +363,7 @@ read_bootstrap_result() {
 
 print_installation_summary() {
     local server_ip="$1"
-    printf '\n  Qpanel | Instalasi berhasil\n  ----------------------------------------\n'
+    printf '\n  QonPanel | Instalasi berhasil\n  ----------------------------------------\n'
     printf '  Panel     : http://%s:%s\n' "$server_ip" "$PANEL_PUBLIC_PORT"
     printf '  Status    : API, agent, Nginx, dan SQLite siap\n'
     printf '  Snapshot  : %s\n' "$BACKUP_DIR"
@@ -336,8 +415,8 @@ install_nginx_proxy_at() {
     local disable_sites_default=false disable_conf_default=false
     reject="$nginx_root/conf.d/00-qpanel-reject-unknown.conf"
     if [[ -e "$reject" || -L "$reject" ]]; then
-        [[ ! -L "$reject" ]] && cmp -s "$reject" "$SCRIPT_DIR/templates/nginx/nusa-reject-unknown.conf" || {
-            fail 'Catch-all Qpanel berisi perubahan operator; berkas tidak ditimpa'; return 1;
+        [[ ! -L "$reject" ]] && cmp -s <(sed -E '1s/^# Managed by (Qpanel|Nusa Panel):/# Managed by QonPanel:/' "$reject") "$SCRIPT_DIR/templates/nginx/nusa-reject-unknown.conf" || {
+            fail 'Catch-all QonPanel berisi perubahan operator; berkas tidak ditimpa'; return 1;
         }
     fi
     if [[ -e "$nginx_root/sites-enabled/default" || -L "$nginx_root/sites-enabled/default" ]]; then
@@ -412,7 +491,7 @@ activate_nginx_proxy() {
 configure_firewall() {
     [[ "$SKIP_FIREWALL" == false ]] || return 0
     if command -v ufw >/dev/null && LC_ALL=C ufw status | grep -q '^Status: active'; then
-        ufw allow "${PANEL_PUBLIC_PORT}/tcp" comment 'Qpanel public proxy'
+        ufw allow "${PANEL_PUBLIC_PORT}/tcp" comment 'QonPanel public proxy'
     elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
         firewall-cmd --permanent --add-port="${PANEL_PUBLIC_PORT}/tcp"
         firewall-cmd --add-port="${PANEL_PUBLIC_PORT}/tcp"
@@ -496,7 +575,9 @@ main() {
     fi
     validate_port
     check_platform
+    acquire_install_lock
     find_release
+    validate_upgrade
     install_packages
     check_port_available
     install -d -o root -g root -m 0700 /var/backups/panel
@@ -518,6 +599,10 @@ main() {
     activate_nginx_proxy
     validate_health
     configure_firewall
+    record_installed_release
+    if [[ -n "$RESTORE_DIGEST" ]]; then
+        /usr/bin/python3 /usr/local/libexec/qonpanel-server-backup --approve "$RESTORE_DIGEST"
+    fi
     TRANSACTION=false
     trap - ERR INT TERM
     local server_ip

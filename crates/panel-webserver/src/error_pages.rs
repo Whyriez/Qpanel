@@ -13,7 +13,7 @@ pub fn render_default_not_found() -> String {
         .replace('\'', "\\'")
         .replace('$', "\\$");
     format!(
-        r#"    # Qpanel default 404
+        r#"    # QonPanel default 404
     error_page 404 @qpanel_not_found;
 
     location @qpanel_not_found {{
@@ -36,10 +36,12 @@ mod tests {
         assert!(conf.contains("error_page 404 @qpanel_not_found;"));
         assert!(conf.contains("return 404 '<!doctype html>"));
         assert!(!conf.contains("=200"));
-        assert!(NOT_FOUND_HTML.contains("Qpanel"));
+        assert!(NOT_FOUND_HTML.contains("QonPanel"));
         assert!(NOT_FOUND_HTML.contains("href=\"/\""));
         assert!(!NOT_FOUND_HTML.contains("nginx"));
-        assert!(!NOT_FOUND_HTML.contains("http://") && !NOT_FOUND_HTML.contains("https://"));
+        // The SVG namespace identifies the vector format and does not fetch a resource.
+        let asset_urls = NOT_FOUND_HTML.replace("http://www.w3.org/2000/svg", "");
+        assert!(!asset_urls.contains("http://") && !asset_urls.contains("https://"));
         assert!(!conf.contains("$request") && !conf.contains("$host"));
         // Keep the quoted parameter below Nginx's config parser buffer size.
         assert!(conf.lines().all(|line| line.len() < 4096));

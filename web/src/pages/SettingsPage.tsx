@@ -8,13 +8,15 @@ import { ServerOptimizerCard } from '../components/system/ServerOptimizerCard';
 import { PanelMemoryProfileCard } from '../components/system/PanelMemoryProfileCard';
 import { SecurityHardeningCard } from '../components/system/SecurityHardeningCard';
 import { SystemReliabilityCard } from '../components/system/SystemReliabilityCard';
+import { ServerBackupCard } from '../components/system/ServerBackupCard';
+import { PanelUpdateCard } from '../components/system/PanelUpdateCard';
 
 export const SettingsPage: React.FC = () => {
   const { i18n } = useTranslation();
   const route = useBrowserRoute();
-  type Section = 'optimizer' | 'security_hardening' | 'reliability' | 'memory_profile' | 'info' | 'network' | 'connectivity';
+  type Section = 'server_backup' | 'updates' | 'optimizer' | 'security_hardening' | 'reliability' | 'memory_profile' | 'info' | 'network' | 'connectivity';
   const section = route.search.get('section');
-  const activeSection = (['optimizer', 'security_hardening', 'reliability', 'memory_profile', 'info', 'network', 'connectivity'].includes(section || '') ? section : 'optimizer') as Section;
+  const activeSection = (['server_backup', 'updates', 'optimizer', 'security_hardening', 'reliability', 'memory_profile', 'info', 'network', 'connectivity'].includes(section || '') ? section : 'optimizer') as Section;
   const setActiveSection = (next: Section) => {
     const params = new URLSearchParams(route.search); params.set('section', next);
     navigate(`/settings?${params}`);
@@ -34,6 +36,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--line)] pb-2 text-xs">
+<button type="button" onClick={() => setActiveSection('server_backup')} aria-pressed={activeSection === 'server_backup'} className={activeSection === 'server_backup' ? 'button-primary' : 'button-secondary'}>{i18n.language.startsWith('en') ? 'Backup and migration' : 'Backup dan migrasi'}</button>
+        <button type="button" onClick={() => setActiveSection('updates')} aria-pressed={activeSection === 'updates'} className={activeSection === 'updates' ? 'button-primary' : 'button-secondary'}>{i18n.language.startsWith('en') ? 'Updates' : 'Pembaruan'}</button>
         <button type="button" onClick={() => setActiveSection('connectivity')} aria-pressed={activeSection === 'connectivity'} className={activeSection === 'connectivity' ? 'button-primary' : 'button-secondary'}>{i18n.language.startsWith('en') ? 'Connectivity' : 'Konektivitas'}</button>
         <button type="button" onClick={() => setActiveSection('network')} aria-pressed={activeSection === 'network'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[var(--radius-md)] font-medium ${activeSection === 'network' ? 'bg-[var(--primary)] text-white dark:text-[var(--bg)]' : 'text-[var(--ink-muted)] hover:bg-[var(--surface)]'}`}><Globe className="w-3.5 h-3.5" />DNS dan Cloudflare</button>
         <button
@@ -104,6 +108,8 @@ export const SettingsPage: React.FC = () => {
       </div>
 
       {/* Section Content */}
+      {activeSection === 'server_backup' && <ServerBackupCard />}
+      {activeSection === 'updates' && <PanelUpdateCard />}
       {activeSection === 'connectivity' && <ConnectivitySettings />}
       {activeSection === 'network' && <NetworkSettings />}
       {activeSection === 'optimizer' && (

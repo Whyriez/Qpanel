@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Qpanel - Public Bootstrap Installer
-# Repository: Whyriez/Vpanel
+# QonPanel - Public Bootstrap Installer
+# Repository: Whyriez/QonPanel
 # ==============================================================================
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 set -Eeuo pipefail
 
 # Configuration
-GITHUB_OWNER="${NUSA_PANEL_OWNER:-Whyriez}"
-GITHUB_REPO="${NUSA_PANEL_REPO:-Vpanel}"
-GITHUB_API_URL="${NUSA_PANEL_GITHUB_API_URL:-https://api.github.com}"
-GITHUB_DOWNLOAD_URL="${NUSA_PANEL_GITHUB_DOWNLOAD_URL:-https://github.com}"
+GITHUB_OWNER="${QONPANEL_OWNER:-${NUSA_PANEL_OWNER:-Whyriez}}"
+GITHUB_REPO="${QONPANEL_REPO:-${NUSA_PANEL_REPO:-QonPanel}}"
+GITHUB_API_URL="${QONPANEL_GITHUB_API_URL:-${NUSA_PANEL_GITHUB_API_URL:-https://api.github.com}}"
+GITHUB_DOWNLOAD_URL="${QONPANEL_GITHUB_DOWNLOAD_URL:-${NUSA_PANEL_GITHUB_DOWNLOAD_URL:-https://github.com}}"
+
+for setting in VERSION EXPECTED_SHA256; do
+    canonical="QONPANEL_$setting"
+    legacy="NUSA_PANEL_$setting"
+    if [[ -n "${!canonical:-}" ]]; then export "$legacy=${!canonical}"; fi
+done
 
 TMP_DIR=""
 
@@ -85,7 +91,7 @@ detect_os() {
     local os
     os="$(uname -s)"
     if [[ "${os}" != "Linux" ]]; then
-        log_error "Qpanel can only be installed on Linux."
+        log_error "QonPanel can only be installed on Linux."
         exit 1
     fi
 }
@@ -151,9 +157,9 @@ resolve_latest_version() {
 
     # Attempt 1: GitHub API releases/latest
     local api_response
-    if api_response="$(curl --fail --location --silent --show-error \
+    if api_response="$(curl --fail --location --silent --show-error --connect-timeout 5 --max-time 15 \
         -H "Accept: application/vnd.github.v3+json" \
-        -H "User-Agent: Qpanel-Bootstrap" \
+        -H "User-Agent: QonPanel-Bootstrap" \
         "${api_url}" 2>/dev/null)"; then
         tag="$(printf '%s\n' "${api_response}" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n 1 | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
     fi
@@ -162,19 +168,19 @@ resolve_latest_version() {
     if [[ -z "${tag}" ]]; then
         local redirect_url="${GITHUB_DOWNLOAD_URL}/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest"
         local loc_header
-        loc_header="$(curl --silent --head "${redirect_url}" 2>/dev/null | grep -i '^location:' | head -n 1 | tr -d '\r')"
+        loc_header="$(curl --silent --head --connect-timeout 5 --max-time 15 "${redirect_url}" 2>/dev/null | grep -i '^location:' | head -n 1 | tr -d '\r')"
         if [[ -n "${loc_header}" ]]; then
             tag="$(printf '%s\n' "${loc_header}" | sed -E 's/.*\/tag\/([^\/[:space:]]+).*/\1/')"
         fi
     fi
 
     if [[ -z "${tag}" ]]; then
-        log_error "Failed to resolve latest Qpanel release from GitHub."
+        log_error "Failed to resolve latest QonPanel release from GitHub."
         exit 1
     fi
 
     if ! validate_version "${tag}"; then
-        log_error "Failed to resolve latest Qpanel release from GitHub."
+        log_error "Failed to resolve latest QonPanel release from GitHub."
         exit 1
     fi
 
@@ -185,7 +191,7 @@ resolve_latest_version() {
 build_asset_name() {
     local version="$1"
     local target="$2"
-    echo "nusa-panel-${version}-${target}.tar.gz"
+    echo "qonpanel-${version}-${target}.tar.gz"
 }
 
 build_asset_url() {
@@ -202,7 +208,8 @@ build_checksum_url() {
 download_file() {
     local url="$1"
     local dest="$2"
-    curl --fail --location --silent --show-error "${url}" -o "${dest}"
+    curl --fail --location --silent --show-error --connect-timeout 10 --max-time 600 \
+        --retry 2 --retry-delay 2 --max-filesize 536870912 "${url}" -o "${dest}"
 }
 
 # 8. Verify SHA256 checksum of downloaded artifact
@@ -234,6 +241,11 @@ verify_checksum() {
 
     local exp_lower="${expected_hash,,}"
     local act_lower="${actual_hash,,}"
+
+    if [[ -n "${NUSA_PANEL_EXPECTED_SHA256:-}" && "$act_lower" != "$NUSA_PANEL_EXPECTED_SHA256" ]]; then
+        log_error 'Paket release berubah sejak diperiksa. Periksa versi kembali.'
+        return 1
+    fi
 
     if [[ "${exp_lower}" != "${act_lower}" ]]; then
         log_error "Release checksum verification failed."
@@ -296,13 +308,16 @@ extract_and_locate_installer() {
         return 1
     }
 
-    local primary_dir="${dest_dir}/nusa-panel-${version}-${target}"
+    local primary_dir="${dest_dir}/qonpanel-${version}-${target}"
     local installer="${primary_dir}/install.sh"
 
     if [[ -f "${installer}" ]]; then
         echo "${primary_dir}"
         return 0
     fi
+
+    local legacy_dir="${dest_dir}/nusa-panel-${version}-${target}"
+    if [[ -f "$legacy_dir/install.sh" ]]; then echo "$legacy_dir"; return 0; fi
 
     # Fallback if tar extracted directly into dest_dir
     if [[ -f "${dest_dir}/install.sh" ]]; then
@@ -328,7 +343,7 @@ main() {
     trap cleanup EXIT INT TERM
     setup_colors
 
-    echo "Qpanel Installer"
+    echo "QonPanel Installer"
     echo ""
 
     check_root
@@ -348,7 +363,7 @@ main() {
     version="$(resolve_latest_version)"
     log_sub "Latest version: ${version}"
 
-    TMP_DIR="$(mktemp -d -t nusapanel-install.XXXXXXXXXX 2>/dev/null || mktemp -d /tmp/nusapanel-install.XXXXXXXXXX)"
+    TMP_DIR="$(mktemp -d -t qonpanel-install.XXXXXXXXXX 2>/dev/null || mktemp -d /tmp/qonpanel-install.XXXXXXXXXX)"
 
     local asset_name asset_url checksum_url
     asset_name="$(build_asset_name "${version}" "${target}")"
@@ -358,8 +373,13 @@ main() {
     log_step "[3/7] Downloading release..."
     log_sub "${asset_name}"
     if ! download_file "${asset_url}" "${TMP_DIR}/${asset_name}"; then
-        log_error "Failed to download release asset: ${asset_name}"
-        exit 1
+        # Published legacy archives keep older installed bootstraps working too.
+        asset_name="nusa-panel-${version}-${target}.tar.gz"
+        asset_url="$(build_asset_url "$version" "$asset_name")"
+        if ! download_file "$asset_url" "$TMP_DIR/$asset_name"; then
+            log_error "Failed to download release asset: ${asset_name}"
+            exit 1
+        fi
     fi
     if ! download_file "${checksum_url}" "${TMP_DIR}/SHA256SUMS"; then
         log_error "Failed to download SHA256SUMS"
@@ -385,14 +405,16 @@ main() {
     fi
     log_sub "OK"
 
-    log_step "[7/7] Starting Qpanel installer..."
+    log_step "[7/7] Starting QonPanel installer..."
     echo ""
 
     local exit_code=0
+    export NUSA_PANEL_VERSION="$version"
+    export NUSA_PANEL_RELEASE_SHA256="$(sha256sum "${TMP_DIR}/${asset_name}" | awk '{print $1}')"
     run_installer "${extracted_dir}" "$@" || exit_code=$?
 
     if [[ ${exit_code} -ne 0 ]]; then
-        log_error "Qpanel installation failed."
+        log_error "QonPanel installation failed."
         exit "${exit_code}"
     fi
 

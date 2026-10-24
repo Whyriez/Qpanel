@@ -98,6 +98,60 @@ pub struct AgentClient {
 }
 
 impl AgentClient {
+    pub async fn server_backup(
+        &self,
+        operation: panel_proto::ServerBackupRequest,
+    ) -> Result<serde_json::Value, AgentClientError> {
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(25),
+            self.send_rpc("server-backup", RequestPayload::ServerBackup(operation)),
+        )
+        .await
+        .map_err(|_| {
+            AgentClientError::AgentError("Periksa status backup sebelum mencoba ulang.".into())
+        })??;
+        if !response.success {
+            return Err(AgentClientError::AgentError(
+                response
+                    .error
+                    .unwrap_or_else(|| "Backup belum tersedia.".into()),
+            ));
+        }
+        match response.payload {
+            ResponsePayload::ServerBackup(value) => Ok(value),
+            _ => Err(AgentClientError::AgentError(
+                "Respons backup tidak sesuai.".into(),
+            )),
+        }
+    }
+    pub async fn panel_update(
+        &self,
+        operation: panel_proto::PanelUpdateRequest,
+    ) -> Result<panel_proto::PanelUpdateStatus, AgentClientError> {
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(25),
+            self.send_rpc("panel-update", RequestPayload::PanelUpdate(operation)),
+        )
+        .await
+        .map_err(|_| {
+            AgentClientError::AgentError(
+                "Status update belum diterima; periksa kembali sebelum mencoba ulang.".into(),
+            )
+        })??;
+        if !response.success {
+            return Err(AgentClientError::AgentError(
+                response
+                    .error
+                    .unwrap_or_else(|| "Operasi updater gagal.".into()),
+            ));
+        }
+        match response.payload {
+            ResponsePayload::PanelUpdate(status) => Ok(status),
+            _ => Err(AgentClientError::AgentError(
+                "Respons updater tidak sesuai.".into(),
+            )),
+        }
+    }
     pub async fn dns01(
         &self,
         command: panel_proto::Dns01Request,

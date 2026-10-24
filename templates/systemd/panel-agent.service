@@ -1,6 +1,6 @@
 [Unit]
-Description=Vpanel Privileged System Daemon (Root Agent)
-Documentation=https://github.com/Whyriez/Vpanel
+Description=QonPanel Privileged System Daemon (Root Agent)
+Documentation=https://github.com/Whyriez/QonPanel
 After=network.target
 Before=panel-api.service
 
@@ -8,6 +8,7 @@ Before=panel-api.service
 Type=simple
 User=root
 Group=panel
+ExecStartPre=/usr/bin/setfacl -m g:panel-tenants:--x,u:www-data:--x -- /run/panel
 ExecStart=/usr/local/bin/panel-agent
 Restart=always
 RestartSec=3s
@@ -38,7 +39,8 @@ LockPersonality=true
 # Runtime & State directories for agent socket
 RuntimeDirectory=panel
 RuntimeDirectoryMode=0750
-RuntimeDirectoryPreserve=restart
+# Tenant sockets share this parent and must survive an agent stop/upgrade.
+RuntimeDirectoryPreserve=yes
 
 [Install]
 WantedBy=multi-user.target

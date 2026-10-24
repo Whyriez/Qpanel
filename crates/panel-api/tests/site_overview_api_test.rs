@@ -86,6 +86,7 @@ async fn setup_test_context() -> TestContext {
     runner.set_response("setfacl", 0, b"", b"");
     runner.set_response("chown", 0, b"", b"");
     runner.set_response("chmod", 0, b"", b"");
+    runner.add_existing_path("/run/panel/php/p_alice-8.3/fpm.sock");
 
     // The overview fixture creates a PHP site through the provisioning API.
     runner.add_existing_path("/usr/sbin/php-fpm8.3");
@@ -348,7 +349,7 @@ async fn test_site_overview_and_quick_actions() {
     assert_eq!(overview.ssl.issuer.as_deref(), Some("letsencrypt"));
     assert_eq!(overview.runtime.kind, "php");
     assert!(
-        overview
+        !overview
             .quick_actions_available
             .contains(&"restart".to_string())
     );

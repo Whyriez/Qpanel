@@ -61,6 +61,13 @@ button:disabled {
   color: var(--ink-muted);
   margin-top: 5px;
 }
+.brand-loading { min-height: 16rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; color: var(--ink); }
+.brand-loading--full { min-height: 100dvh; background: var(--bg); }
+.brand-loading p { color: var(--ink-muted); font-size: 13px; margin: 0; }
+.brand-loading__line { height: 3px; width: 128px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.brand-loading__line::after { content: ''; display: block; width: 40%; height: 100%; border-radius: inherit; background: var(--primary); animation: brand-loading 1.4s ease-in-out infinite alternate; }
+@keyframes brand-loading { from { transform: translateX(0); } to { transform: translateX(150%); } }
+@media (prefers-reduced-motion: reduce) { .brand-loading__line::after { animation: none; width: 100%; opacity: .65; } }
 .sidebar-navigation {
   flex: 1;
   overflow-y: auto;

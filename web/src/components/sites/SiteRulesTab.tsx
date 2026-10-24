@@ -1507,12 +1507,12 @@ export const SiteRulesTab: React.FC<SiteRulesTabProps> = ({ site, userRole, onSi
 
           <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
             Untuk memakai desain sendiri, unggah HTML ke docroot situs (misalnya /errors/404.html), lalu tambahkan kode 404 dan path tersebut.
-            {' '}<a href="/errors/404.html" download="qpanel-404.html" className="font-medium text-[var(--primary)] underline underline-offset-4">Unduh contoh 404 Qpanel</a>.
+            {' '}<a href="/errors/404.html" download="qonpanel-404.html" className="font-medium text-[var(--primary)] underline underline-offset-4">Unduh contoh 404 QonPanel</a>.
           </p>
 
           {rules.custom_error_pages.length === 0 ? (
             <div className="py-6 text-center border border-dashed border-[var(--line)] rounded text-[var(--ink-muted)] text-xs">
-              Belum ada halaman error kustom. Error 404 dari server memakai halaman bawaan Qpanel.
+              Belum ada halaman error kustom. Error 404 dari server memakai halaman bawaan QonPanel.
             </div>
           ) : (
             <div className="overflow-x-auto border border-[var(--line)] rounded text-xs">

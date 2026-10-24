@@ -17,7 +17,7 @@ PANEL_PUBLIC_PORT=19090
 BACKUP_DIR=/fixture/snapshot
 print_installation_summary 203.0.113.10 > "$fixture/output"
 output="$(cat "$fixture/output")"
-[[ "$output" == *'Qpanel | Instalasi berhasil'* && "$output" == *'http://203.0.113.10:19090'* ]]
+[[ "$output" == *'QonPanel | Instalasi berhasil'* && "$output" == *'http://203.0.113.10:19090'* ]]
 [[ "$output" == *"Username  : $username"* && "$output" == *"Password  : $password"* ]]
 [[ "$output" == *'panelctl --help'* && "$output" == *'panelctl admin --help'* && "$output" == *'reset-password --username NAMA'* ]]
 [[ "$output" != *'Token pengaturan'* && -z "$ADMIN_USERNAME" && -z "$ADMIN_PASSWORD" ]]

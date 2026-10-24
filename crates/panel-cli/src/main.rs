@@ -24,7 +24,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[derive(Parser, Debug)]
 #[command(
     name = "panelctl",
-    about = "Qpanel - administrasi akun, diagnosis, backup, dan upgrade",
+    about = "QonPanel - administrasi akun, diagnosis, backup, dan upgrade",
     after_help = "Mulai: panelctl admin --help\nPemulihan: sudo panelctl admin list\n           sudo panelctl admin reset-password --username NAMA\nDiagnosis: sudo panelctl doctor\nBantuan perintah: panelctl <perintah> --help",
     version
 )]
@@ -430,7 +430,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Uninstall { purge, yes, json } => {
             if !yes && !json {
                 print!(
-                    "Peringatan: Tindakan ini akan menghentikan dan mencopot instalasi Qpanel. Lanjutkan? (y/N): "
+                    "Peringatan: Tindakan ini akan menghentikan dan mencopot instalasi QonPanel. Lanjutkan? (y/N): "
                 );
                 io::stdout().flush()?;
                 let mut input = String::new();
@@ -470,7 +470,7 @@ async fn handle_admin_command(
                 }
             } else if let Some(c) = credentials {
                 println!(
-                    "\nAdministrator Qpanel berhasil dibuat\n  Username : {}\n  Password : {}\n\nSimpan kredensial ini; password hanya ditampilkan sekali.\nUbah melalui Profil & keamanan setelah masuk.\nBantuan: panelctl admin --help",
+                    "\nAdministrator QonPanel berhasil dibuat\n  Username : {}\n  Password : {}\n\nSimpan kredensial ini; password hanya ditampilkan sekali.\nUbah melalui Profil & keamanan setelah masuk.\nBantuan: panelctl admin --help",
                     c.username, c.password
                 );
             } else {
@@ -563,7 +563,7 @@ async fn handle_benchmark_command(command: BenchmarkCommands) -> Result<(), Box<
         BenchmarkCommands::Tools => {
             let (has_oha, has_wrk, has_k6) = detect_available_tools();
             println!("==================================================");
-            println!("Qpanel Benchmark Tools Detection:");
+            println!("QonPanel Benchmark Tools Detection:");
             println!("==================================================");
             println!(
                 "  - oha (Rust HTTP load generator): {}",
